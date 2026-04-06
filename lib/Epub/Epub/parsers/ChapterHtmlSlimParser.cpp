@@ -426,25 +426,42 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
 
+                // Compute effective container width for percentage-based image sizes.
+                // If the image is inside a block with horizontal margins/padding (e.g.
+                // <div style="margin: 1em 40%">), percentage widths like width:100%
+                // should resolve against the container width, not the full viewport.
+                int containerWidth = self->viewportWidth;
+                if (self->currentTextBlock) {
+                  const int inset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
+                  if (inset > 0 && inset < self->viewportWidth) {
+                    containerWidth = self->viewportWidth - inset;
+                  }
+                }
+
                 if (hasCssHeight && hasCssWidth && dims.width > 0 && dims.height > 0) {
                   // Both CSS height and width set: resolve both as max bounds, then fit image
                   // within those bounds preserving the original aspect ratio. Image decoders use
                   // a single scale factor for both axes; non-uniform scaling causes diagonal distortion.
                   int maxW = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
+                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
                   int maxH = static_cast<int>(
                       imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
-                  if (maxW > self->viewportWidth) maxW = self->viewportWidth;
+
+                  if (maxW > containerWidth) maxW = containerWidth;
                   if (maxH > self->viewportHeight) maxH = self->viewportHeight;
                   if (maxW < 1) maxW = 1;
                   if (maxH < 1) maxH = 1;
+
                   float scaleX = static_cast<float>(maxW) / dims.width;
                   float scaleY = static_cast<float>(maxH) / dims.height;
                   float scale = (scaleX < scaleY) ? scaleX : scaleY;
+
                   displayWidth = static_cast<int>(dims.width * scale + 0.5f);
                   displayHeight = static_cast<int>(dims.height * scale + 0.5f);
+
                   if (displayWidth < 1) displayWidth = 1;
                   if (displayHeight < 1) displayHeight = 1;
+
                   LOG_DBG("EHP", "Display size from CSS height+width: %dx%d", displayWidth, displayHeight);
                 } else if (hasCssHeight && !hasCssWidth && dims.width > 0 && dims.height > 0) {
                   // Use CSS height (resolve % against viewport height) and derive width from aspect ratio
@@ -460,8 +477,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                         static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
                     if (displayWidth < 1) displayWidth = 1;
                   }
-                  if (displayWidth > self->viewportWidth) {
-                    displayWidth = self->viewportWidth;
+                  if (displayWidth > containerWidth) {
+                    displayWidth = containerWidth;
                     // Rescale height to preserve aspect ratio when width is clamped
                     displayHeight =
                         static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
@@ -470,10 +487,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (displayWidth < 1) displayWidth = 1;
                   LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
                 } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
-                  // Use CSS width (resolve % against viewport width) and derive height from aspect ratio
+                  // Use CSS width (resolve % against container width) and derive height from aspect ratio
                   displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
-                  if (displayWidth > self->viewportWidth) displayWidth = self->viewportWidth;
+                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
+                  if (displayWidth > containerWidth) displayWidth = containerWidth;
                   if (displayWidth < 1) displayWidth = 1;
                   displayHeight =
                       static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
@@ -487,8 +504,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (displayHeight < 1) displayHeight = 1;
                   LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
                 } else {
-                  // Scale to fit viewport while maintaining aspect ratio
-                  int maxWidth = self->viewportWidth;
+                  // Scale to fit container while maintaining aspect ratio
+                  int maxWidth = containerWidth;
                   int maxHeight = self->viewportHeight;
                   float scaleX = (dims.width > maxWidth) ? (float)maxWidth / dims.width : 1.0f;
                   float scaleY = (dims.height > maxHeight) ? (float)maxHeight / dims.height : 1.0f;
