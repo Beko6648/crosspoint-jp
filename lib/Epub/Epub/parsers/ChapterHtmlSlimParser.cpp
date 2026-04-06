@@ -1251,17 +1251,29 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->currentCssStyle.reset();
     self->updateEffectiveInlineStyle();
 
-    // Reset alignment on empty text blocks to prevent stale alignment from bleeding
+    // Reset block style on empty text blocks to prevent stale styling from bleeding
     // into the next sibling element. This fixes issue #1026 where an empty <h1> (default
     // Center) followed by an image-only <p> causes Center to persist through the chain
     // of empty block reuse into subsequent text paragraphs.
-    // Margins/padding are preserved so parent element spacing still accumulates correctly.
+    // Margins/padding are also reset to prevent a closed block's horizontal margins from
+    // leaking to the next sibling (e.g. <div style="margin:1em 40%"><img/></div><p>text</p>
+    // would otherwise cause the <p> to inherit the div's 40% side margins).
+    // Parent-child margin accumulation is unaffected because it happens at child open time
+    // via getCombinedBlockStyle(), before the parent closes.
     if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
       auto style = self->currentTextBlock->getBlockStyle();
       style.textAlignDefined = false;
       style.alignment = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
                             ? CssTextAlign::Justify
                             : static_cast<CssTextAlign>(self->paragraphAlignment);
+      style.marginLeft = 0;
+      style.marginRight = 0;
+      style.marginTop = 0;
+      style.marginBottom = 0;
+      style.paddingLeft = 0;
+      style.paddingRight = 0;
+      style.paddingTop = 0;
+      style.paddingBottom = 0;
       self->currentTextBlock->setBlockStyle(style);
     }
   }
