@@ -30,6 +30,36 @@ constexpr int QR_CODE_HEIGHT = 198;
 // DNS server for captive portal (redirects all DNS queries to our IP)
 DNSServer* dnsServer = nullptr;
 constexpr uint16_t DNS_PORT = 53;
+DNSServer* dnsServer = nullptr;
+constexpr uint16_t DNS_PORT = 53;
+
+void stopDnsServer() {
+  if (!dnsServer) return;
+
+  dnsServer->stop();
+  delete dnsServer;
+  dnsServer = nullptr;
+}
+
+void restartMdns(const char* hostname, const char* tag) {
+  MDNS.end();
+  if (MDNS.begin(hostname)) {
+    LOG_DBG(tag, "mDNS started: http://%s.local/", hostname);
+  } else {
+    LOG_DBG(tag, "WARNING: mDNS failed to start");
+  }
+}
+
+// 0..4 bars from RSSI (dBm), with 3 dBm hysteresis on currentBars to suppress flicker.
+int barsForRssi(int rssi, int currentBars) {
+  static constexpr int RISE_DBM[] = {-85, -75, -65, -55};
+  static constexpr int FALL_DBM[] = {-88, -78, -68, -58};
+
+  int bars = std::clamp(currentBars, 0, 4);
+  while (bars < 4 && rssi >= RISE_DBM[bars]) bars++;
+  while (bars > 0 && rssi < FALL_DBM[bars - 1]) bars--;
+  return bars;
+
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
@@ -64,6 +94,8 @@ void CrossPointWebServerActivity::onExit() {
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
   state = WebServerActivityState::SHUTTING_DOWN;
+  stopDnsServer();
+  MDNS.end();
 
   // Stop the web server first (before disconnecting WiFi)
   stopWebServer();
@@ -160,9 +192,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
     isApMode = false;
 
     // Start mDNS for hostname resolution
-    if (MDNS.begin(AP_HOSTNAME)) {
-      LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
-    }
+    restartMdns(AP_HOSTNAME, "WEBACT");
 
     // Start the web server
     startWebServer();
@@ -218,14 +248,11 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "IP: %s", connectedIP.c_str());
 
   // Start mDNS for hostname resolution
-  if (MDNS.begin(AP_HOSTNAME)) {
-    LOG_DBG("WEBACT", "mDNS started: http://%s.local/", AP_HOSTNAME);
-  } else {
-    LOG_DBG("WEBACT", "WARNING: mDNS failed to start");
-  }
+  restartMdns(AP_HOSTNAME, "WEBACT");
 
   // Start DNS server for captive portal behavior
   // This redirects all DNS queries to our IP, making any domain typed resolve to us
+  stopDnsServer();
   dnsServer = new DNSServer();
   dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer->start(DNS_PORT, "*", apIP);

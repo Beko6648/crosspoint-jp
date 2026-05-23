@@ -5,8 +5,10 @@
 #include <HalStorage.h>
 #include <JPEGDEC.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <cstdlib>
+#include <memory>
 #include <new>
 
 #include "DirectPixelWriter.h"
@@ -362,16 +364,16 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
     return false;
   }
 
-  JPEGDEC* jpeg = new (std::nothrow) JPEGDEC();
+  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
   if (!jpeg) {
     LOG_ERR("JPG", "Failed to allocate JPEG decoder for dimensions");
     return false;
   }
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
+  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
-    delete jpeg;
     return false;
   }
 
@@ -379,8 +381,6 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
   out.height = jpeg->getHeight();
   LOG_DBG("JPG", "Image dimensions: %dx%d", out.width, out.height);
 
-  jpeg->close();
-  delete jpeg;
   return true;
 }
 
@@ -394,7 +394,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     return false;
   }
 
-  JPEGDEC* jpeg = new (std::nothrow) JPEGDEC();
+  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
   if (!jpeg) {
     LOG_ERR("JPG", "Failed to allocate JPEG decoder");
     return false;
@@ -407,9 +407,9 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.screenHeight = renderer.getScreenHeight();
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
+  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
-    delete jpeg;
     return false;
   }
 
@@ -418,14 +418,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   if (srcWidth <= 0 || srcHeight <= 0) {
     LOG_ERR("JPG", "Invalid JPEG dimensions: %dx%d", srcWidth, srcHeight);
-    jpeg->close();
-    delete jpeg;
     return false;
   }
 
   if (!validateImageDimensions(srcWidth, srcHeight, "JPEG")) {
-    jpeg->close();
-    delete jpeg;
     return false;
   }
 
@@ -469,6 +465,14 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     jpegScaleDenom = chooseJpegScale(targetScale, jpegScaleOption);
   }
 
+
+  if (destWidth <= 0 || destHeight <= 0) {
+    LOG_ERR("JPG", "Degenerate output dimensions %dx%d for %s, skipping render", destWidth, destHeight,
+            imagePath.c_str());
+    return false;
+  }
+
+
   ctx.scaledSrcWidth = (srcWidth + jpegScaleDenom - 1) / jpegScaleDenom;
   ctx.scaledSrcHeight = (srcHeight + jpegScaleDenom - 1) / jpegScaleDenom;
   ctx.dstWidth = destWidth;
@@ -507,11 +511,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     if (ctx.caching) ctx.cache.abort();
     jpeg->close();
     delete jpeg;
+
     return false;
   }
 
-  jpeg->close();
-  delete jpeg;
   LOG_DBG("JPG", "JPEG decoding complete - render time: %lu ms", decodeTime);
 
   // Finalize the streamed cache file. Note: a flush failure mid-decode clears
