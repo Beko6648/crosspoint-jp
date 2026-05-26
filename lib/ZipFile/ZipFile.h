@@ -3,6 +3,7 @@
 
 #include <deque>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <functional>
 #include <string_view>
@@ -71,7 +72,6 @@ class ZipFile {
   // These functions will open and close the zip as needed
   uint8_t* readFileToMemory(const char* filename, size_t* size = nullptr, bool trailingNullByte = false);
   bool readFileToStream(const char* filename, Print& out, size_t chunkSize);
-
 
   template <typename F>
   bool enumerateFilePaths(F&& callback) {

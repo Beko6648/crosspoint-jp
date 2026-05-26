@@ -279,6 +279,7 @@ void Epub::discoverCssFilesFromZip() {
       })) {
     LOG_ERR("EBP", "Failed to enumerate ZIP file paths for CSS discovery");
   }
+
 }
 
 void Epub::parseCssFiles() const {
@@ -355,9 +356,9 @@ void Epub::parseCssFiles() const {
   if (!cssParser->saveToCache()) {
     LOG_ERR("EBP", "Failed to save CSS rules to cache");
   }
-  cssParser->clear();
 
   LOG_DBG("EBP", "Loaded %zu CSS style rules from %zu files", cssParser->ruleCount(), cssFiles.size());
+  cssParser->clear();
 }
 
 // load in the meta data for the epub file
@@ -382,6 +383,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
           LOG_ERR("EBP", "Could not parse content.opf from cached bookMetadata for CSS files");
           // continue anyway - book will work without CSS and we'll still load any inline style CSS
         } else {
+
           discoverCssFilesFromZip();
         }
         bookMetadataCache.reset();
@@ -501,6 +503,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
 
 
   if (!skipLoadingCss) {
+    // Handle case where CSS files are not listed in OPF manifest
+    // but are still referenced by HTML files - discover and parse them too
+    discoverCssFilesFromZip();
     // Parse CSS files after cache reload
     parseCssFiles();
     Storage.removeDir((cachePath + "/sections").c_str());
