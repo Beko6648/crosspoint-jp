@@ -17,6 +17,7 @@
 #include "CrossPointState.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "MappedInputManager.h"
+#include "ProgressFile.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "XtcReaderMenuActivity.h"
@@ -397,6 +398,7 @@ void XtcReaderActivity::renderPage() {
   }
 }
 
+
 void XtcReaderActivity::saveProgress(bool isFinished) const {
   FsFile f;
   if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
@@ -409,6 +411,7 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
     f.write(data, 5);
     f.close();
   }
+
 }
 
 void XtcReaderActivity::loadProgress() {
