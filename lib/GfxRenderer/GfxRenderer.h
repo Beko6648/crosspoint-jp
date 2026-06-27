@@ -250,6 +250,9 @@ class GfxRenderer {
   // Low level functions
   uint8_t* getFrameBuffer() const;
   size_t getBufferSize() const;
+  size_t getRegionByteSize(int x, int y, int width, int height) const;
+  bool copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer, size_t outBufferSize);
+  bool copyBufferToRegion(int x, int y, int width, int height, const uint8_t* inBuffer, size_t inBufferSize);
   uint16_t getDisplayWidth() const { return panelWidth; }
   uint16_t getDisplayHeight() const { return panelHeight; }
   uint16_t getDisplayWidthBytes() const { return panelWidthBytes; }

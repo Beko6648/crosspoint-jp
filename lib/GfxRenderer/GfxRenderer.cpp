@@ -2171,6 +2171,117 @@ uint8_t* GfxRenderer::getFrameBuffer() const { return frameBuffer; }
 
 size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 
+size_t GfxRenderer::getRegionByteSize(int x, int y, int width, int height) const {
+  (void)x;
+  (void)y;
+
+  if (width <= 0 || height <= 0) {
+    return 0;
+  }
+
+  const size_t bits = static_cast<size_t>(width) * static_cast<size_t>(height);
+  return (bits + 7) / 8;
+}
+
+bool GfxRenderer::copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer,
+                                     size_t outBufferSize) {
+  if (!outBuffer || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  const size_t needed = getRegionByteSize(x, y, width, height);
+  if (needed == 0 || outBufferSize < needed) {
+    return false;
+  }
+
+  uint8_t* frameBuffer = getFrameBuffer();
+  if (!frameBuffer) {
+    return false;
+  }
+
+  const int screenWidth = getScreenWidth();
+  const int screenHeight = getScreenHeight();
+
+  if (x < 0 || y < 0 || x + width > screenWidth || y + height > screenHeight) {
+    return false;
+  }
+
+  memset(outBuffer, 0, outBufferSize);
+
+  size_t dstBitIndex = 0;
+
+  for (int yy = 0; yy < height; yy++) {
+    const int srcY = y + yy;
+
+    for (int xx = 0; xx < width; xx++) {
+      const int srcX = x + xx;
+
+      const size_t srcBitIndex = static_cast<size_t>(srcY) * static_cast<size_t>(screenWidth) +
+                                 static_cast<size_t>(srcX);
+
+      const bool bit = (frameBuffer[srcBitIndex / 8] & (0x80 >> (srcBitIndex % 8))) != 0;
+
+      if (bit) {
+        outBuffer[dstBitIndex / 8] |= (0x80 >> (dstBitIndex % 8));
+      } else {
+        outBuffer[dstBitIndex / 8] &= ~(0x80 >> (dstBitIndex % 8));
+      }
+
+      dstBitIndex++;
+    }
+  }
+
+  return true;
+}
+
+bool GfxRenderer::copyBufferToRegion(int x, int y, int width, int height, const uint8_t* inBuffer,
+                                     size_t inBufferSize) {
+  if (!inBuffer || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  const size_t needed = getRegionByteSize(x, y, width, height);
+  if (needed == 0 || inBufferSize < needed) {
+    return false;
+  }
+
+  uint8_t* frameBuffer = getFrameBuffer();
+  if (!frameBuffer) {
+    return false;
+  }
+
+  const int screenWidth = getScreenWidth();
+  const int screenHeight = getScreenHeight();
+
+  if (x < 0 || y < 0 || x + width > screenWidth || y + height > screenHeight) {
+    return false;
+  }
+
+  size_t srcBitIndex = 0;
+
+  for (int yy = 0; yy < height; yy++) {
+    const int dstY = y + yy;
+
+    for (int xx = 0; xx < width; xx++) {
+      const int dstX = x + xx;
+
+      const bool bit = (inBuffer[srcBitIndex / 8] & (0x80 >> (srcBitIndex % 8))) != 0;
+
+      const size_t dstBitIndex = static_cast<size_t>(dstY) * static_cast<size_t>(screenWidth) +
+                                 static_cast<size_t>(dstX);
+
+      if (bit) {
+        frameBuffer[dstBitIndex / 8] |= (0x80 >> (dstBitIndex % 8));
+      } else {
+        frameBuffer[dstBitIndex / 8] &= ~(0x80 >> (dstBitIndex % 8));
+      }
+
+      srcBitIndex++;
+    }
+  }
+
+  return true;
+}
 // unused
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
