@@ -81,10 +81,9 @@ XtcError XtcParser::open(const char* filepath) {
     return m_lastError;
   }
 
-  // Defer chapter parsing until actually needed (lazy load).
-  // Chapter strings can use significant heap; keeping them out of memory
-  // during rendering leaves more room for the page bitmap buffer.
-  m_hasChapters = (m_header.hasChapters == 1);
+  // Older XTC files start the page table at 0x30, so they do not have the later
+  // chapterOffset field. Only enable chapters when the full header area exists.
+  m_hasChapters = (m_header.hasChapters == 1 && m_header.pageTableOffset >= sizeof(XtcHeader));
   m_chaptersLoaded = false;
 
   // Close the source file to free its internal SdFat buffers.
@@ -196,8 +195,8 @@ XtcError XtcParser::readFirstPageInfo() {
   // Verify the file is large enough to contain the full page table
   const uint64_t fileSize = m_file.size();
   const uint64_t pageTableSize = static_cast<uint64_t>(m_header.pageCount) * sizeof(PageTableEntry);
-  if (m_header.pageTableOffset < sizeof(XtcHeader) || m_header.pageTableOffset > fileSize ||
-      pageTableSize > fileSize - m_header.pageTableOffset) {
+  if (m_header.pageTableOffset < XTC_LEGACY_HEADER_SIZE || m_header.pageTableOffset > fileSize ||
+     pageTableSize > fileSize - m_header.pageTableOffset) {
     LOG_DBG("XTC", "Page table exceeds file bounds");
     return XtcError::CORRUPTED_HEADER;
   }
