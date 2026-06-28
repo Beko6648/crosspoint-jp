@@ -134,9 +134,13 @@ void HomeActivity::onExit() {
   // Free the stored cover buffer if any
   freeCoverBuffer();
 }
+
 bool HomeActivity::storeCoverBuffer() {
   // Store only the recent-cover area, not the whole framebuffer.
-  if (coverRectW <= 0 || coverRectH <= 0) return false;
+  if (coverRectW <= 0 || coverRectH <= 0) {
+    coverBufferStored = false;
+    return false;
+  }
 
   freeCoverBuffer();
 
@@ -144,6 +148,8 @@ bool HomeActivity::storeCoverBuffer() {
   coverBuffer = static_cast<uint8_t*>(malloc(needed));
   if (!coverBuffer) {
     LOG_ERR("HOME", "OOM: cover buffer (%u bytes)", static_cast<unsigned>(needed));
+    coverBufferSize = 0;
+    coverBufferStored = false;
     return false;
   }
 
@@ -153,14 +159,18 @@ bool HomeActivity::storeCoverBuffer() {
     free(coverBuffer);
     coverBuffer = nullptr;
     coverBufferSize = 0;
+    coverBufferStored = false;
     return false;
   }
 
+  coverBufferStored = true;
   return true;
 }
 
 bool HomeActivity::restoreCoverBuffer() {
-  if (!coverBuffer || coverRectW <= 0 || coverRectH <= 0) return false;
+  if (!coverBufferStored || !coverBuffer || coverBufferSize == 0 || coverRectW <= 0 || coverRectH <= 0) {
+    return false;
+  }
 
   return renderer.copyBufferToRegion(coverRectX, coverRectY, coverRectW, coverRectH, coverBuffer, coverBufferSize);
 }
@@ -229,7 +239,14 @@ void HomeActivity::render(RenderLock&&) {
   coverRectW = pageWidth;
   coverRectH = metrics.homeCoverTileHeight;
 
-  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
+
+  // Full render clears the screen, so do not restore old cover buffer here.
+  // Force the recent cover area to be redrawn every time.
+  coverRendered = false;
+  coverBufferStored = false;
+  bool bufferRestored = false;
+
+GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
