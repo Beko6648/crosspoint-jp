@@ -671,6 +671,15 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+      if (cp == 0x30FB) { // ・
+        const int lineHeight = getLineHeight(effectiveFontId);
+        const int dotSize = 3;
+        const int dotX = xpos + lineHeight / 3;
+        const int dotY = yPos - lineHeight / 2;
+        fillRect(dotX, dotY, dotSize, dotSize, black);
+        xpos += lineHeight / 2;
+        continue;
+      }
     renderChar(effectiveFontId, font, cp, &xpos, &yPos, black, style);
   }
 }
@@ -1534,6 +1543,8 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
         const int cjkAdvance = clampExternalAdvance(extFont->getCharWidth(), cjkSpacing);
         uint32_t cp;
         while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+          
+
           if (utf8IsCombiningMark(cp)) continue;
           // CJK: use charWidth directly (no SD card read needed)
           if (isCjkCodepoint(cp)) {
@@ -1711,7 +1722,20 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     if (fontScale != 256) advFP = static_cast<int32_t>(static_cast<int64_t>(advFP) * fontScale / 256);
     const int advance = fp4::toPixel(advFP);
     const int verticalAdvance = advance + advance * verticalCharSpacingPercent_ / 100;
+    // Ruby/small-font prolonged sound mark: draw as a small vertical line.
+    // Some vertical substitute glyphs for U+30FC become too large in ruby.
+    if (cp == 0x30FC && getLineHeight(effectiveFontId) <= 18) { // ー
+      int lineLen = verticalAdvance - 4;
+      if (lineLen < 4) lineLen = 4;
 
+      const int lineWidth = 1;
+      const int lineX = x + advance / 2;
+      const int lineY = yPos + 2;
+
+      fillRect(lineX, lineY, lineWidth, lineLen, black);
+      yPos += verticalAdvance;
+      continue;
+    }
     // Check for vertical substitute glyph (OpenType 'vert' feature).
     // Only apply to punctuation/brackets/long marks — kana and ideographs
     // have vert variants with different metrics that look wrong without a
@@ -1883,6 +1907,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       const char* ptr = text;
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
+        
         if (CjkUiFont20::hasCjkUiGlyph(cp)) {
           const uint8_t* bitmap = CjkUiFont20::getCjkUiGlyph(cp);
           const uint8_t width = CjkUiFont20::getCjkUiGlyphWidth(cp);
@@ -1933,6 +1958,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    
     // For ASCII characters, prefer EPD font (better quality for Latin text)
     // Only use CJK UI font for non-ASCII characters or when EPD font lacks the
     // glyph
