@@ -577,18 +577,29 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->inRuby = true;
     self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
     self->rubyTextBuffer.clear();
+    self->collectingRubyText = false;
     self->depth += 1;
     return;
   }
+
+  if (strcmp(name, "rb") == 0) {
+    // <rb> is ruby base text. Treat it as normal text inside <ruby>.
+    self->flushPartWordBuffer();
+    self->depth += 1;
+    return;
+  }
+
   if (strcmp(name, "rt") == 0) {
+    // <rt> is ruby annotation text.
     self->flushPartWordBuffer();
     self->collectingRubyText = true;
     self->depth += 1;
     return;
   }
 
-  if (matches(name, SKIP_TAGS, NUM_SKIP_TAGS)) {
-    // start skip
+  if (strcmp(name, "rp") == 0) {
+    // <rp> is fallback punctuation such as （ ）.
+    // Ignore its contents.
     self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
@@ -1106,41 +1117,66 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   // Ruby closing tags
   if (strcmp(name, "rt") == 0) {
-    self->collectingRubyText = false;
+   self->collectingRubyText = false;
+   self->depth -= 1;
+    return;
   }
+
+  if (strcmp(name, "rb") == 0) {
+   self->flushPartWordBuffer();
+   self->depth -= 1;
+   return;
+  }
+
+  if (strcmp(name, "rp") == 0) {
+   self->depth -= 1;
+   return;
+  }
+
   if (strcmp(name, "ruby") == 0 && self->inRuby && self->currentTextBlock) {
-    const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
-    const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
-    if (baseWordCount > 0 && !self->rubyTextBuffer.empty()) {
-      // Count UTF-8 characters in ruby text
+   self->flushPartWordBuffer();
+
+   const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
+   const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
+
+   if (baseWordCount > 0 && !self->rubyTextBuffer.empty()) {
+     // Count UTF-8 characters in ruby text
       std::vector<size_t> charOffsets;
       const char* p = self->rubyTextBuffer.c_str();
+
       while (*p) {
-        charOffsets.push_back(p - self->rubyTextBuffer.c_str());
-        if ((*p & 0x80) == 0)
-          p += 1;
-        else if ((*p & 0xE0) == 0xC0)
+       charOffsets.push_back(p - self->rubyTextBuffer.c_str());
+
+       if ((*p & 0x80) == 0) {
+         p += 1;
+       } else if ((*p & 0xE0) == 0xC0) {
           p += 2;
-        else if ((*p & 0xF0) == 0xE0)
-          p += 3;
-        else
-          p += 4;
-      }
+       } else if ((*p & 0xF0) == 0xE0) {
+         p += 3;
+       } else {
+         p += 4;
+        }
+     }
+
       charOffsets.push_back(self->rubyTextBuffer.size());
       const int rubyCharCount = static_cast<int>(charOffsets.size() - 1);
 
-      for (int i = 0; i < baseWordCount; i++) {
-        const int start = i * rubyCharCount / baseWordCount;
-        const int end = (i + 1) * rubyCharCount / baseWordCount;
-        if (start < end) {
-          std::string portion = self->rubyTextBuffer.substr(charOffsets[start], charOffsets[end] - charOffsets[start]);
-          self->currentTextBlock->setRubyForWordAt(self->rubyStartWordIndex + i, portion);
-        }
-      }
+     // ルビを親文字ごとに分割せず、親文字の先頭にまとめて付ける。
+     // 分割方式だと「スター」が「ス」「タ」のように欠けたり、
+     // 親文字数とのズレで一部ルビが表示されないことがある。
+     self->currentTextBlock->setRubyForWordAt(
+         self->rubyStartWordIndex,
+         self->rubyTextBuffer
+     );
     }
+
+    self->collectingRubyText = false;
     self->inRuby = false;
     self->rubyStartWordIndex = -1;
     self->rubyTextBuffer.clear();
+
+    self->depth -= 1;
+    return;
   }
 
   // Closing a footnote link — create entry from collected text and href

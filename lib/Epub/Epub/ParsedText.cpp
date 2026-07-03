@@ -117,10 +117,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     words.reserve(800);
     wordStyles.reserve(800);
     wordContinues.reserve(800);
-    // rubyTexts は遅延初期化（setRubyForWordAt時にのみ割り当て）— RAM節約
+    rubyTexts.reserve(800);
   }
 
   words.push_back(std::move(word));
+  rubyTexts.push_back("");
+
   EpdFontFamily::Style combinedStyle = fontStyle;
   if (underline) {
     combinedStyle = static_cast<EpdFontFamily::Style>(combinedStyle | EpdFontFamily::UNDERLINE);
@@ -140,11 +142,14 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 }
 
 void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby) {
-  if (index >= words.size()) return;
-  // 遅延初期化: ルビが初めて設定された時にベクタを拡張
-  if (rubyTexts.size() <= index) {
+  if (index >= words.size()) {
+    return;
+  }
+
+  if (rubyTexts.size() < words.size()) {
     rubyTexts.resize(words.size());
   }
+
   rubyTexts[index] = ruby;
 }
 
@@ -263,31 +268,89 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   // Calculate word heights for vertical layout
   std::vector<uint16_t> wordHeights;
   wordHeights.reserve(words.size());
+    auto utf8CodepointCount = [](const std::string& s) -> int {
+    int count = 0;
+    const auto* p = reinterpret_cast<const unsigned char*>(s.c_str());
+    while (utf8NextCodepoint(&p) != 0) {
+      count++;
+    }
+    return count;
+  };
+  bool hasAnyRuby = false;
+  for (const auto& rt : rubyTexts) {
+    if (!rt.empty()) {
+      hasAnyRuby = true;
+      break;
+    }
+  }
   const int sp = renderer.getVerticalCharSpacing();
   const int cjkSpacing = cjkCharAdvance * sp / 100;
 
   for (size_t i = 0; i < words.size(); i++) {
     auto vb =
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
+
     uint16_t baseHeight;
     switch (vb) {
       case VerticalTextUtils::VerticalBehavior::Sideways:
         baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
         break;
+
       case VerticalTextUtils::VerticalBehavior::TateChuYoko:
         baseHeight = static_cast<uint16_t>(cjkCharAdvance);
         break;
+
       default:
         baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
         break;
     }
+
+    uint16_t finalHeight;
     if (vb == VerticalTextUtils::VerticalBehavior::Upright) {
-      wordHeights.push_back(baseHeight + baseHeight * sp / 100);
+      finalHeight = baseHeight + baseHeight * sp / 100;
     } else {
-      wordHeights.push_back(baseHeight + cjkSpacing);
+      finalHeight = baseHeight + cjkSpacing;
+    }
+
+
+    wordHeights.push_back(finalHeight);
+  }
+  // ルビを含めた「列に収まるか判定用」の高さ。
+  // 本文のY送りには使わない。
+  std::vector<uint16_t> rubyFitHeights;
+
+  if (hasAnyRuby) {
+    rubyFitHeights.reserve(words.size());
+
+    int rubyLineHeight = lineHeight / 2;
+    if (TextBlock::rubyFontId != 0) {
+      rubyLineHeight = renderer.getLineHeight(TextBlock::rubyFontId);
+    }
+    if (rubyLineHeight <= 0) {
+      rubyLineHeight = lineHeight / 2;
+    }
+
+    for (size_t i = 0; i < words.size(); i++) {
+      uint16_t fitHeight = wordHeights[i];
+
+      if (i < rubyTexts.size() && !rubyTexts[i].empty()) {
+        int rubyCharCount = 0;
+        const auto* p = reinterpret_cast<const unsigned char*>(rubyTexts[i].c_str());
+        while (utf8NextCodepoint(&p) != 0) {
+          rubyCharCount++;
+        }
+
+        const int rubyHeight = rubyLineHeight * rubyCharCount;
+
+        if (rubyHeight > fitHeight) {
+          fitHeight = static_cast<uint16_t>(rubyHeight);
+        }
+      }
+
+      rubyFitHeights.push_back(fitHeight);
     }
   }
-
+  
   // Compute first-line indent for vertical mode (same conditions as horizontal).
   int verticalIndent = 0;
   if (firstLineIndent && blockStyle.textIndent == 0 && !blockStyle.textIndentDefined &&
@@ -308,7 +371,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     size_t columnStart = 0;
     int currentY = verticalIndent;
     for (size_t i = 0; i < words.size(); i++) {
-      if (currentY + wordHeights[i] > columnHeight && i > columnStart) {
+      const uint16_t fitHeight = hasAnyRuby ? rubyFitHeights[i] : wordHeights[i];
+      if (currentY + fitHeight > columnHeight && i > columnStart) {
         size_t breakAt = i;
         // Kinsoku-head pullback (e.g., closing brackets, small kana cannot start a column)
         while (breakAt > columnStart + 1 && VerticalTextUtils::isKinsokuHead(firstCodepoint(words[breakAt]))) {

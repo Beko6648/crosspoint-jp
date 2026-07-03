@@ -32,7 +32,15 @@ class TextBlock final : public Block {
         blockStyle(blockStyle),
         wordYpos(std::move(word_ypos)),
         isVertical(vertical),
-        rubyTexts(std::move(ruby_texts)) {}
+        rubyTexts(std::move(ruby_texts)) {
+    if (rubyTexts.size() < this->words.size()) {
+      rubyTexts.resize(this->words.size());
+    }
+  
+    if (this->isVertical && wordYpos.size() < this->words.size()) {
+    wordYpos.resize(this->words.size(), 0);
+  }
+}
   ~TextBlock() override = default;
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   const BlockStyle& getBlockStyle() const { return blockStyle; }

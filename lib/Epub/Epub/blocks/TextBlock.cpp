@@ -5,7 +5,30 @@
 #include <Serialization.h>
 #include <Utf8.h>
 #include <VerticalTextUtils.h>
+static std::vector<std::string> splitUtf8Chars(const std::string& text) {
+  std::vector<std::string> chars;
 
+  const char* p = text.c_str();
+
+  while (*p) {
+    const char* start = p;
+    const unsigned char c = static_cast<unsigned char>(*p);
+
+    if ((c & 0x80) == 0) {
+      p += 1;
+    } else if ((c & 0xE0) == 0xC0) {
+      p += 2;
+    } else if ((c & 0xF0) == 0xE0) {
+      p += 3;
+    } else {
+      p += 4;
+    }
+
+    chars.emplace_back(start, p - start);
+  }
+
+  return chars;
+}
 int TextBlock::rubyFontId = 0;
 
 void TextBlock::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
@@ -52,7 +75,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   }
 
   const int effectiveFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
-
+  const bool rubyFontIsSd = (rubyFontId != 0) && renderer.isSdCardFont(rubyFontId);
+  /*
   // ルビフォントのグリフをプリロード（SDカードフォントの場合）
   if (rubyFontId != 0 && hasRuby() && renderer.isSdCardFont(rubyFontId)) {
     std::string allRuby;
@@ -63,6 +87,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       renderer.ensureSdCardFontReady(rubyFontId, allRuby.c_str());
     }
   }
+*/
 
   // Compute column width once for Sideways/TateChuYoko centering
   int columnWidth = 0;
@@ -74,7 +99,23 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
+#if DEBUG_RUBY_RENDER
+  const char* rubyForLog = "";
+  if (i < rubyTexts.size()) {
+    rubyForLog = rubyTexts[i].c_str();
+  }
 
+  LOG_INF(
+      "TXB",
+      "[WORD_RUBY_MAP] i=%u word=%s ruby=%s rubySize=%u wordsSize=%u vertical=%d",
+      static_cast<unsigned>(i),
+      words[i].c_str(),
+      rubyForLog,
+      static_cast<unsigned>(rubyTexts.size()),
+      static_cast<unsigned>(words.size()),
+      isVertical ? 1 : 0
+  );
+#endif
     if (isVertical && i < wordYpos.size()) {
       // 縦書きモード: VerticalBehaviorに応じて描画方法を分岐
       const char* w = words[i].c_str();
@@ -88,18 +129,19 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 
       if (isSingleCjk) {
         renderer.drawTextVertical(effectiveFontId, wx, wy, w, true, currentStyle);
-        // 縦書きルビ描画（親文字の右側）
-        if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
-          const int rubyX = wx + columnWidth + 2;
-          renderer.drawTextVertical(rubyFontId, rubyX, wy, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
-        }
       } else {
         bool allDigits = true;
         int asciiCount = 0;
+
         for (const char* c = w; *c; c++) {
-          if ((static_cast<uint8_t>(*c) & 0xC0) != 0x80) asciiCount++;
-          if (*c < '0' || *c > '9') allDigits = false;
+          if ((static_cast<uint8_t>(*c) & 0xC0) != 0x80) {
+            asciiCount++;
+          }
+          if (*c < '0' || *c > '9') {
+            allDigits = false;
+          }
         }
+
         if (allDigits && asciiCount <= 2) {
           // TateChuYoko: draw horizontally, centered in the column
           const int textW = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
@@ -107,14 +149,70 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
-          // Gap asymmetry: CJK rendering adds ascender offset (~11px from cell top
-          // via drawText), while Sideways uses glyph->left (~1px). This creates
-          // 0px gap before and ~12px gap after. Shift down by ascender/6 ≈ 6px
-          // to equalize (derived from tracing actual pixel positions).
           const int vertShift = renderer.getFontAscenderSize(effectiveFontId) / 3;
           renderer.drawTextSideways(effectiveFontId, wx, wy + vertShift, w, true, currentStyle, columnWidth);
         }
       }
+
+      if (i < rubyTexts.size() && !rubyTexts[i].empty()) {
+        #if DEBUG_RUBY_RENDER
+        LOG_INF(
+            "TXB",
+            "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s isSingleCjk=%d x=%d y=%d",
+            static_cast<unsigned>(i),
+            rubyFontId,
+            words[i].c_str(),
+            rubyTexts[i].c_str(),
+            isSingleCjk ? 1 : 0,
+            wx,
+            wy
+        );
+        #endif
+      }
+
+                  // 縦書きルビ描画
+      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
+        #if DEBUG_RUBY_RENDER
+        LOG_INF(
+            "TXB",
+            "[RUBY_DRAW] i=%u rubyFontId=%d word=%s ruby=%s x=%d y=%d",
+            static_cast<unsigned>(i),
+            rubyFontId,
+            words[i].c_str(),
+            rubyTexts[i].c_str(),
+            wx,
+            wy
+        );
+        #endif
+        if (rubyFontIsSd) {
+          renderer.ensureSdCardFontReady(rubyFontId, rubyTexts[i].c_str());
+        }
+
+        const int rubyColumnWidth = renderer.getLineHeight(rubyFontId);
+        const int gap = 2;
+
+        int rubyX = wx + columnWidth + gap;
+
+        if (viewportWidth > 0 && rubyX + rubyColumnWidth >= viewportWidth) {
+          rubyX = wx - rubyColumnWidth - gap;
+        }
+
+        if (rubyX < 0) {
+          rubyX = 0;
+        }
+
+        const int rubyY = wy;
+
+        renderer.drawTextVertical(
+            rubyFontId,
+            rubyX,
+            rubyY,
+            rubyTexts[i].c_str(),
+            true,
+            EpdFontFamily::REGULAR
+        );
+      }
+
     } else {
       const int wordX = wordXpos[i] + x;
       renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);

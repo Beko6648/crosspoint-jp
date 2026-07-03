@@ -794,22 +794,57 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // so we reload here with the correct direction after resolution.
     ensureSdFontLoaded(verticalMode);
 
-    // ルビ用フォント: フォントロード後に8ptフォントを取得
+     // ルビ用フォント: フォントロード後に8ptフォントを取得
     // rubyEnabled が OFF の場合は rubyFontId=0 でルビ描画をスキップ
     {
       const auto& rubyDs = SETTINGS.getDirectionSettings(verticalMode);
+
+      LOG_INF(
+          "RUBY",
+          "verticalMode=%d rubyEnabled=%d sdFontFamilyName=%s readerFontId=%d",
+          verticalMode ? 1 : 0,
+          rubyDs.rubyEnabled ? 1 : 0,
+          rubyDs.sdFontFamilyName,
+          SETTINGS.getReaderFontId(verticalMode)
+      );
+
       if (!rubyDs.rubyEnabled) {
         TextBlock::rubyFontId = 0;
+        LOG_INF("RUBY", "ruby disabled: TextBlock::rubyFontId=0");
       } else {
         static constexpr uint8_t RUBY_FONT_SIZE_ENUM = 5;  // 8pt
         int rubyId = 0;
+
         if (rubyDs.sdFontFamilyName[0] != '\0' && SETTINGS.sdFontIdResolver) {
-          rubyId = SETTINGS.sdFontIdResolver(SETTINGS.sdFontResolverCtx, rubyDs.sdFontFamilyName, RUBY_FONT_SIZE_ENUM);
+          rubyId = SETTINGS.sdFontIdResolver(
+              SETTINGS.sdFontResolverCtx,
+              rubyDs.sdFontFamilyName,
+              RUBY_FONT_SIZE_ENUM
+          );
+
+          LOG_INF(
+              "RUBY",
+              "ruby resolver result rubyId=%d family=%s sizeEnum=%u",
+              rubyId,
+              rubyDs.sdFontFamilyName,
+              RUBY_FONT_SIZE_ENUM
+          );
         }
-        if (rubyId == 0) rubyId = SETTINGS.getReaderFontId(verticalMode);
+
+        if (rubyId == 0) {
+          rubyId = SETTINGS.getReaderFontId(verticalMode);
+        }
+
         TextBlock::rubyFontId = rubyId;
+
+        LOG_INF(
+            "RUBY",
+            "TextBlock::rubyFontId=%d",
+            TextBlock::rubyFontId
+        );
       }
     }
+
 
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
