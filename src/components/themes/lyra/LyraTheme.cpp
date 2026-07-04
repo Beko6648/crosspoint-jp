@@ -44,6 +44,56 @@ constexpr int listIconSize = 24;
 constexpr int mainMenuColumns = 2;
 int coverWidth = 0;
 
+static std::vector<std::string> wrapUtf8TextByPixelWidth(GfxRenderer& renderer, int fontId, const char* text,
+                                                         int maxWidth, int maxLines,
+                                                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+  std::vector<std::string> lines;
+
+  if (text == nullptr || *text == '\0' || maxWidth <= 0 || maxLines <= 0) {
+    return lines;
+  }
+
+  std::string current;
+  const char* p = text;
+
+  while (*p) {
+    const char* start = p;
+
+    unsigned char c = static_cast<unsigned char>(*p);
+    if (c < 0x80) {
+      p += 1;
+    } else if ((c & 0xE0) == 0xC0) {
+      p += 2;
+    } else if ((c & 0xF0) == 0xE0) {
+      p += 3;
+    } else if ((c & 0xF8) == 0xF0) {
+      p += 4;
+    } else {
+      p += 1;
+    }
+
+    std::string nextChar(start, p - start);
+    std::string candidate = current + nextChar;
+
+    if (!current.empty() && renderer.getTextWidth(fontId, candidate.c_str(), style) > maxWidth) {
+      lines.push_back(current);
+
+      if ((int)lines.size() >= maxLines) {
+        return lines;
+      }
+
+      current = nextChar;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (!current.empty() && (int)lines.size() < maxLines) {
+    lines.push_back(current);
+  }
+
+  return lines;
+}
 void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
                          uint16_t percentage) {
   // Top line
@@ -515,7 +565,13 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     int tileX = LyraMetrics::values.contentSidePadding;
     int textWidth = tileWidth - 2 * hPaddingInSelection - LyraMetrics::values.verticalSpacing - coverWidth;
+    // タイトルが右端ギリギリまで行かないように、1文字分くらい余白を作る
+    const int titleRightMargin = renderer.getTextWidth(UI_12_FONT_ID, "あ", EpdFontFamily::BOLD);
+    textWidth -= titleRightMargin;
 
+    if (textWidth < 20) {
+      textWidth = 20;
+    }
     if (bookSelected) {
       // Draw selection box
       renderer.fillRoundedRect(tileX, tileY, tileWidth, hPaddingInSelection, cornerRadius, true, true, false, false,
@@ -529,20 +585,37 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
                                hPaddingInSelection, cornerRadius, false, false, true, true, Color::LightGray);
     }
 
-    auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
-
-    auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-    const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
     const int authorLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-    const int authorHeight = book.author.empty() ? 0 : (authorLineHeight * 3 / 2);
 
     constexpr int readingStatusIconSize = 24;
     constexpr int readingStatusIconTopMargin = 8;
     const bool hasReadingStatusIcon = !bookStatuses.empty() && (bookStatuses[0] == ReadingStatus::Reading ||
-                                                                bookStatuses[0] == ReadingStatus::Finished);
+                                                            bookStatuses[0] == ReadingStatus::Finished);
     const int readingStatusBlockHeight =
-        hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+    hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+
+    const int authorHeight = book.author.empty() ? 0 : (authorLineHeight * 3 / 2);
+
+    // Lyraのカード内でタイトルに使える高さを計算
+    const int verticalMargin = 12;
+    int availableTitleHeight = tileHeight - authorHeight - readingStatusBlockHeight - verticalMargin;
+
+    int maxTitleLines = availableTitleHeight / titleLineHeight;
+    if (maxTitleLines < 1) {
+      maxTitleLines = 1;
+    }
+
+    // 念のため上限も付ける。全文寄りにしたい場合は 8 や 10 に増やしてOK
+    if (maxTitleLines > 8) {
+     maxTitleLines = 8;
+    }
+
+    auto titleLines =
+        wrapUtf8TextByPixelWidth(renderer, UI_12_FONT_ID, book.title.c_str(), textWidth, 8, EpdFontFamily::BOLD);
+
+    auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
+    const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
 
     const int totalBlockHeight = titleBlockHeight + authorHeight + readingStatusBlockHeight;
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;

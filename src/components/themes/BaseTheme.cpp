@@ -550,7 +550,24 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     // - With cover: selected = white text on black box, unselected = black text on white box
     // - Without cover: selected = white text on black card, unselected = black text on white card
 
-    auto lines = renderer.wrappedText(UI_12_FONT_ID, lastBookTitle.c_str(), bookWidth - 40, 3);
+    const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+    const int authorLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    const int continueAreaHeight = renderer.getLineHeight(UI_10_FONT_ID) * 2;
+    const int verticalPadding = 30;
+
+    int availableTitleHeight = bookHeight - continueAreaHeight - verticalPadding;
+
+    if (!lastBookAuthor.empty()) {
+      availableTitleHeight -= authorLineHeight * 3 / 2;
+    }
+
+    int maxTitleLines = availableTitleHeight / titleLineHeight;
+    
+    if (maxTitleLines < 1) {
+      maxTitleLines = 1;
+    }
+
+    auto lines = renderer.wrappedText(UI_12_FONT_ID, lastBookTitle.c_str(), bookWidth - 40, maxTitleLines);
 
     // Book title text
     int totalTextHeight = renderer.getLineHeight(UI_12_FONT_ID) * static_cast<int>(lines.size());

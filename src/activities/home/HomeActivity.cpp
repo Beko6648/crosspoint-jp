@@ -248,8 +248,6 @@ void HomeActivity::render(RenderLock&&) {
 
 GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
-
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                           recentBooks, recentBookStatuses, selectorIndex, coverRendered, coverBufferStored,
                           bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));

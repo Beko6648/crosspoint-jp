@@ -671,15 +671,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-      if (cp == 0x30FB) { // ・
-        const int lineHeight = getLineHeight(effectiveFontId);
-        const int dotSize = 3;
-        const int dotX = xpos + lineHeight / 3;
-        const int dotY = yPos - lineHeight / 2;
-        fillRect(dotX, dotY, dotSize, dotSize, black);
-        xpos += lineHeight / 2;
-        continue;
-      }
     renderChar(effectiveFontId, font, cp, &xpos, &yPos, black, style);
   }
 }
