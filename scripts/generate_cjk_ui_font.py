@@ -37,6 +37,12 @@ abcdefghijklmnopqrstuvwxyz|
 ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ
 ァィゥェォッャュョヴヵヶー
 一二三四五六七八九十百千万亿
+♪♬♡♥☆★△▲▽▼○●◎◇◆□■
+αβγδεζηθικλμνξοπρστυφχψως
+ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ
+━│┃┌┐└┘├┤┬┴┼
+①②③④⑤⑥⑦⑧⑨⑩
+ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ
 """
 
 
@@ -67,17 +73,21 @@ def get_unique_chars(base_text, translations_dir=None, codepoints_file=None):
         print(f"  Extracted {len(i18n_chars)} characters from translations")
     if codepoints_file:
         cp_chars = set()
-        with open(codepoints_file, "r") as f:
+        with open(codepoints_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
                 try:
+                    # 16進コードポイント形式: 8A2D など
                     cp = int(line, 16)
                     if cp >= 0x20:
                         cp_chars.add(chr(cp))
                 except ValueError:
-                    pass
+                    # 文字そのものを貼った形式: 設定本文日本語 など
+                    for c in line:
+                        if c.strip() and ord(c) >= 0x20:
+                            cp_chars.add(c)
         chars.update(cp_chars)
         print(f"  Added {len(cp_chars)} characters from codepoints file")
     return sorted(chars, key=ord)
@@ -183,7 +193,7 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
     bytes_per_row = (pixel_size + 7) // 8
     bytes_per_char = bytes_per_row * pixel_size
 
-    with open(output_path, 'w') as f:
+    with open(output_path, 'w', encoding='utf-8') as f:
         f.write(f'''/**
  * Auto-generated CJK UI font data (optimized - UI characters only)
  * Font: (see --font argument)
@@ -241,7 +251,7 @@ static const uint16_t CJK_UI_CODEPOINTS[] PROGMEM = {{
         f.write('// Glyph bitmap data\n')
         f.write('static const uint8_t CJK_UI_GLYPHS[] PROGMEM = {\n')
         for i, bitmap in enumerate(bitmaps):
-            f.write(f'    // U+{codepoints[i]:04X} ({chr(codepoints[i])})\n    ')
+            f.write(f'    // U+{codepoints[i]:04X}\n    ')
             for j, b in enumerate(bitmap):
                 f.write(f'0x{b:02X}, ')
                 if (j + 1) % 16 == 0 and j < len(bitmap) - 1:
