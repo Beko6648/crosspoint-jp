@@ -394,7 +394,7 @@ std::vector<CodepointInfo> collectCodepoints(const std::string& word) {
         continue;  // skip pushing the combining mark itself
       }
     }
-
+    
     cps.push_back({cp, static_cast<size_t>(current - base)});
   }
 
