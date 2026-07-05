@@ -46,15 +46,18 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 
   int currentY = startY;
   LOG_DBG("CONF", "currentY: %d", currentY);
+
+  const int confirmTextOffsetX = -20;
+
   // Draw Heading
   if (!safeHeading.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeHeading.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(fontId, currentY, safeHeading.c_str(), true, confirmTextOffsetX, EpdFontFamily::BOLD);
     currentY += lineHeight + spacing;
   }
 
   // Draw Body
   if (!safeBody.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeBody.c_str(), true, EpdFontFamily::REGULAR);
+    renderer.drawCenteredTextOffset(fontId, currentY, safeBody.c_str(), true, confirmTextOffsetX, EpdFontFamily::REGULAR);
   }
 
   // Draw UI Elements

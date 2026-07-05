@@ -546,6 +546,12 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
   const int x = (getScreenWidth() - getTextWidth(fontId, text, style)) / 2;
   drawText(fontId, x, y, text, black, style);
 }
+void GfxRenderer::drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black,
+                                         const int xOffset,
+                                         const EpdFontFamily::Style style) const {
+  const int x = ((getScreenWidth() - getTextWidth(fontId, text, style)) / 2) + xOffset;
+  drawText(fontId, x, y, text, black, style);
+}
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontFamily::Style style) const {
