@@ -149,7 +149,7 @@ void XtcReaderActivity::loop() {
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
-    if (nextTriggered) {
+    if (prevTriggered) {
       saveProgress(true);
       onGoHome();
     } else {
@@ -164,16 +164,16 @@ void XtcReaderActivity::loop() {
   const int skipAmount = skipPages ? 10 : 1;
 
   if (prevTriggered) {
+    currentPage += skipAmount;
+    if (currentPage >= xtc->getPageCount()) {
+      currentPage = xtc->getPageCount();  // Allow showing "End of book"
+    }
+    requestUpdate();
+    } else if (nextTriggered) {
     if (currentPage >= static_cast<uint32_t>(skipAmount)) {
       currentPage -= skipAmount;
     } else {
       currentPage = 0;
-    }
-    requestUpdate();
-  } else if (nextTriggered) {
-    currentPage += skipAmount;
-    if (currentPage >= xtc->getPageCount()) {
-      currentPage = xtc->getPageCount();  // Allow showing "End of book"
     }
     requestUpdate();
   }
