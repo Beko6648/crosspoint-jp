@@ -46,7 +46,11 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 
   int currentY = startY;
   LOG_DBG("CONF", "currentY: %d", currentY);
+  // ClearCacheActivity
+  // 読書キャッシュ削除画面：直接描画なので ClearCacheActivity 側で -12 などを適用
 
+  // ConfirmationActivity
+  // 読み込み高速化キャッシュ生成確認：共通確認画面なのでここで -20 を適用
   const int confirmTextOffsetX = -20;
 
   // Draw Heading
