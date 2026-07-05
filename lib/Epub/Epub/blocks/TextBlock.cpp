@@ -189,9 +189,15 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         }
 
         const int rubyColumnWidth = renderer.getLineHeight(rubyFontId);
-        const int gap = 2;
 
-        int rubyX = wx + columnWidth + gap;
+        // BIZUD系は列幅が大きく、従来位置でちょうどよい。
+        // その他SDフォントは columnWidth のままだと離れすぎるため本文側へ寄せる。
+        const bool isBizudLikeFont = (columnWidth == 29 && rubyColumnWidth == 17);
+
+        const int gap = isBizudLikeFont ? 2 : 1;
+        const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
+
+        int rubyX = wx + rubyBaseOffset + gap;
 
         if (viewportWidth > 0 && rubyX + rubyColumnWidth >= viewportWidth) {
           rubyX = wx - rubyColumnWidth - gap;
@@ -212,7 +218,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
             EpdFontFamily::REGULAR
         );
       }
-
     } else {
       const int wordX = wordXpos[i] + x;
       renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);
