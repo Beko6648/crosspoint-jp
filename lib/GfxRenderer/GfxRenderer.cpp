@@ -1721,7 +1721,8 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     const int verticalAdvance = advance + advance * verticalCharSpacingPercent_ / 100;
     // Ruby/small-font prolonged sound mark: draw as a small vertical line.
     // Some vertical substitute glyphs for U+30FC become too large in ruby.
-    if (cp == 0x30FC && getLineHeight(effectiveFontId) <= 18) { // ー
+    
+    if (cp == 0x30FC && getLineHeight(effectiveFontId) <= 24) { // ー
       int lineLen = verticalAdvance - 4;
       if (lineLen < 4) lineLen = 4;
 
