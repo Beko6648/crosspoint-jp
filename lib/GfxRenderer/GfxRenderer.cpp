@@ -14,7 +14,7 @@
 #include "VerticalTextUtils.h"
 
 // Built-in CJK UI font (embedded in flash) - 20px only
-#include "cjk_ui_font_20.h"
+#include "cjk_ui_font_21.h"
 
 // Reader font IDs (from fontIds.h) - used to determine when to use external
 // Chinese font UI fonts should NOT use external font
@@ -92,7 +92,7 @@ bool hasUiGlyphForText(const char* text) {
   const char* ptr = text;
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
-    if (CjkUiFont20::hasCjkUiGlyph(cp)) {
+    if (CjkUiFont21::hasCjkUiGlyph(cp)) {
       return true;
     }
   }
@@ -383,8 +383,8 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
         bool hasChar = false;
 
         // First check built-in CJK UI font (Flash access is fast)
-        if (CjkUiFont20::hasCjkUiGlyph(cp)) {
-          uint8_t advanceWidth = CjkUiFont20::getCjkUiGlyphWidth(cp);
+        if (CjkUiFont21::hasCjkUiGlyph(cp)) {
+          uint8_t advanceWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
           // Match the spacing reduction applied during rendering in drawText
           if (advanceWidth >= 20) {
             advanceWidth = 18;
@@ -465,7 +465,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
     bool hasCjkChar = false;
     uint32_t testCp;
     while ((testCp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&checkPtr)))) {
-      if (CjkUiFont20::hasCjkUiGlyph(testCp)) {
+      if (CjkUiFont21::hasCjkUiGlyph(testCp)) {
         hasUiFontChar = true;
       }
       if (isCjkCodepoint(testCp)) {
@@ -488,7 +488,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
         // Check if character is in our UI font (includes CJK and English)
-        uint8_t actualWidth = CjkUiFont20::getCjkUiGlyphWidth(cp);
+        uint8_t actualWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
 
         if (actualWidth > 0) {
           // Character is in UI font: use actual proportional width
@@ -591,12 +591,12 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
         bool rendered = false;
 
         // First check built-in CJK UI font (Flash access is fast)
-        if (CjkUiFont20::hasCjkUiGlyph(cp)) {
-          const uint8_t* bitmap = CjkUiFont20::getCjkUiGlyph(cp);
-          uint8_t advanceWidth = CjkUiFont20::getCjkUiGlyphWidth(cp);
-          const uint8_t height = CjkUiFont20::CJK_UI_FONT_HEIGHT;
-          const uint8_t bytesPerRow = CjkUiFont20::CJK_UI_FONT_BYTES_PER_ROW;
-          const uint8_t glyphWidth = CjkUiFont20::CJK_UI_FONT_WIDTH;
+        if (CjkUiFont21::hasCjkUiGlyph(cp)) {
+          const uint8_t* bitmap = CjkUiFont21::getCjkUiGlyph(cp);
+          uint8_t advanceWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
+          const uint8_t height = CjkUiFont21::CJK_UI_FONT_HEIGHT;
+          const uint8_t bytesPerRow = CjkUiFont21::CJK_UI_FONT_BYTES_PER_ROW;
+          const uint8_t glyphWidth = CjkUiFont21::CJK_UI_FONT_WIDTH;
 
           // Reduce spacing for CJK characters
           if (advanceWidth >= 20) {
@@ -1614,7 +1614,7 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
   if (fontMap.count(effectiveFontId) == 0) {
     // UI fonts may not be in fontMap (they use built-in CJK font)
     if (isUiFont(fontId)) {
-      return CjkUiFont20::CJK_UI_FONT_HEIGHT;
+      return CjkUiFont21::CJK_UI_FONT_HEIGHT;
     }
     LOG_ERR("GFX", "Font %d not found", effectiveFontId);
     return 0;
@@ -1643,7 +1643,7 @@ int GfxRenderer::getLineHeight(const int fontId) const {
   if (fontMap.count(effectiveFontId) == 0) {
     // UI fonts may not be in fontMap (they use built-in CJK font)
     if (isUiFont(fontId)) {
-      return CjkUiFont20::CJK_UI_FONT_HEIGHT + 4;  // 20px + 4px spacing
+      return CjkUiFont21::CJK_UI_FONT_HEIGHT + 4;  // 21px + 4px spacing
     }
     LOG_ERR("GFX", "Font %d not found", effectiveFontId);
     return 0;
@@ -1660,7 +1660,7 @@ int GfxRenderer::getTextHeight(const int fontId) const {
   if (fontMap.count(effectiveFontId) == 0) {
     // UI fonts may not be in fontMap (they use built-in CJK font)
     if (isUiFont(fontId)) {
-      return CjkUiFont20::CJK_UI_FONT_HEIGHT;  // 20px for CJK UI font
+      return CjkUiFont21::CJK_UI_FONT_HEIGHT;  // 21px for CJK UI font
     }
     LOG_ERR("GFX", "Font %d not found", effectiveFontId);
     return 0;
@@ -1899,11 +1899,11 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
         
-        if (CjkUiFont20::hasCjkUiGlyph(cp)) {
-          const uint8_t* bitmap = CjkUiFont20::getCjkUiGlyph(cp);
-          const uint8_t width = CjkUiFont20::getCjkUiGlyphWidth(cp);
-          const uint8_t height = CjkUiFont20::CJK_UI_FONT_HEIGHT;
-          const uint8_t bytesPerRow = CjkUiFont20::CJK_UI_FONT_BYTES_PER_ROW;
+        if (CjkUiFont21::hasCjkUiGlyph(cp)) {
+          const uint8_t* bitmap = CjkUiFont21::getCjkUiGlyph(cp);
+          const uint8_t width = CjkUiFont21::getCjkUiGlyphWidth(cp);
+          const uint8_t height = CjkUiFont21::CJK_UI_FONT_HEIGHT;
+          const uint8_t bytesPerRow = CjkUiFont21::CJK_UI_FONT_BYTES_PER_ROW;
 
           // For 90 clockwise rotation: (glyphX, glyphY) -> (glyphY, -glyphX)
           const int startX = x;
@@ -1963,13 +1963,13 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       uint8_t bytesPerChar = 0;
       uint8_t advance = 0;
 
-      if (CjkUiFont20::hasCjkUiGlyph(cp)) {
-        bitmap = CjkUiFont20::getCjkUiGlyph(cp);
-        fontWidth = CjkUiFont20::CJK_UI_FONT_WIDTH;
-        fontHeight = CjkUiFont20::CJK_UI_FONT_HEIGHT;
-        bytesPerRow = CjkUiFont20::CJK_UI_FONT_BYTES_PER_ROW;
-        bytesPerChar = CjkUiFont20::CJK_UI_FONT_BYTES_PER_CHAR;
-        advance = CjkUiFont20::getCjkUiGlyphWidth(cp);
+      if (CjkUiFont21::hasCjkUiGlyph(cp)) {
+        bitmap = CjkUiFont21::getCjkUiGlyph(cp);
+        fontWidth = CjkUiFont21::CJK_UI_FONT_WIDTH;
+        fontHeight = CjkUiFont21::CJK_UI_FONT_HEIGHT;
+        bytesPerRow = CjkUiFont21::CJK_UI_FONT_BYTES_PER_ROW;
+        bytesPerChar = CjkUiFont21::CJK_UI_FONT_BYTES_PER_CHAR;
+        advance = CjkUiFont21::getCjkUiGlyphWidth(cp);
       }
 
       if (bitmap && advance > 0) {
@@ -2172,7 +2172,7 @@ void GfxRenderer::drawSideButtonHints(const int fontId, const char* topBtn, cons
         }
       }
       if (hasCjk) {
-        textHeight = CjkUiFont20::CJK_UI_FONT_HEIGHT;
+        textHeight = CjkUiFont21::CJK_UI_FONT_HEIGHT;
       }
 
       // Center the rotated text in the button
@@ -2426,7 +2426,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
           return;
         }
         // Missing glyph in external font - try built-in CJK UI font for CJK
-        if (isCjk && CjkUiFont20::hasCjkUiGlyph(cp)) {
+        if (isCjk && CjkUiFont21::hasCjkUiGlyph(cp)) {
           renderBuiltinCjkGlyph(cp, x, *y, pixelState);
           return;
         }
@@ -2438,7 +2438,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
     // Only fall back to external font if built-in doesn't have the glyph
     if (isCjk) {
       // First check built-in CJK UI font (Flash access is fast)
-      if (CjkUiFont20::hasCjkUiGlyph(cp)) {
+      if (CjkUiFont21::hasCjkUiGlyph(cp)) {
         renderBuiltinCjkGlyph(cp, x, *y, pixelState);
         return;
       }
@@ -2472,7 +2472,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
       }
     } else {
       // Non-CJK characters in UI - check built-in UI font first
-      if (CjkUiFont20::hasCjkUiGlyph(cp)) {
+      if (CjkUiFont21::hasCjkUiGlyph(cp)) {
         renderBuiltinCjkGlyph(cp, x, *y, pixelState);
         return;
       }
@@ -2625,7 +2625,7 @@ bool GfxRenderer::isReaderFont(const int fontId) const {
   // SD card fonts are always reader fonts — their IDs are computed via FNV-1a
   // hash and can be positive or negative. Without this check, positive SD card
   // font IDs fall through to the "UI font" branch in renderChar(), causing CJK
-  // characters to be drawn by CjkUiFont20 (fixed 20px) instead of the SD card
+  // characters to be drawn by CjkUiFont21 (fixed 21px) instead of the SD card
   // font's own glyphs.
   if (sdCardFonts_.count(fontId) > 0) {
     return true;
@@ -2698,13 +2698,13 @@ void GfxRenderer::renderExternalGlyph(const uint8_t* bitmap, ExternalFont* font,
 }
 
 void GfxRenderer::renderBuiltinCjkGlyph(const uint32_t cp, int* x, const int y, const bool pixelState) const {
-  // Use built-in 20px CJK UI font
-  const uint8_t* bitmap = CjkUiFont20::getCjkUiGlyph(cp);
-  const uint8_t fontWidth = CjkUiFont20::CJK_UI_FONT_WIDTH;
-  const uint8_t fontHeight = CjkUiFont20::CJK_UI_FONT_HEIGHT;
-  const uint8_t bytesPerRow = CjkUiFont20::CJK_UI_FONT_BYTES_PER_ROW;
-  const uint8_t bytesPerChar = CjkUiFont20::CJK_UI_FONT_BYTES_PER_CHAR;
-  const uint8_t actualWidth = CjkUiFont20::getCjkUiGlyphWidth(cp);
+  // Use built-in 21px CJK UI font
+  const uint8_t* bitmap = CjkUiFont21::getCjkUiGlyph(cp);
+  const uint8_t fontWidth = CjkUiFont21::CJK_UI_FONT_WIDTH;
+  const uint8_t fontHeight = CjkUiFont21::CJK_UI_FONT_HEIGHT;
+  const uint8_t bytesPerRow = CjkUiFont21::CJK_UI_FONT_BYTES_PER_ROW;
+  const uint8_t bytesPerChar = CjkUiFont21::CJK_UI_FONT_BYTES_PER_CHAR;
+  const uint8_t actualWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
 
   if (!bitmap || actualWidth == 0) {
     return;

@@ -11,7 +11,7 @@
  * Supports proportional spacing for English characters.
  */
 #pragma once
-namespace CjkUiFont20 {
+namespace CjkUiFont21 {
 
 #include <cstdint>
 #include <pgmspace.h>
@@ -18483,4 +18483,4 @@ inline uint8_t getCjkUiGlyphWidth(uint32_t codepoint) {
     return pgm_read_byte(&CJK_UI_GLYPH_WIDTHS[idx]);
 }
 
-} // namespace CjkUiFont20
+} // namespace CjkUiFont21
