@@ -2207,6 +2207,18 @@ size_t GfxRenderer::getRegionByteSize(int x, int y, int width, int height) const
   return (bits + 7) / 8;
 }
 
+uint8_t* GfxRenderer::getWriteTarget() const {
+  return getFrameBuffer();
+}
+
+int GfxRenderer::getWriteOriginY() const {
+  return 0;
+}
+
+int GfxRenderer::getWriteRows() const {
+  return getDisplayHeight();
+}
+
 bool GfxRenderer::copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer,
                                      size_t outBufferSize) {
   if (!outBuffer || width <= 0 || height <= 0) {

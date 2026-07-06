@@ -253,6 +253,9 @@ class GfxRenderer {
 
   // Low level functions
   uint8_t* getFrameBuffer() const;
+  uint8_t* getWriteTarget() const;
+  int getWriteOriginY() const;
+  int getWriteRows() const;
   size_t getBufferSize() const;
   size_t getRegionByteSize(int x, int y, int width, int height) const;
   bool copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer, size_t outBufferSize);
