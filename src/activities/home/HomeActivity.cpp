@@ -234,9 +234,12 @@ void HomeActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  coverRectX = 0;
+  const int coverCacheSidePadding = 60;
+  const int coverCacheW = pageWidth - 2 * coverCacheSidePadding;
+
+  coverRectX = coverCacheSidePadding;
   coverRectY = metrics.homeTopPadding;
-  coverRectW = pageWidth;
+  coverRectW = coverCacheW > 0 ? coverCacheW : pageWidth;
   coverRectH = metrics.homeCoverTileHeight;
 
 
