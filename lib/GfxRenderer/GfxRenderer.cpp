@@ -1064,9 +1064,20 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     hasTargetBounds = true;
   }
 
-  if (hasTargetBounds && fitScale < 1.0f) {
+  if (hasTargetBounds) {
     scale = fitScale;
-    isScaled = true;
+
+    // Allow upscaling for JPEG_SCALE_HALF cached images,
+    // but cap it to avoid huge accidental enlargement.
+    if (scale > 2.0f) {
+      scale = 2.0f;
+    }
+
+    if (scale <= 0.0f) {
+      scale = 1.0f;
+    }
+
+    isScaled = (scale != 1.0f);
   }
   LOG_DBG("GFX", "Scaling by %f - %s", scale, isScaled ? "scaled" : "not scaled");
 
@@ -1103,8 +1114,9 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       break;
     }
 
-    if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
+    const BmpReaderError rowErr = bitmap.readNextRow(outputRow, rowBytes);
+    if (rowErr != BmpReaderError::Ok) {
+      LOG_ERR("GFX", "Failed to read row %d from bitmap: %s", bmpY, Bitmap::errorToString(rowErr));
       free(outputRow);
       free(rowBytes);
       return;
@@ -1188,8 +1200,9 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
 
   for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
     // Read rows sequentially using readNextRow
-    if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap", bmpY);
+    const BmpReaderError rowErr = bitmap.readNextRow(outputRow, rowBytes);
+    if (rowErr != BmpReaderError::Ok) {
+      LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap: %s", bmpY, Bitmap::errorToString(rowErr));
       free(outputRow);
       free(rowBytes);
       return;

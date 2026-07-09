@@ -509,6 +509,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->startNewTextBlock(parentBlockStyle);
                 }
 
+                if (self->verticalMode && self->currentPage && !self->currentPage->elements.empty()) {
+                  self->completePageFn(std::move(self->currentPage));
+                  self->completedPageCount++;
+                  self->currentPage.reset(new Page());
+                  if (!self->currentPage) {
+                    LOG_ERR("EHP", "Failed to create image page");
+                    return;
+                  }
+                  self->currentPageNextY = 0;
+                  self->currentPageNextX = self->viewportWidth - self->renderer.getLineHeight(self->fontId);
+                }
                 // Create page for image - only break if image won't fit remaining space
                 if (self->currentPage && !self->currentPage->elements.empty() &&
                     (self->currentPageNextY + displayHeight > self->viewportHeight)) {
@@ -542,7 +553,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   return;
                 }
                 self->currentPage->elements.push_back(pageImage);
-                self->currentPageNextY += displayHeight;
+
+                if (self->verticalMode) {
+                  // In vertical mode, keep images on their own page to avoid overlap with vertical text columns.
+                  self->completePageFn(std::move(self->currentPage));
+                  self->completedPageCount++;
+                  self->currentPage.reset(new Page());
+                  if (!self->currentPage) {
+                    LOG_ERR("EHP", "Failed to create page after image");
+                    return;
+                  }
+                  self->currentPageNextY = 0;
+                  self->currentPageNextX = self->viewportWidth - self->renderer.getLineHeight(self->fontId);
+                } else {
+                  self->currentPageNextY += displayHeight;
+                }
 
                 self->depth += 1;
                 return;

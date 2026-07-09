@@ -205,9 +205,25 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // The converted BMP is cached on SD card for fast subsequent renders.
   if (FsHelpers::hasJpgExtension(imagePath)) {
     const std::string bmpPath = cachePath + ".bmp";
+    bool needsBmpCache = true;
+    if (Storage.exists(bmpPath.c_str())) {
+      FsFile existingBmp;
+      if (Storage.openFileForRead("IMG", bmpPath, existingBmp)) {
+        const size_t existingSize = existingBmp.size();
+        existingBmp.close();
 
+        // 70 bytes means BMP header only for 2-bit BMP: no pixel rows were written.
+        if (existingSize > 70) {
+          needsBmpCache = false;
+        } else {
+          LOG_DBG("IMG", "Removing incomplete BMP cache: %s (%lu bytes)",
+                  bmpPath.c_str(), static_cast<unsigned long>(existingSize));
+          Storage.remove(bmpPath.c_str());
+        }
+      }
+    }
     // Convert JPEG to BMP if not cached yet
-    if (!Storage.exists(bmpPath.c_str())) {
+    if (needsBmpCache) {
       FsFile jpegFile;
       if (!Storage.openFileForRead("IMG", imagePath, jpegFile)) {
         LOG_ERR("IMG", "Failed to open JPEG for BMP conversion: %s", imagePath.c_str());
@@ -222,25 +238,38 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
       }
 
       bool success = JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, width, height);
+
+      bmpFile.flush();
+      const size_t bmpSizeBeforeClose = bmpFile.size();
+      LOG_DBG("IMG", "Cached BMP size before close: %lu bytes", static_cast<unsigned long>(bmpSizeBeforeClose));
+
       jpegFile.close();
       bmpFile.close();
 
-      if (!success) {
+      if (!success || bmpSizeBeforeClose == 0) {
         Storage.remove(bmpPath.c_str());
         LOG_ERR("IMG", "JPEG to BMP conversion failed: %s", imagePath.c_str());
         return;
       }
-      LOG_DBG("IMG", "Cached JPEG as BMP: %s", bmpPath.c_str());
+
+LOG_DBG("IMG", "Cached JPEG as BMP: %s (%lu bytes)", bmpPath.c_str(), static_cast<unsigned long>(bmpSizeBeforeClose));
     }
 
     // Render from cached BMP
     FsFile bmpReadFile;
     if (Storage.openFileForRead("IMG", bmpPath, bmpReadFile)) {
+      const size_t bmpReadSize = bmpReadFile.size();
+      LOG_DBG("IMG", "Opening cached BMP: %s (%lu bytes)", bmpPath.c_str(), static_cast<unsigned long>(bmpReadSize));
+
       Bitmap bmp(bmpReadFile);
-      if (bmp.parseHeaders() == BmpReaderError::Ok) {
+      const BmpReaderError bmpErr = bmp.parseHeaders();
+      if (bmpErr == BmpReaderError::Ok) {
+        LOG_DBG("IMG", "Cached BMP parsed: %dx%d, rowBytes=%u",
+                bmp.getWidth(), bmp.getHeight(), static_cast<unsigned>(bmp.getRowBytes()));
+
         renderer.drawBitmap(bmp, x, y, width, height);
       } else {
-        LOG_ERR("IMG", "Failed to parse cached BMP");
+        LOG_ERR("IMG", "Failed to parse cached BMP: %s", Bitmap::errorToString(bmpErr));
         Storage.remove(bmpPath.c_str());
       }
       bmpReadFile.close();

@@ -16,7 +16,7 @@
 // ============================================================================
 constexpr bool USE_8BIT_OUTPUT = false;  // true: 8-bit grayscale (no quantization), false: 2-bit (4 levels)
 // Dithering method selection (only one should be true, or all false for simple quantization):
-constexpr bool USE_ATKINSON = true;          // Atkinson dithering (cleaner than F-S, less error diffusion)
+constexpr bool USE_ATKINSON = false;          // Atkinson dithering (cleaner than F-S, less error diffusion)
 constexpr bool USE_FLOYD_STEINBERG = false;  // Floyd-Steinberg error diffusion (can cause "worm" artifacts)
 constexpr bool USE_NOISE_DITHERING = false;  // Hash-based noise dithering (good for downsampling)
 // Pre-resize to target display size (CRITICAL: avoids dithering artifacts from post-downsampling)
@@ -206,6 +206,8 @@ struct BmpConvertCtx {
   bool oneBit;
   int bytesPerRow;
   bool needsScaling;
+  int callbackCount;
+  int rowsWritten;
   uint32_t scaleX_fp;  // source pixels per output pixel, 16.16 fixed-point
   uint32_t scaleY_fp;
 
@@ -227,7 +229,17 @@ struct BmpConvertCtx {
 
   bool error;
 };
+static uint8_t darkenForEpaperImage(const uint8_t gray) {
+  int v = gray;
 
+  // Lower value = darker. 0=black, 255=white.
+  v = (v - 128) * 140 / 100 + 128;  // contrast +40%
+  v -= 50;                          // darken image
+
+  if (v < 0) v = 0;
+  if (v > 255) v = 255;
+  return static_cast<uint8_t>(v);
+}
 // Write a fully-assembled output row (grayscale bytes, length outWidth) to BMP
 static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) {
   memset(ctx->bmpRow, 0, ctx->bytesPerRow);
@@ -245,7 +257,7 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel(srcRow[x]);
+      const uint8_t gray = darkenForEpaperImage(adjustPixel(srcRow[x]));
       uint8_t twoBit;
       if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
@@ -262,7 +274,13 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
       ctx->fsDitherer->nextRow();
   }
 
-  ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+    const size_t written = ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+  if (written != static_cast<size_t>(ctx->bytesPerRow)) {
+    LOG_ERR("JPG", "Short BMP row write: %u/%d", static_cast<unsigned>(written), ctx->bytesPerRow);
+    ctx->error = true;
+    return;
+  }
+  ctx->rowsWritten++;
 }
 
 // Flush one scaled output row from Y-axis accumulators and advance currentOutY
@@ -284,7 +302,8 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0);
+      const uint8_t gray = darkenForEpaperImage(
+          adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0));
       uint8_t twoBit;
       if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
@@ -301,7 +320,13 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
       ctx->fsDitherer->nextRow();
   }
 
-  ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+    const size_t written = ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+  if (written != static_cast<size_t>(ctx->bytesPerRow)) {
+    LOG_ERR("JPG", "Short scaled BMP row write: %u/%d", static_cast<unsigned>(written), ctx->bytesPerRow);
+    ctx->error = true;
+    return;
+  }
+  ctx->rowsWritten++;
   ctx->currentOutY++;
 }
 
@@ -313,13 +338,33 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
   auto* ctx = reinterpret_cast<BmpConvertCtx*>(pDraw->pUser);
   if (!ctx || ctx->error) return 0;
 
+  ctx->callbackCount++;
+
+  if (ctx->callbackCount <= 8) {
+    LOG_DBG("JPG", "Callback #%d: x=%d y=%d w=%d used=%d h=%d",
+            ctx->callbackCount,
+            pDraw->x,
+            pDraw->y,
+            pDraw->iWidth,
+            pDraw->iWidthUsed,
+            pDraw->iHeight);
+  }
+
   const uint8_t* pixels = reinterpret_cast<uint8_t*>(pDraw->pPixels);
   const int stride = pDraw->iWidth;
-  const int validW = pDraw->iWidthUsed;
+
+  // Some JPEGDEC builds leave iWidthUsed as 0 even when iWidth is valid.
+  // If validW stays 0, the callback never reaches the "last MCU column" path,
+  // so only the BMP header is written.
+  const int validW = (pDraw->iWidthUsed > 0) ? pDraw->iWidthUsed : pDraw->iWidth;
+
   const int blockH = pDraw->iHeight;
   const int blockX = pDraw->x;
   const int blockY = pDraw->y;
-
+  if (blockY == 0) {
+    LOG_DBG("JPG", "Draw block x=%d y=%d w=%d used=%d h=%d src=%dx%d",
+            blockX, blockY, pDraw->iWidth, pDraw->iWidthUsed, blockH, ctx->srcWidth, ctx->srcHeight);
+  }
   // Copy block pixels into MCU row buffer
   for (int r = 0; r < blockH && r < MAX_MCU_HEIGHT; r++) {
     const int copyW = (blockX + validW <= ctx->srcWidth) ? validW : (ctx->srcWidth - blockX);
@@ -404,6 +449,11 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const int srcHeight = jpeg->getHeight();
 
   LOG_DBG("JPG", "JPEG dimensions: %dx%d", srcWidth, srcHeight);
+  const int decodeScale = 2;  // JPEG_SCALE_HALF
+  const int decWidth = (srcWidth + decodeScale - 1) / decodeScale;
+  const int decHeight = (srcHeight + decodeScale - 1) / decodeScale;
+
+  LOG_DBG("JPG", "JPEG decoded dimensions: %dx%d", decWidth, decHeight);
 
   constexpr int MAX_IMAGE_WIDTH = 2048;
   constexpr int MAX_IMAGE_HEIGHT = 3072;
@@ -417,8 +467,8 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   }
 
   // Calculate output dimensions (pre-scale to fit display exactly)
-  int outWidth = srcWidth;
-  int outHeight = srcHeight;
+  int outWidth = decWidth;
+  int outHeight = decHeight;
   uint32_t scaleX_fp = 65536;  // 1.0 in 16.16 fixed point
   uint32_t scaleY_fp = 65536;
   bool needsScaling = false;
@@ -461,8 +511,8 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
   BmpConvertCtx ctx = {};
   ctx.bmpOut = &bmpOut;
-  ctx.srcWidth = srcWidth;
-  ctx.srcHeight = srcHeight;
+  ctx.srcWidth = decWidth;
+  ctx.srcHeight = decHeight;
   ctx.outWidth = outWidth;
   ctx.outHeight = outHeight;
   ctx.oneBit = oneBit;
@@ -526,10 +576,14 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
   jpeg->setUserPointer(&ctx);
 
-  rc = jpeg->decode(0, 0, 0);
+  rc = jpeg->decode(0, 0, JPEG_SCALE_HALF);
 
-  if (rc != 1 || ctx.error) {
-    LOG_ERR("JPG", "JPEG decode failed (rc=%d, err=%d)", rc, jpeg->getLastError());
+  LOG_DBG("JPG", "JPEG decode result: rc=%d callbacks=%d rows=%d expectedRows=%d err=%d",
+          rc, ctx.callbackCount, ctx.rowsWritten, ctx.outHeight, jpeg->getLastError());
+
+  if (rc != 1 || ctx.error || ctx.rowsWritten != ctx.outHeight) {
+    LOG_ERR("JPG", "JPEG decode incomplete: rc=%d callbacks=%d rows=%d/%d err=%d",
+            rc, ctx.callbackCount, ctx.rowsWritten, ctx.outHeight, jpeg->getLastError());
     return false;
   }
 
