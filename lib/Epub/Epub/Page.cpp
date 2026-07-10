@@ -32,10 +32,19 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
   return std::unique_ptr<PageLine>(new PageLine(std::move(tb), xPos, yPos));
 }
 
-void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                       const int /*viewportWidth*/) {
-  // Images don't use fontId or text rendering
-  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
+void PageImage::render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth) {
+  int drawY = yPos + yOffset;
+
+  // EPUB挿絵をページ内で縦中央寄せする
+  // X4の画面高さは基本 800px
+  const int pageHeight = 800;
+  const int imageHeight = imageBlock->getHeight();
+
+  if (imageHeight > 0 && imageHeight < pageHeight) {
+    drawY = yOffset + (pageHeight - imageHeight) / 2 - 20;
+  }
+
+  imageBlock->render(renderer, xPos + xOffset, drawY);
 }
 
 bool PageImage::serialize(FsFile& file) {
