@@ -330,22 +330,7 @@ void TxtReaderActivity::render(RenderLock&&) {
   renderPage();
 
   // Save progress
-  void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished) {
-    uint8_t data[7];
-    data[0] = spineIndex & 0xFF;
-    data[1] = (spineIndex >> 8) & 0xFF;
-    data[2] = currentPage & 0xFF;
-    data[3] = (currentPage >> 8) & 0xFF;
-    data[4] = pageCount & 0xFF;
-    data[5] = (pageCount >> 8) & 0xFF;
-    data[6] = isFinished ? 1 : 0;
-
-    if (ProgressFile::writeAtomic(epub->getCachePath(), data, sizeof(data))) {
-      LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d", spineIndex, currentPage,
-              isFinished ? 1 : 0);
-    } else {
-      LOG_ERR("ERS", "Could not save progress!");
-    }
+  saveProgress();
 
 }
 
