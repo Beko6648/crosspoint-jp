@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include "EpdFontFamily.h"
 
 static_assert(sizeof(EpdGlyph) == 16, "EpdGlyph must be 16 bytes to match .cpfont file layout");
 static_assert(sizeof(EpdUnicodeInterval) == 12, "EpdUnicodeInterval must be 12 bytes to match .cpfont file layout");
@@ -403,6 +404,8 @@ int32_t SdCardFont::findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) 
 
 int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOnly) {
   if (!loaded_) return -1;
+  styleMask = resolveStyleMask(styleMask);
+  if (styleMask == 0) return 0;
 
   unsigned long startMs = millis();
 
@@ -919,6 +922,9 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
 int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
   if (!loaded_) return -1;
 
+  styleMask = resolveStyleMask(styleMask);
+  if (styleMask == 0) return 0;
+  
   clearAdvanceTables();
 
   unsigned long startMs = millis();
@@ -1105,6 +1111,32 @@ EpdFont* SdCardFont::getEpdFont(uint8_t style) {
 }
 
 bool SdCardFont::hasStyle(uint8_t style) const { return style < MAX_STYLES && styles_[style].present; }
+
+uint8_t SdCardFont::resolveStyle(uint8_t style) const {
+    static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
+        {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},
+        {EpdFontFamily::BOLD, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::ITALIC},
+        {EpdFontFamily::ITALIC, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD},
+        {EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::REGULAR},
+    };
+
+    const uint8_t styleBits = style & (MAX_STYLES - 1);
+    for (uint8_t candidate : kFallbacks[styleBits]) {
+        if (styles_[candidate].present)
+            return candidate;
+    }
+    return EpdFontFamily::REGULAR;
+}
+
+uint8_t SdCardFont::resolveStyleMask(uint8_t styleMask) const {
+    uint8_t resolvedMask = 0;
+    for (uint8_t si = 0; si < MAX_STYLES; si++) {
+        if (styleMask & (1 << si)) {
+            resolvedMask |= static_cast<uint8_t>(1u << resolveStyle(si));
+        }
+    }
+    return resolvedMask;
+}
 
 // --- On-demand glyph loading (overflow buffer) ---
 
