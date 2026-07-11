@@ -125,7 +125,18 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       // Classify: replicate the logic from ChapterHtmlSlimParser::flushPartWordBuffer
       const auto* p = reinterpret_cast<const unsigned char*>(w);
       uint32_t firstCp = utf8NextCodepoint(&p);
-      bool isSingleCjk = (firstCp != 0 && *p == '\0' && VerticalTextUtils::isUprightInVertical(firstCp));
+      const bool isSingleCodepoint = (firstCp != 0 && *p == '\0');
+
+      // 縦書きでは「＝」と半角長音符「ｰ」を90度回転する。
+      const bool forceSidewaysSymbol =
+          isSingleCodepoint &&
+          (firstCp == 0xFF1D ||  // ＝ FULLWIDTH EQUALS SIGN
+           firstCp == 0xFF70);   // ｰ HALFWIDTH KATAKANA-HIRAGANA PROLONGED SOUND MARK
+
+      const bool isSingleCjk =
+          isSingleCodepoint &&
+          !forceSidewaysSymbol &&
+          VerticalTextUtils::isUprightInVertical(firstCp);
 
       if (isSingleCjk) {
         renderer.drawTextVertical(effectiveFontId, wx, wy, w, true, currentStyle);
