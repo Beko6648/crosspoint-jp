@@ -371,7 +371,7 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
   }
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
-  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
+ 
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;
@@ -407,9 +407,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.screenHeight = renderer.getScreenHeight();
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
-  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
   if (rc != 1) {
-    LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
+    LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
+    if (ctx.caching) ctx.cache.abort();
+    jpeg->close();
     return false;
   }
 
@@ -509,9 +510,6 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    jpeg->close();
-    delete jpeg;
-
     return false;
   }
 
@@ -522,7 +520,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   if (ctx.caching) {
     ctx.cache.finalize();
   }
-
+  jpeg->close();
   return true;
 }
 

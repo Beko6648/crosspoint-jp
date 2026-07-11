@@ -263,7 +263,6 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 
   int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
                      nullptr);
-  const ScopedCleanup cleanup{[&png]() { png->close(); }};
 
   if (rc != 0) {
     LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
@@ -301,7 +300,6 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
                      pngDrawCallback);
-  const ScopedCleanup cleanup{[&png]() { png->close(); }};
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
     return false;
@@ -383,13 +381,11 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   ctx.grayLineBuffer = nullptr;
 
 if (rc != PNG_SUCCESS) {
-    LOG_ERR("PNG", "Decode failed: %d", rc);
-    if (ctx.caching) ctx.cache.abort();
-    png->close();
-    delete png;
-
-    return false;
-  }
+  LOG_ERR("PNG", "Decode failed: %d", rc);
+  if (ctx.caching) ctx.cache.abort();
+  png->close();
+  return false;
+}
 
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
@@ -398,6 +394,7 @@ if (rc != PNG_SUCCESS) {
     ctx.cache.finalize();
   }
 
+  png->close();
   return true;
 }
 

@@ -59,7 +59,7 @@ void CalibreConnectActivity::onExit() {
   delay(30);
   WiFi.mode(WIFI_OFF);
   delay(30);
-
+}
 void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {
   if (!connected) {
     finish();

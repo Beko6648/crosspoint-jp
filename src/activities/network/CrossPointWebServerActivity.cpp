@@ -18,18 +18,17 @@
 #include "util/QrUtils.h"
 
 namespace {
+
 // AP Mode configuration
 constexpr const char* AP_SSID = "CrossPoint-Reader";
-constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
+constexpr const char* AP_PASSWORD = nullptr;
 constexpr const char* AP_HOSTNAME = "crosspoint";
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
 constexpr int QR_CODE_WIDTH = 198;
 constexpr int QR_CODE_HEIGHT = 198;
 
-// DNS server for captive portal (redirects all DNS queries to our IP)
-DNSServer* dnsServer = nullptr;
-constexpr uint16_t DNS_PORT = 53;
+// DNS server for captive portal
 DNSServer* dnsServer = nullptr;
 constexpr uint16_t DNS_PORT = 53;
 
@@ -50,7 +49,6 @@ void restartMdns(const char* hostname, const char* tag) {
   }
 }
 
-// 0..4 bars from RSSI (dBm), with 3 dBm hysteresis on currentBars to suppress flicker.
 int barsForRssi(int rssi, int currentBars) {
   static constexpr int RISE_DBM[] = {-85, -75, -65, -55};
   static constexpr int FALL_DBM[] = {-88, -78, -68, -58};
@@ -59,6 +57,7 @@ int barsForRssi(int rssi, int currentBars) {
   while (bars < 4 && rssi >= RISE_DBM[bars]) bars++;
   while (bars > 0 && rssi < FALL_DBM[bars - 1]) bars--;
   return bars;
+}
 
 }  // namespace
 
