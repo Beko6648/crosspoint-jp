@@ -21,7 +21,12 @@ ImageBlock::ImageBlock(const std::string& imagePath, int16_t width, int16_t heig
 
 bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str()); }
 
+
 namespace {
+
+std::string failedJpegPath;
+unsigned long failedJpegAt = 0;
+constexpr unsigned long JPEG_RETRY_DELAY_MS = 30000;
 
 std::string getCachePath(const std::string& imagePath) {
   // Replace extension with .pxc (pixel cache)
@@ -33,13 +38,15 @@ std::string getCachePath(const std::string& imagePath) {
 }
 
 // RAII guard: conditionally set skipDarkModeForImages so drawPixel skips
-// dark-mode inversion for image pixels.  When active=false the guard is a no-op.
+// dark-mode inversion for image pixels. When active=false the guard is a no-op.
 struct ImageRenderScope {
   GfxRenderer& r;
   bool active;
+
   ImageRenderScope(GfxRenderer& r, bool active) : r(r), active(active) {
     if (active) r.beginImageRender();
   }
+
   ~ImageRenderScope() {
     if (active) r.endImageRender();
   }
@@ -204,6 +211,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // JpegToFramebufferConverter has diagonal distortion bugs with scaled output.
   // The converted BMP is cached on SD card for fast subsequent renders.
   if (FsHelpers::hasJpgExtension(imagePath)) {
+    if (failedJpegPath == imagePath &&
+        static_cast<unsigned long>(millis() - failedJpegAt) < JPEG_RETRY_DELAY_MS) {
+      LOG_DBG("IMG", "Skipping recently failed JPEG conversion: %s", imagePath.c_str());
+      return;
+    }
     const std::string bmpPath = cachePath + ".bmp";
     bool needsBmpCache = true;
     if (Storage.exists(bmpPath.c_str())) {
@@ -246,10 +258,20 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
       jpegFile.close();
       bmpFile.close();
 
-      if (!success || bmpSizeBeforeClose == 0) {
+      if (!success || bmpSizeBeforeClose <= 70) {
         Storage.remove(bmpPath.c_str());
+
+        failedJpegPath = imagePath;
+        failedJpegAt = millis();
+
         LOG_ERR("IMG", "JPEG to BMP conversion failed: %s", imagePath.c_str());
         return;
+      }
+
+      // Conversion succeeded, so clear any previous failure suppression.
+      if (failedJpegPath == imagePath) {
+        failedJpegPath.clear();
+        failedJpegAt = 0;
       }
 
 LOG_DBG("IMG", "Cached JPEG as BMP: %s (%lu bytes)", bmpPath.c_str(), static_cast<unsigned long>(bmpSizeBeforeClose));
