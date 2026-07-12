@@ -145,14 +145,13 @@ void XMLCALL TocNcxParser::endElement(void* userData, const XML_Char* name) {
     // This is the safest place to push the data, assuming <navLabel> always comes before <content>.
     // NCX spec says navLabel comes before content.
     if (!self->currentLabel.empty() && !self->currentSrc.empty()) {
-      const std::string rawTarget = self->baseContentPath + self->currentSrc;
-      const size_t pos = rawTarget.find('#');
-      const std::string rawPath = pos == std::string::npos ? rawTarget : rawTarget.substr(0, pos);
-      std::string href = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(rawPath));
+      std::string href = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(self->baseContentPath + self->currentSrc));
       std::string anchor;
 
+      const size_t pos = href.find('#');
       if (pos != std::string::npos) {
-        anchor = FsHelpers::decodeUriEscapes(rawTarget.substr(pos + 1));
+        anchor = href.substr(pos + 1);
+        href = href.substr(0, pos);
       }
 
       if (self->cache) {
