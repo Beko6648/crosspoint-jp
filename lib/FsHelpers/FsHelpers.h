@@ -6,8 +6,6 @@
 
 namespace FsHelpers {
 
-std::string decodeUriEscapes(const std::string& path);
-
 std::string normalisePath(const std::string& path);
 
 /**
