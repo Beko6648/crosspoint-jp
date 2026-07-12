@@ -24,7 +24,6 @@ bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str());
 
 namespace {
 
-std::string failedJpegPath;
 unsigned long failedJpegAt = 0;
 constexpr unsigned long JPEG_RETRY_DELAY_MS = 30000;
 
@@ -51,6 +50,7 @@ struct ImageRenderScope {
     if (active) r.endImageRender();
   }
 };
+
 
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
                      int expectedHeight) {
@@ -211,11 +211,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // JpegToFramebufferConverter has diagonal distortion bugs with scaled output.
   // The converted BMP is cached on SD card for fast subsequent renders.
   if (FsHelpers::hasJpgExtension(imagePath)) {
-    if (failedJpegPath == imagePath &&
-        static_cast<unsigned long>(millis() - failedJpegAt) < JPEG_RETRY_DELAY_MS) {
-      LOG_DBG("IMG", "Skipping recently failed JPEG conversion: %s", imagePath.c_str());
-      return;
-    }
+    if (failedJpegAt != 0 &&
+      static_cast<unsigned long>(millis() - failedJpegAt) < JPEG_RETRY_DELAY_MS) {
+    LOG_DBG("IMG", "Skipping JPEG conversion during global cooldown: %s", imagePath.c_str());
+    return;
+  }
     const std::string bmpPath = cachePath + ".bmp";
     bool needsBmpCache = true;
     if (Storage.exists(bmpPath.c_str())) {
@@ -261,41 +261,50 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
       if (!success || bmpSizeBeforeClose <= 70) {
         Storage.remove(bmpPath.c_str());
 
-        failedJpegPath = imagePath;
         failedJpegAt = millis();
 
         LOG_ERR("IMG", "JPEG to BMP conversion failed: %s", imagePath.c_str());
         return;
       }
 
-      // Conversion succeeded, so clear any previous failure suppression.
-      if (failedJpegPath == imagePath) {
-        failedJpegPath.clear();
-        failedJpegAt = 0;
-      }
+      failedJpegAt = 0;
 
-LOG_DBG("IMG", "Cached JPEG as BMP: %s (%lu bytes)", bmpPath.c_str(), static_cast<unsigned long>(bmpSizeBeforeClose));
-    }
+      LOG_DBG("IMG", "Cached JPEG as BMP: %s (%lu bytes)",
+              bmpPath.c_str(),
+              static_cast<unsigned long>(bmpSizeBeforeClose));
+
+    }  // closes if (needsBmpCache)
 
     // Render from cached BMP
     FsFile bmpReadFile;
     if (Storage.openFileForRead("IMG", bmpPath, bmpReadFile)) {
       const size_t bmpReadSize = bmpReadFile.size();
-      LOG_DBG("IMG", "Opening cached BMP: %s (%lu bytes)", bmpPath.c_str(), static_cast<unsigned long>(bmpReadSize));
+
+      LOG_DBG("IMG", "Opening cached BMP: %s (%lu bytes)",
+              bmpPath.c_str(),
+              static_cast<unsigned long>(bmpReadSize));
 
       Bitmap bmp(bmpReadFile);
       const BmpReaderError bmpErr = bmp.parseHeaders();
+
       if (bmpErr == BmpReaderError::Ok) {
         LOG_DBG("IMG", "Cached BMP parsed: %dx%d, rowBytes=%u",
-                bmp.getWidth(), bmp.getHeight(), static_cast<unsigned>(bmp.getRowBytes()));
+                bmp.getWidth(),
+                bmp.getHeight(),
+                static_cast<unsigned>(bmp.getRowBytes()));
 
         renderer.drawBitmap(bmp, x, y, width, height);
       } else {
-        LOG_ERR("IMG", "Failed to parse cached BMP: %s", Bitmap::errorToString(bmpErr));
+        LOG_ERR("IMG", "Failed to parse cached BMP: %s",
+                Bitmap::errorToString(bmpErr));
         Storage.remove(bmpPath.c_str());
       }
+
       bmpReadFile.close();
+    } else {
+      LOG_ERR("IMG", "Failed to open cached BMP: %s", bmpPath.c_str());
     }
+
     return;
   }
 

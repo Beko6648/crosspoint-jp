@@ -486,9 +486,9 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     if (outWidth < 1) outWidth = 1;
     if (outHeight < 1) outHeight = 1;
 
-    scaleX_fp = (static_cast<uint32_t>(srcWidth) << 16) / outWidth;
-    scaleY_fp = (static_cast<uint32_t>(srcHeight) << 16) / outHeight;
-    needsScaling = true;
+    scaleX_fp = (static_cast<uint32_t>(decWidth) << 16) / outWidth;
+    scaleY_fp = (static_cast<uint32_t>(decHeight) << 16) / outHeight;
+    needsScaling = decWidth != outWidth || decHeight != outHeight;
 
     LOG_DBG("JPG", "Scaling %dx%d -> %dx%d (target %dx%d)", srcWidth, srcHeight, outWidth, outHeight, targetWidth,
             targetHeight);
@@ -524,15 +524,20 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   struct Cleanup {
     BmpConvertCtx& ctx;
     JPEGDEC* jpeg;
+
     ~Cleanup() {
       delete[] ctx.rowAccum;
       delete[] ctx.rowCount;
-      delete ctx.atkinsonDitherer;
-      delete ctx.fsDitherer;
       delete ctx.atkinson1BitDitherer;
       free(ctx.mcuBuf);
       free(ctx.bmpRow);
-      jpeg->close();
+
+      if (jpeg) {
+        jpeg->close();
+        delete jpeg;
+      }
+
+      s_jpegFile = nullptr;
     }
   } cleanup{ctx, jpeg};
 
