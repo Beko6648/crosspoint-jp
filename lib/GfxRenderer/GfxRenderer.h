@@ -41,6 +41,9 @@ class GfxRenderer {
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
+  // Single-pass AA for 2-bit SD fonts. Partial-coverage pixels are dithered
+  // in the BW frame, avoiding grayscale controller state between screens.
+  bool fastAntiAliasing = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
@@ -241,6 +244,12 @@ class GfxRenderer {
   // Grayscale functions
   void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
   RenderMode getRenderMode() const { return renderMode; }
+  void setFastAntiAliasing(bool enabled) { fastAntiAliasing = enabled; }
+  bool isFastAntiAliasing() const { return fastAntiAliasing; }
+  bool shouldDrawFastAaPixel(uint8_t coverage, int x, int y) const {
+    return coverage == 0 || (coverage == 1 && ((x + y) & 1) == 0) ||
+           (coverage == 2 && (x & 1) == 0 && (y & 1) == 0);
+  }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer(bool turnOffScreen = false, bool darkMode = false) const;

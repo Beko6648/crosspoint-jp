@@ -12,6 +12,8 @@
 #include <Logging.h>
 #include <esp_system.h>
 
+#include <cstring>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "EpubReaderChapterSelectionActivity.h"
@@ -1060,6 +1062,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
   const int viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
+  const int readerFontId = SETTINGS.getReaderFontId(verticalMode);
   const auto t0 = millis();
 
   // Preload external font glyphs: collect codepoints from page, sort them,
@@ -1082,15 +1085,32 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,
-               viewportWidth);  // scan pass
+  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);  // scan pass
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 
-  // Force special handling for pages with images when anti-aliasing is on
-  bool imagePageWithAA = page->hasImages() && SETTINGS.getDirectionSettings(verticalMode).textAntiAliasing;
+  const auto& directionSettings = SETTINGS.getDirectionSettings(verticalMode);
+  const bool textAaEnabled = directionSettings.textAntiAliasing;
+  const bool useExternalFont = FontManager::getInstance().isExternalFontEnabled();
+  // Noto Sans family directories may end in JP, Jp, or CJK. Match the stable
+  // family prefix so Serif and other SD fonts keep their full grayscale AA.
+  const bool isNotoSans = strncmp(directionSettings.sdFontFamilyName, "NotoSans", 8) == 0;
+  const bool fastTextAA =
+      textAaEnabled && !useExternalFont && isNotoSans && renderer.isSdCardFont(readerFontId);
+  const bool needsTextGrayscale = textAaEnabled && !useExternalFont && !fastTextAA;
+  const bool needsImageGrayscale = page->hasImages() && textAaEnabled && !useExternalFont;
+  const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
 
-  page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop, viewportWidth);
+  auto renderBwPage = [&]() {
+    renderer.setFastAntiAliasing(fastTextAA);
+    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    renderer.setFastAntiAliasing(false);
+  };
+
+  // Force special handling for pages with images when anti-aliasing is on
+  bool imagePageWithAA = page->hasImages() && textAaEnabled;
+
+  renderBwPage();
   renderStatusBar();
   const auto tBwRender = millis();
 
@@ -1107,8 +1127,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
-      page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,
-                   viewportWidth);
+      renderBwPage();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -1123,21 +1142,27 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   renderer.storeBwBuffer();
   const auto tBwStore = millis();
 
-  // Grayscale rendering - skip for external fonts (1-bit bitmap, no antialiasing benefit)
-  const bool useExternalFont = FontManager::getInstance().isExternalFontEnabled();
-  if (SETTINGS.getDirectionSettings(verticalMode).textAntiAliasing && !useExternalFont) {
+  // Built-in fonts use full grayscale AA. SD fonts use single-pass BW dithering
+  // to avoid carrying grayscale controller state into page/home transitions.
+  if (needsAnyGrayscale) {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,
-                 viewportWidth);
+    if (needsTextGrayscale) {
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    } else {
+      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    }
     renderer.copyGrayscaleLsbBuffers();
     const auto tGrayLsb = millis();
 
     // Render and copy to MSB buffer
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,
-                 viewportWidth);
+    if (needsTextGrayscale) {
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    } else {
+      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    }
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();
 

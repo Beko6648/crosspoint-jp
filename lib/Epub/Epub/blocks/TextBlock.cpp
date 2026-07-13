@@ -60,7 +60,7 @@ void TextBlock::collectCodepoints(std::vector<uint32_t>& out, size_t max) const 
 
 bool TextBlock::hasRuby() const {
   for (const auto& rt : rubyTexts) {
-    if (!rt.empty()) return true;
+    if (!rt.empty() && !isRubyContinuation(rt)) return true;
   }
   return false;
 }
@@ -165,7 +165,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         }
       }
 
-      if (i < rubyTexts.size() && !rubyTexts[i].empty()) {
+      if (i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
         #if DEBUG_RUBY_RENDER
         LOG_INF(
             "TXB",
@@ -182,7 +182,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       }
 
                   // 縦書きルビ描画
-      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
+      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() &&
+          !isRubyContinuation(rubyTexts[i])) {
         #if DEBUG_RUBY_RENDER
         LOG_INF(
             "TXB",
@@ -233,11 +234,33 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       const int wordX = wordXpos[i] + x;
       renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);
       // 横書きルビ描画
-      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
-        const int baseWidth = renderer.getTextAdvanceX(effectiveFontId, words[i].c_str(), currentStyle);
-        const int rubyWidth = renderer.getTextWidth(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
-        const int rubyX = wordXpos[i] + x + (baseWidth - rubyWidth) / 2;
-        const int rubyY = y - renderer.getLineHeight(rubyFontId) - 1;
+      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() &&
+          !isRubyContinuation(rubyTexts[i])) {
+        if (rubyFontIsSd) {
+          renderer.ensureSdCardFontReady(rubyFontId, rubyTexts[i].c_str());
+        }
+
+        size_t rubyBaseEnd = i;
+        while (rubyBaseEnd + 1 < rubyTexts.size() && isRubyContinuation(rubyTexts[rubyBaseEnd + 1])) {
+          rubyBaseEnd++;
+        }
+
+        // Center over the complete <ruby> base, not only its first CJK token.
+        const int lastBaseAdvance = renderer.getTextAdvanceX(
+            effectiveFontId, words[rubyBaseEnd].c_str(), wordStyles[rubyBaseEnd]);
+        const int baseWidth = wordXpos[rubyBaseEnd] - wordXpos[i] + lastBaseAdvance;
+        const int rubyWidth =
+            renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
+        const int rubyX = wordX + (baseWidth - rubyWidth) / 2;
+        const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
+        const int rubyLineHeight = renderer.getLineHeight(rubyFontId);
+
+        // Mirror the vertical ruby spacing correction onto the horizontal cross-axis.
+        // BIZUD-like metrics keep the original separation; other SD fonts move closer to the body text.
+        const bool isBizudLikeFont = (bodyLineHeight == 29 && rubyLineHeight == 17);
+        const int gap = isBizudLikeFont ? 2 : 1;
+        const int rubyBaseOffset = isBizudLikeFont ? bodyLineHeight : bodyLineHeight * 70 / 100;
+        const int rubyY = y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap;
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 

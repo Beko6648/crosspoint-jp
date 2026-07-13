@@ -283,7 +283,10 @@ GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopP
   const auto labels = mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  renderer.displayBuffer();
+  // The first Home frame replaces an entire reader page.  Use the same
+  // conditioned refresh path as the reader's one-page cadence so grayscale
+  // text residue cannot survive the activity transition.
+  renderer.displayBuffer(firstRenderDone ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
 
   if (!firstRenderDone) {
     firstRenderDone = true;

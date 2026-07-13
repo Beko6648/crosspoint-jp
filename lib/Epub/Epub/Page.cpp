@@ -92,6 +92,15 @@ void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, co
   }
 }
 
+void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                        const int viewportWidth) const {
+  for (auto& element : elements) {
+    if (element->getTag() == TAG_PageImage) {
+      element->render(renderer, fontId, xOffset, yOffset, viewportWidth);
+    }
+  }
+}
+
 void Page::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
   if (max == 0 || out.size() >= max) {
     return;

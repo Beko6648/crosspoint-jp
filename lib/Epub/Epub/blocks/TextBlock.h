@@ -49,6 +49,11 @@ class TextBlock final : public Block {
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }
+  // Marks additional base-text tokens that belong to the ruby group stored on the preceding token.
+  static constexpr char RUBY_CONTINUATION_MARKER = '\x01';
+  static bool isRubyContinuation(const std::string& ruby) {
+    return ruby.size() == 1 && ruby[0] == RUBY_CONTINUATION_MARKER;
+  }
   static int rubyFontId;  // アプリ層から設定されるルビフォントID（0=ルビ描画しない）
   bool isEmpty() override { return words.empty(); }
   size_t wordCount() const { return words.size(); }

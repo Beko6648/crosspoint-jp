@@ -90,6 +90,7 @@ class Page {
   }
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0) const;
+  void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0) const;
   void collectCodepoints(std::vector<uint32_t>& out, size_t max) const;
   bool serialize(FsFile& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);

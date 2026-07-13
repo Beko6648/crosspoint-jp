@@ -12,8 +12,8 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-// Version 41: CSS may be skipped under low heap to keep section builds readable.
-constexpr uint8_t SECTION_FILE_VERSION = 41;
+// Version 42: horizontal ruby stores its complete base-text span for centering.
+constexpr uint8_t SECTION_FILE_VERSION = 42;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

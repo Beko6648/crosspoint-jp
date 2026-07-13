@@ -1208,7 +1208,8 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
      // 親文字数とのズレで一部ルビが表示されないことがある。
      self->currentTextBlock->setRubyForWordAt(
          self->rubyStartWordIndex,
-         self->rubyTextBuffer
+         self->rubyTextBuffer,
+         static_cast<size_t>(baseWordCount)
      );
     }
 

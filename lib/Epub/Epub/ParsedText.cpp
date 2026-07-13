@@ -141,7 +141,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   wordVerticalBehaviors.push_back(vBehavior);
 }
 
-void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby) {
+void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const size_t baseWordCount) {
   if (index >= words.size()) {
     return;
   }
@@ -151,6 +151,14 @@ void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby) {
   }
 
   rubyTexts[index] = ruby;
+
+  // CJK base text is tokenized one character at a time. Mark the remaining tokens in this
+  // ruby group so rendering can center the annotation over the complete base-text span.
+  const size_t end = std::min(words.size(), index + std::max<size_t>(1, baseWordCount));
+  for (size_t i = index + 1; i < end; i++) {
+    rubyTexts[i].assign(1, TextBlock::RUBY_CONTINUATION_MARKER);
+    wordContinues[i] = true;  // A ruby base must remain on one horizontal line.
+  }
 }
 
 // Consumes data to minimize memory usage
@@ -278,7 +286,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   };
   bool hasAnyRuby = false;
   for (const auto& rt : rubyTexts) {
-    if (!rt.empty()) {
+    if (!rt.empty() && !TextBlock::isRubyContinuation(rt)) {
       hasAnyRuby = true;
       break;
     }
@@ -333,7 +341,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     for (size_t i = 0; i < words.size(); i++) {
       uint16_t fitHeight = wordHeights[i];
 
-      if (i < rubyTexts.size() && !rubyTexts[i].empty()) {
+      if (i < rubyTexts.size() && !rubyTexts[i].empty() && !TextBlock::isRubyContinuation(rubyTexts[i])) {
         int rubyCharCount = 0;
         const auto* p = reinterpret_cast<const unsigned char*>(rubyTexts[i].c_str());
         while (utf8NextCodepoint(&p) != 0) {
