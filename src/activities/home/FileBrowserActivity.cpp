@@ -1,5 +1,6 @@
 #include "FileBrowserActivity.h"
 
+#include <Arduino.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -7,7 +8,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Utf8.h>
-#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cstring>
@@ -23,88 +23,14 @@
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 
-// 指定ディレクトリ以下の空ディレクトリを再帰的に削除する。
-// リーフ（末端）から順に削除するため、ネストした空ディレクトリも連鎖的に削除される。
-// 戻り値: 引数のディレクトリ自身が空になり削除された場合 true
-bool removeEmptyDirsRecursive(const std::string& dirPath) {
-  auto dir = Storage.open(dirPath.c_str());
-  if (!dir || !dir.isDirectory()) {
-    if (dir) dir.close();
-    return false;
-  }
-
-  char name[256];
-  bool hasEntries = false;
-
-  // まずサブディレクトリを再帰処理
-  dir.rewindDirectory();
-  for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-    entry.getName(name, sizeof(name));
-    if (entry.isDirectory()) {
-      entry.close();
-      std::string subPath = dirPath + "/" + name;
-      // サブディレクトリを再帰処理。削除されなかったらエントリが残っている
-      if (!removeEmptyDirsRecursive(subPath)) {
-        hasEntries = true;
-      }
-    } else {
-      // ファイルが存在する → 空ではない
-      entry.close();
-      hasEntries = true;
-    }
-    yield();
-    esp_task_wdt_reset();
-  }
-  dir.close();
-
-  if (!hasEntries) {
-    if (Storage.rmdir(dirPath.c_str())) {
-      LOG_DBG("CLN", "Removed empty directory: %s", dirPath.c_str());
-      return true;
-    }
-  }
-  return false;
-}
-
-// SDカードルート直下のユーザーディレクトリから空ディレクトリを削除する
-void cleanupEmptyDirectories() {
-  auto root = Storage.open("/");
-  if (!root || !root.isDirectory()) {
-    if (root) root.close();
-    return;
-  }
-
-  char name[256];
-  // ディレクトリ名を先に収集（イテレーション中の削除を避ける）
-  std::vector<std::string> dirs;
-  for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-    if (entry.isDirectory()) {
-      entry.getName(name, sizeof(name));
-      // 保護対象を除外: ドットで始まるディレクトリ、システムディレクトリ
-      if (name[0] != '.' && strcmp(name, "System Volume Information") != 0 && strcmp(name, "XTCache") != 0) {
-        dirs.emplace_back(std::string("/") + name);
-      }
-    }
-    entry.close();
-    yield();
-    esp_task_wdt_reset();
-  }
-  root.close();
-
-  for (const auto& dirPath : dirs) {
-    removeEmptyDirsRecursive(dirPath);
-  }
-}
-
 }  // namespace
 
 void sortFileList(std::vector<std::string>& strs) {
-  std::sort(begin(strs), end(strs), [](const std::string& str1, const std::string& str2) {
-    // Directories first
-    bool isDir1 = str1.back() == '/';
-    bool isDir2 = str2.back() == '/';
-    if (isDir1 != isDir2) return isDir1;
-
+  // Split directories once instead of repeating the directory test for every
+  // comparison made by std::sort.
+  const auto firstFile =
+      std::partition(begin(strs), end(strs), [](const std::string& entry) { return entry.back() == '/'; });
+  const auto naturalLess = [](const std::string& str1, const std::string& str2) {
     // Start naive natural sort
     const char* s1 = str1.c_str();
     const char* s2 = str2.c_str();
@@ -112,17 +38,15 @@ void sortFileList(std::vector<std::string>& strs) {
     // Iterate while both strings have characters
     while (*s1 && *s2) {
       // Check if both are at the start of a number
-      if (isdigit(*s1) && isdigit(*s2)) {
+      if (isdigit(static_cast<unsigned char>(*s1)) && isdigit(static_cast<unsigned char>(*s2))) {
         // Skip leading zeros and track them
-        const char* start1 = s1;
-        const char* start2 = s2;
         while (*s1 == '0') s1++;
         while (*s2 == '0') s2++;
 
         // Count digits to compare lengths first
         int len1 = 0, len2 = 0;
-        while (isdigit(s1[len1])) len1++;
-        while (isdigit(s2[len2])) len2++;
+        while (isdigit(static_cast<unsigned char>(s1[len1]))) len1++;
+        while (isdigit(static_cast<unsigned char>(s2[len2]))) len2++;
 
         // Different length so return smaller integer value
         if (len1 != len2) return len1 < len2;
@@ -137,8 +61,8 @@ void sortFileList(std::vector<std::string>& strs) {
         s2 += len2;
       } else {
         // Regular case-insensitive character comparison
-        char c1 = tolower(*s1);
-        char c2 = tolower(*s2);
+        char c1 = tolower(static_cast<unsigned char>(*s1));
+        char c2 = tolower(static_cast<unsigned char>(*s2));
         if (c1 != c2) return c1 < c2;
         s1++;
         s2++;
@@ -147,71 +71,154 @@ void sortFileList(std::vector<std::string>& strs) {
 
     // One string is prefix of other
     return *s1 == '\0' && *s2 != '\0';
-  });
+  };
+
+  std::sort(begin(strs), firstFile, naturalLess);
+  std::sort(firstFile, end(strs), naturalLess);
 }
 
-void FileBrowserActivity::loadFiles() {
+void FileBrowserActivity::cacheCurrentDirectory() {
+  if (loadedPath.empty()) return;
+
+  directoryCache.erase(
+      std::remove_if(directoryCache.begin(), directoryCache.end(),
+                     [this](const DirectoryCacheEntry& entry) { return entry.path == loadedPath; }),
+      directoryCache.end());
+  if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
+    directoryCache.erase(directoryCache.begin());
+  }
+  directoryCache.push_back({std::move(loadedPath), std::move(files), std::move(fileStatuses)});
+  loadedPath.clear();
+}
+
+bool FileBrowserActivity::restoreCachedDirectory() {
+  const auto cached = std::find_if(directoryCache.begin(), directoryCache.end(),
+                                   [this](const DirectoryCacheEntry& entry) { return entry.path == basepath; });
+  if (cached == directoryCache.end()) return false;
+
+  loadedPath = std::move(cached->path);
+  files = std::move(cached->files);
+  fileStatuses = std::move(cached->statuses);
+  directoryCache.erase(cached);
+  return true;
+}
+
+void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
+  directoryCache.erase(
+      std::remove_if(directoryCache.begin(), directoryCache.end(),
+                     [&path](const DirectoryCacheEntry& entry) {
+                       return entry.path == path ||
+                              (entry.path.size() > path.size() && entry.path.compare(0, path.size(), path) == 0 &&
+                               entry.path[path.size()] == '/');
+                     }),
+      directoryCache.end());
+  if (loadedPath == path ||
+      (loadedPath.size() > path.size() && loadedPath.compare(0, path.size(), path) == 0 &&
+       loadedPath[path.size()] == '/')) {
+    loadedPath.clear();
+    files.clear();
+    fileStatuses.clear();
+  }
+}
+
+FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool forceReload) {
+  const unsigned long totalStartedAt = millis();
+  if (forceReload) {
+    invalidateDirectoryCache(basepath);
+  } else if (loadedPath == basepath) {
+    LOG_DBG("FBPERF", "path=%s cache=current entries=%lu total=0 ms", basepath.c_str(),
+            static_cast<unsigned long>(files.size()));
+    return DirectoryLoadResult::Loaded;
+  }
+
+  cacheCurrentDirectory();
+  if (!forceReload && restoreCachedDirectory()) {
+    LOG_DBG("FBPERF", "path=%s cache=hit entries=%lu total=%lu ms", basepath.c_str(),
+            static_cast<unsigned long>(files.size()), millis() - totalStartedAt);
+    return DirectoryLoadResult::Loaded;
+  }
+
   files.clear();
   fileStatuses.clear();
 
-  auto root = Storage.open(basepath.c_str());
-  if (!root || !root.isDirectory()) {
-    return;
-  }
-
-  root.rewindDirectory();
-
-  char name[500];
-  for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
-    file.getName(name, sizeof(name));
-    if ((!SETTINGS.showHiddenFiles && name[0] == '.') || strcmp(name, "System Volume Information") == 0) {
-      continue;
+  uint32_t scannedEntries = 0;
+  uint32_t getNameCalls = 0;
+  uint32_t isDirectoryCalls = 1;  // root
+  unsigned long openMs = 0;
+  unsigned long scanMs = 0;
+  {
+    const unsigned long openStartedAt = millis();
+    auto root = Storage.open(basepath.c_str());
+    openMs = millis() - openStartedAt;
+    if (!root) {
+      LOG_DBG("FBPERF", "path=%s open=failed openMs=%lu total=%lu ms", basepath.c_str(), openMs,
+              millis() - totalStartedAt);
+      return DirectoryLoadResult::OpenFailed;
+    }
+    if (!root.isDirectory()) {
+      LOG_DBG("FBPERF", "path=%s type=file openMs=%lu total=%lu ms", basepath.c_str(), openMs,
+              millis() - totalStartedAt);
+      return DirectoryLoadResult::NotDirectory;
     }
 
-    if (file.isDirectory()) {
-      // Store original (NFD) directory name for path construction.
-      // NFC normalization is done at display time only.
-      files.emplace_back(std::string(name) + "/");
-    } else {
-      std::string_view filename{name};
-      if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-          FsHelpers::hasBmpExtension(filename)) {
-        // Store original (NFD) filename for path construction.
+    const unsigned long scanStartedAt = millis();
+    char name[500];
+    for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
+      ++scannedEntries;
+      file.getName(name, sizeof(name));
+      ++getNameCalls;
+      if ((!SETTINGS.showHiddenFiles && name[0] == '.') || strcmp(name, "System Volume Information") == 0) {
+        continue;
+      }
+
+      const bool isDirectory = file.isDirectory();
+      ++isDirectoryCalls;
+      if (isDirectory) {
+        // Store original (NFD) directory name for path construction.
         // NFC normalization is done at display time only.
-        files.emplace_back(filename);
+        files.emplace_back(std::string(name) + "/");
+      } else {
+        std::string_view filename{name};
+        if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+            FsHelpers::hasBmpExtension(filename)) {
+          // Store original (NFD) filename for path construction.
+          // NFC normalization is done at display time only.
+          files.emplace_back(filename);
+        }
       }
     }
+    scanMs = millis() - scanStartedAt;
   }
-  sortFileList(files);
 
-  // 各書籍ファイルの読書状態を取得
-  std::string fullBase = basepath;
-  if (fullBase.back() != '/') fullBase += '/';
-  fileStatuses.reserve(files.size());
-  for (const auto& file : files) {
-    if (FsHelpers::hasEpubExtension(file) || FsHelpers::hasXtcExtension(file)) {
-      fileStatuses.push_back(getReadingStatus(fullBase + file, "/.crosspoint"));
-    } else {
-      fileStatuses.push_back(ReadingStatus::Unread);
-    }
-  }
+  const unsigned long sortStartedAt = millis();
+  sortFileList(files);
+  const unsigned long sortMs = millis() - sortStartedAt;
+
+  const unsigned long statusStartedAt = millis();
+  getReadingStatuses(basepath, files, "/.crosspoint", fileStatuses);
+  const unsigned long statusMs = millis() - statusStartedAt;
+
+  loadedPath = basepath;
+  LOG_DBG("FBPERF",
+          "path=%s cache=miss open=%lu scan=%lu sort=%lu status=%lu total=%lu ms raw=%lu visible=%lu "
+          "openNext=%lu getName=%lu isDirectory=%lu close=%lu",
+          basepath.c_str(), openMs, scanMs, sortMs, statusMs, millis() - totalStartedAt,
+          static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),
+          static_cast<unsigned long>(scannedEntries + 1), static_cast<unsigned long>(getNameCalls),
+          static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2));
+  return DirectoryLoadResult::Loaded;
 }
 
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
-  // ルートディレクトリ表示時のみ、空ディレクトリを削除する
-  if (basepath == "/") {
-    cleanupEmptyDirectories();
-  }
-
   selectorIndex = 0;
 
-  auto root = Storage.open(basepath.c_str());
-  if (!root) {
+  const DirectoryLoadResult result = loadFiles();
+  if (result == DirectoryLoadResult::OpenFailed) {
     basepath = "/";
     loadFiles();
-  } else if (!root.isDirectory()) {
+  } else if (result == DirectoryLoadResult::NotDirectory) {
     lockLongPressBack = mappedInput.isPressed(MappedInputManager::Button::Back);
 
     const std::string oldPath = basepath;
@@ -221,8 +228,6 @@ void FileBrowserActivity::onEnter() {
     const auto pos = oldPath.find_last_of('/');
     const std::string fileName = oldPath.substr(pos + 1);
     selectorIndex = findEntry(fileName);
-  } else {
-    loadFiles();
   }
 
   requestUpdate();
@@ -299,6 +304,7 @@ void FileBrowserActivity::loop() {
             }
             if (!isDirectory) clearFileMetadata(fullPath);
             if (Storage.rename(fullPath.c_str(), destPath.c_str())) {
+              invalidateDirectoryCache("/Archived");
               LOG_DBG("FileBrowser", "Archived to: %s", destPath.c_str());
             } else {
               LOG_ERR("FileBrowser", "Failed to archive: %s", fullPath.c_str());
@@ -322,7 +328,7 @@ void FileBrowserActivity::loop() {
           return;
         }
         // 操作成功後、ファイル一覧を更新（アイコン状態反映のため）
-        loadFiles();
+        loadFiles(true);
         if (files.empty()) {
           selectorIndex = 0;
         } else if (selectorIndex >= files.size()) {

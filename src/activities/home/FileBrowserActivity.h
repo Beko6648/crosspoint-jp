@@ -11,6 +11,16 @@
 
 class FileBrowserActivity final : public Activity {
  private:
+  enum class DirectoryLoadResult { Loaded, NotDirectory, OpenFailed };
+
+  struct DirectoryCacheEntry {
+    std::string path;
+    std::vector<std::string> files;
+    std::vector<ReadingStatus> statuses;
+  };
+
+  static constexpr size_t DIRECTORY_CACHE_SIZE = 4;
+
   // Deletion
   void clearFileMetadata(const std::string& fullPath);
 
@@ -22,11 +32,16 @@ class FileBrowserActivity final : public Activity {
 
   // Files state
   std::string basepath = "/";
+  std::string loadedPath;
   std::vector<std::string> files;
   std::vector<ReadingStatus> fileStatuses;
+  std::vector<DirectoryCacheEntry> directoryCache;
 
   // Data loading
-  void loadFiles();
+  DirectoryLoadResult loadFiles(bool forceReload = false);
+  void cacheCurrentDirectory();
+  bool restoreCachedDirectory();
+  void invalidateDirectoryCache(const std::string& path);
   size_t findEntry(const std::string& name) const;
 
  public:
