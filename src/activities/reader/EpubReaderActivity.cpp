@@ -36,6 +36,7 @@
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
+constexpr int CACHE_PROGRESS_STEP_PERCENT = 5;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -52,6 +53,7 @@ int clampPercent(int percent) {
 }  // namespace
 
 void EpubReaderActivity::pregenerateCache() {
+  const uint32_t generationStartedAt = millis();
   if (!epub) return;
 
   const int spineCount = epub->getSpineItemsCount();
@@ -100,9 +102,10 @@ void EpubReaderActivity::pregenerateCache() {
       SETTINGS.getHeadingFontId(1, isVertical), SETTINGS.getHeadingFontId(2, isVertical), 0, 0, 0, 0};
 
   // Show initial popup
+  const uint32_t initialDisplayStartedAt = millis();
   Rect popupRect = GUI.drawPopup(renderer, tr(STR_GENERATING_CACHE));
-  GUI.fillPopupProgress(renderer, popupRect, 0);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
+  int lastDisplayedProgress = 0;
 
   for (int i = 0; i < spineCount; i++) {
     // Check for cancel by reading raw ADC values directly.
@@ -122,8 +125,12 @@ void EpubReaderActivity::pregenerateCache() {
 
     // Update progress
     const int progress = (i * 100) / spineCount;
-    GUI.fillPopupProgress(renderer, popupRect, progress);
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      const uint32_t displayStartedAt = millis();
+      GUI.fillPopupProgress(renderer, popupRect, progress);
+      progressDisplayMs += millis() - displayStartedAt;
+      lastDisplayedProgress = progress;
+    }
 
     // Create section cache
     Section sec(epub, i, renderer);
@@ -165,9 +172,11 @@ void EpubReaderActivity::pregenerateCache() {
   }
 
   // Final progress
+  const uint32_t finalDisplayStartedAt = millis();
   GUI.fillPopupProgress(renderer, popupRect, 100);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  delay(500);
+  progressDisplayMs += millis() - finalDisplayStartedAt;
+  LOG_DBG("ERS", "Pregenerate completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
+          progressDisplayMs);
 }
 
 void EpubReaderActivity::onEnter() {

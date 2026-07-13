@@ -18,6 +18,8 @@
 
 namespace {
 
+constexpr int CACHE_PROGRESS_STEP_PERCENT = 5;
+
 // Recursively scan a directory for EPUB files
 void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
   auto dir = Storage.open(dirPath);
@@ -98,10 +100,13 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
+  const uint32_t generationStartedAt = millis();
   LOG_DBG("GENALL", "Scanning for EPUB files...");
 
+  const uint32_t scanStartedAt = millis();
   std::vector<std::string> epubFiles;
   findEpubFiles("/", epubFiles);
+  LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
 
   totalCount = epubFiles.size();
   processedCount = 0;
@@ -115,9 +120,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
   }
 
   // Show progress popup
+  const uint32_t initialDisplayStartedAt = millis();
   Rect popupRect = GUI.drawPopup(renderer, tr(STR_GENERATING_ALL_CACHE));
-  GUI.fillPopupProgress(renderer, popupRect, 0);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
+  int lastDisplayedProgress = 0;
 
   // Calculate viewport dimensions (screenMargin depends on writing direction, resolved per-book below)
   // Use a placeholder margin here; it will be recalculated per book after resolving isVertical.
@@ -138,8 +144,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     // Update progress
     const int progress = (bookIdx * 100) / totalCount;
-    GUI.fillPopupProgress(renderer, popupRect, progress);
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      const uint32_t displayStartedAt = millis();
+      GUI.fillPopupProgress(renderer, popupRect, progress);
+      progressDisplayMs += millis() - displayStartedAt;
+      lastDisplayedProgress = progress;
+    }
 
     // Check for cancel (button held)
     const int adc1 = analogRead(1);
@@ -248,10 +258,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
     processedCount++;
   }
 
+  const uint32_t finalDisplayStartedAt = millis();
   GUI.fillPopupProgress(renderer, popupRect, 100);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  delay(500);
+  progressDisplayMs += millis() - finalDisplayStartedAt;
 
+  LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
+          millis() - generationStartedAt, progressDisplayMs);
   state = SUCCESS;
   requestUpdate();
 }
