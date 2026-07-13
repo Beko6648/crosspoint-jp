@@ -558,12 +558,12 @@ def verify_xtc(file_path: str, extract_page: int = -1, extract_output: str = "")
         else:
             print(f"  ✗ 不正なマジック: 0x{magic:08X} (期待: 0x{XTC_MAGIC:08X} or 0x{XTCH_MAGIC:08X})")
             return False
-        print(f"  ✓ マジック: {fmt_name}")
+        print(f"  [OK] マジック: {fmt_name}")
 
         # バージョン
         valid_ver = (ver_major == 1 and ver_minor == 0) or (ver_major == 0 and ver_minor == 1)
         if valid_ver:
-            print(f"  ✓ バージョン: {ver_major}.{ver_minor}")
+            print(f"  [OK] バージョン: {ver_major}.{ver_minor}")
         else:
             print(f"  ✗ 不正なバージョン: {ver_major}.{ver_minor}")
             ok = False
@@ -573,11 +573,11 @@ def verify_xtc(file_path: str, extract_page: int = -1, extract_output: str = "")
             print(f"  ✗ ページ数が0")
             ok = False
         else:
-            print(f"  ✓ ページ数: {page_count}")
+            print(f"  [OK] ページ数: {page_count}")
 
         # 読み方向
         dir_names = {0: "LTR", 1: "RTL", 2: "TTB"}
-        print(f"  ✓ 読み方向: {dir_names.get(read_dir, f'unknown({read_dir})')}")
+        print(f"  [OK] 読み方向: {dir_names.get(read_dir, f'unknown({read_dir})')}")
 
         # フラグ
         print(f"    メタデータ: {'あり' if has_meta else 'なし'}")
@@ -642,7 +642,7 @@ def verify_xtc(file_path: str, extract_page: int = -1, extract_output: str = "")
                     ok = False
                     break
             else:
-                print(f"  ✓ ページテーブルのオフセット整合性OK")
+                print(f"  [OK] ページテーブルのオフセット整合性OK")
             print()
 
         # --- ページデータ検証 ---
@@ -681,7 +681,7 @@ def verify_xtc(file_path: str, extract_page: int = -1, extract_output: str = "")
                 errors += 1
 
         if errors == 0:
-            print(f"  ✓ 全{page_count}ページのデータ整合性OK")
+            print(f"  [OK] 全{page_count}ページのデータ整合性OK")
         else:
             print(f"  ✗ {errors}ページでエラー検出")
             ok = False
@@ -704,11 +704,11 @@ def verify_xtc(file_path: str, extract_page: int = -1, extract_output: str = "")
 
             out_path = extract_output or f"/tmp/xtc_page_{extract_page}.png"
             img.save(out_path)
-            print(f"  ✓ 保存: {out_path}")
+            print(f"  [OK] 保存: {out_path}")
 
     print()
     if ok:
-        print("検証結果: ✓ 全チェックパス")
+        print("検証結果: [OK] 全チェックパス")
     else:
         print("検証結果: ✗ エラーあり")
 
