@@ -13,7 +13,8 @@
 
 namespace {
 // Version 42: horizontal ruby stores its complete base-text span for centering.
-constexpr uint8_t SECTION_FILE_VERSION = 42;
+// Version 43: full-page illustrations are isolated in both writing modes.
+constexpr uint8_t SECTION_FILE_VERSION = 43;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

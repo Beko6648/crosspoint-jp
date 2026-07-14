@@ -4,8 +4,8 @@
 #include <Serialization.h>
 
 void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                      const int viewportWidth) {
-  block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, viewportWidth);
+                      const int viewportWidth, const int rubyOffsetX, const int rubyOffsetY) {
+  block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, viewportWidth, rubyOffsetX, rubyOffsetY);
 }
 
 void PageLine::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
@@ -32,19 +32,9 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
   return std::unique_ptr<PageLine>(new PageLine(std::move(tb), xPos, yPos));
 }
 
-void PageImage::render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth) {
-  int drawY = yPos + yOffset;
-
-  // EPUB挿絵をページ内で縦中央寄せする
-  // X4の画面高さは基本 800px
-  const int pageHeight = 800;
-  const int imageHeight = imageBlock->getHeight();
-
-  if (imageHeight > 0 && imageHeight < pageHeight) {
-    drawY = yOffset + (pageHeight - imageHeight) / 2 - 20;
-  }
-
-  imageBlock->render(renderer, xPos + xOffset, drawY);
+void PageImage::render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth,
+                       int rubyOffsetX, int rubyOffsetY) {
+  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
 }
 
 bool PageImage::serialize(FsFile& file) {
@@ -66,7 +56,7 @@ std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
 }
 
 void PageTableRow::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                          const int viewportWidth) {
+                          const int viewportWidth, const int rubyOffsetX, const int rubyOffsetY) {
   block->render(renderer, xPos + xOffset, yPos + yOffset, viewportWidth);
 }
 
@@ -86,9 +76,9 @@ std::unique_ptr<PageTableRow> PageTableRow::deserialize(FsFile& file) {
 }
 
 void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                  const int viewportWidth) const {
+                  const int viewportWidth, const int rubyOffsetX, const int rubyOffsetY) const {
   for (auto& element : elements) {
-    element->render(renderer, fontId, xOffset, yOffset, viewportWidth);
+    element->render(renderer, fontId, xOffset, yOffset, viewportWidth, rubyOffsetX, rubyOffsetY);
   }
 }
 

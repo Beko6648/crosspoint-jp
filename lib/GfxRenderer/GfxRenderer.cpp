@@ -826,8 +826,10 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
 }
 
 void GfxRenderer::fillRect(const int x, const int y, const int width, const int height, const bool state) const {
-  for (int fillY = y; fillY < y + height; fillY++) {
-    drawLine(x, fillY, x + width - 1, fillY, state);
+  if (state) {
+    fillRectImpl<Color::Black>(x, y, width, height);
+  } else {
+    fillRectImpl<Color::White>(x, y, width, height);
   }
 }
 
@@ -859,25 +861,107 @@ void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) con
 }
 
 void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
-  if (color == Color::Clear) {
-  } else if (color == Color::Black) {
-    fillRect(x, y, width, height, true);
-  } else if (color == Color::White) {
-    fillRect(x, y, width, height, false);
-  } else if (color == Color::LightGray) {
-    for (int fillY = y; fillY < y + height; fillY++) {
-      for (int fillX = x; fillX < x + width; fillX++) {
-        drawPixelDither<Color::LightGray>(fillX, fillY);
-      }
-    }
-  } else if (color == Color::DarkGray) {
-    for (int fillY = y; fillY < y + height; fillY++) {
-      for (int fillX = x; fillX < x + width; fillX++) {
-        drawPixelDither<Color::DarkGray>(fillX, fillY);
-      }
-    }
+  switch (color) {
+    case Color::Clear: break;
+    case Color::Black: fillRectImpl<Color::Black>(x, y, width, height); break;
+    case Color::White: fillRectImpl<Color::White>(x, y, width, height); break;
+    case Color::LightGray: fillRectImpl<Color::LightGray>(x, y, width, height); break;
+    case Color::DarkGray: fillRectImpl<Color::DarkGray>(x, y, width, height); break;
   }
 }
+
+template <Color C>
+void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const int height) const {
+  if constexpr (C == Color::Clear) return;
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  if (width <= 0 || height <= 0 || frameBuffer == nullptr) return;
+
+  const int x0 = std::max(0, x);
+  const int y0 = std::max(0, y);
+  const int x1 = std::min(getScreenWidth(), x + width);
+  const int y1 = std::min(getScreenHeight(), y + height);
+  if (x0 >= x1 || y0 >= y1) return;
+
+  int ax, ay, bx, by;
+  rotateCoordinates(orientation, x0, y0, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(orientation, x1 - 1, y1 - 1, &bx, &by, panelWidth, panelHeight);
+  const int physicalX0 = std::min(ax, bx);
+  const int physicalX1 = std::max(ax, bx);
+  const int physicalY0 = std::min(ay, by);
+  const int physicalY1 = std::max(ay, by);
+  const int byteStart = physicalX0 >> 3;
+  const int byteEnd = physicalX1 >> 3;
+  const uint8_t headMask = static_cast<uint8_t>(0xFFu >> (physicalX0 & 7));
+  const uint8_t tailMask = static_cast<uint8_t>(0xFFu << (7 - (physicalX1 & 7)));
+  const bool invert = darkMode && !skipDarkModeForImages && renderMode == BW;
+
+  if constexpr (C == Color::Black || C == Color::White) {
+    const bool physicalBlack = invert ? C != Color::Black : C == Color::Black;
+    const uint8_t fillByte = physicalBlack ? 0x00u : 0xFFu;
+    for (int py = physicalY0; py <= physicalY1; ++py) {
+      uint8_t* row = frameBuffer + static_cast<uint32_t>(py) * panelWidthBytes;
+      if (byteStart == byteEnd) {
+        const uint8_t mask = headMask & tailMask;
+        if (physicalBlack) row[byteStart] &= static_cast<uint8_t>(~mask);
+        else row[byteStart] |= mask;
+        continue;
+      }
+      if (physicalBlack) row[byteStart] &= static_cast<uint8_t>(~headMask);
+      else row[byteStart] |= headMask;
+      if (byteEnd > byteStart + 1) memset(row + byteStart + 1, fillByte, byteEnd - byteStart - 1);
+      if (physicalBlack) row[byteEnd] &= static_cast<uint8_t>(~tailMask);
+      else row[byteEnd] |= tailMask;
+    }
+    return;
+  }
+
+  int logicalDx = 0;
+  int logicalDy = 0;
+  switch (orientation) {
+    case Portrait: logicalDy = 1; break;
+    case PortraitInverted: logicalDy = -1; break;
+    case LandscapeClockwise: logicalDx = -1; break;
+    case LandscapeCounterClockwise: logicalDx = 1; break;
+  }
+  uint8_t blackMasks[2] = {};
+  for (int parity = 0; parity < 2; ++parity) {
+    const int sampleY = physicalY0 + parity;
+    int logicalX = 0;
+    int logicalY = 0;
+    switch (orientation) {
+      case Portrait: logicalX = panelHeight - 1 - sampleY; logicalY = byteStart * 8; break;
+      case PortraitInverted: logicalX = sampleY; logicalY = panelWidth - 1 - byteStart * 8; break;
+      case LandscapeClockwise: logicalX = panelWidth - 1 - byteStart * 8; logicalY = panelHeight - 1 - sampleY; break;
+      case LandscapeCounterClockwise: logicalX = byteStart * 8; logicalY = sampleY; break;
+    }
+    uint8_t mask = 0;
+    for (int bit = 0; bit < 8; ++bit) {
+      const int lx = logicalX + bit * logicalDx;
+      const int ly = logicalY + bit * logicalDy;
+      bool black = C == Color::LightGray ? ((lx & 1) == 0 && (ly & 1) == 0) : (((lx + ly) & 1) == 0);
+      if (invert) black = !black;
+      if (black) mask |= static_cast<uint8_t>(1u << (7 - bit));
+    }
+    blackMasks[sampleY & 1] = mask;
+  }
+  for (int py = physicalY0; py <= physicalY1; ++py) {
+    const uint8_t whitePattern = static_cast<uint8_t>(~blackMasks[py & 1]);
+    uint8_t* row = frameBuffer + static_cast<uint32_t>(py) * panelWidthBytes;
+    if (byteStart == byteEnd) {
+      const uint8_t mask = headMask & tailMask;
+      row[byteStart] = static_cast<uint8_t>((row[byteStart] & ~mask) | (whitePattern & mask));
+      continue;
+    }
+    row[byteStart] = static_cast<uint8_t>((row[byteStart] & ~headMask) | (whitePattern & headMask));
+    if (byteEnd > byteStart + 1) memset(row + byteStart + 1, whitePattern, byteEnd - byteStart - 1);
+    row[byteEnd] = static_cast<uint8_t>((row[byteEnd] & ~tailMask) | (whitePattern & tailMask));
+  }
+}
+
+template void GfxRenderer::fillRectImpl<Color::Black>(int, int, int, int) const;
+template void GfxRenderer::fillRectImpl<Color::White>(int, int, int, int) const;
+template void GfxRenderer::fillRectImpl<Color::LightGray>(int, int, int, int) const;
+template void GfxRenderer::fillRectImpl<Color::DarkGray>(int, int, int, int) const;
 
 template <Color color>
 void GfxRenderer::fillArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir) const {

@@ -5,6 +5,9 @@
 #include <Serialization.h>
 #include <Utf8.h>
 #include <VerticalTextUtils.h>
+
+#include <algorithm>
+#include <climits>
 static std::vector<std::string> splitUtf8Chars(const std::string& text) {
   std::vector<std::string> chars;
 
@@ -66,7 +69,7 @@ bool TextBlock::hasRuby() const {
 }
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
-                       const int viewportWidth) const {
+                       const int viewportWidth, const int rubyOffsetX, const int rubyOffsetY) const {
   // Validate iterator bounds before rendering
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
     LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
@@ -209,18 +212,19 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        int rubyX = wx + rubyBaseOffset + gap;
-
-        if (viewportWidth > 0 && rubyX + rubyColumnWidth >= viewportWidth) {
-          rubyX = wx - rubyColumnWidth - gap;
+        // Choose the side before applying the user adjustment. Previously the
+        // edge fallback replaced the adjusted coordinate, making vertical ruby
+        // appear fixed in columns near the right edge.
+        int rubyBaseX = wx + rubyBaseOffset + gap;
+        if (viewportWidth > 0 && rubyBaseX + rubyColumnWidth >= viewportWidth) {
+          rubyBaseX = wx - rubyColumnWidth - gap;
         }
+        const int maxRubyX = viewportWidth > 0 ? std::max(0, viewportWidth - rubyColumnWidth) : INT_MAX;
+        const int rubyX = std::clamp(rubyBaseX + rubyOffsetX, 0, maxRubyX);
 
-        if (rubyX < 0) {
-          rubyX = 0;
-        }
+        const int rubyY = wy + rubyOffsetY;
 
-        const int rubyY = wy;
-
+        renderer.setRubyFastAaBoost(true);
         renderer.drawTextVertical(
             rubyFontId,
             rubyX,
@@ -229,6 +233,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
             true,
             EpdFontFamily::REGULAR
         );
+        renderer.setRubyFastAaBoost(false);
       }
     } else {
       const int wordX = wordXpos[i] + x;
@@ -251,7 +256,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int baseWidth = wordXpos[rubyBaseEnd] - wordXpos[i] + lastBaseAdvance;
         const int rubyWidth =
             renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
-        const int rubyX = wordX + (baseWidth - rubyWidth) / 2;
+        const int rubyX = wordX + (baseWidth - rubyWidth) / 2 + rubyOffsetX;
         const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
         const int rubyLineHeight = renderer.getLineHeight(rubyFontId);
 
@@ -260,7 +265,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const bool isBizudLikeFont = (bodyLineHeight == 29 && rubyLineHeight == 17);
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? bodyLineHeight : bodyLineHeight * 70 / 100;
-        const int rubyY = y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap;
+        const int rubyY = y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY;
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 

@@ -39,6 +39,11 @@ constexpr int topHintButtonY = 345;
 constexpr int popupMarginX = 16;
 constexpr int popupMarginY = 12;
 constexpr int maxListValueWidth = 200;
+constexpr int listValueRightInset = 8;
+// CJK UI glyph bitmaps can extend beyond their reported advance. Grow the
+// selected-value pill to the left and move its text with it, keeping the safe
+// right edge fixed while ensuring the final glyph remains fully inverted.
+constexpr int listValueInkSafety = 12;
 constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 24;
 constexpr int mainMenuColumns = 2;
@@ -410,11 +415,15 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (!valueText.empty()) {
       if (i == selectedIndex && highlightValue) {
         renderer.fillRoundedRect(
-            contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth, itemY,
-            valueWidth + hPaddingInSelection, rowHeight, cornerRadius, Color::Black);
+            contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth -
+                listValueRightInset - listValueInkSafety,
+            itemY,
+            valueWidth + hPaddingInSelection + listValueInkSafety, rowHeight, cornerRadius, Color::Black);
       }
 
-      renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth,
+      renderer.drawText(UI_10_FONT_ID,
+                        rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth -
+                            listValueRightInset - listValueInkSafety,
                         itemY + 6, valueText.c_str(), !(i == selectedIndex && highlightValue));
     }
   }
@@ -486,20 +495,24 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     // X4 layout: Both buttons stacked on right side
     const char* labels[] = {topBtn, bottomBtn};
     const int x = screenWidth - buttonWidth;
+    constexpr int stackedHeight = buttonHeight * 2 + 5;
+    const int hintTop = renderer.getScreenHeight() < 600
+                            ? std::max(0, (renderer.getScreenHeight() - stackedHeight) / 2)
+                            : topHintButtonY;
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, topHintButtonY, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
+      renderer.drawRoundedRect(x, hintTop, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
                                true);
     }
 
     if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, topHintButtonY + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true,
+      renderer.drawRoundedRect(x, hintTop + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true,
                                false, true, false, true);
     }
 
     for (int i = 0; i < 2; i++) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
-        const int y = topHintButtonY + (i * buttonHeight) + 5;
+        const int y = hintTop + (i * buttonHeight) + 5;
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         renderer.drawTextRotated90CW(SMALL_FONT_ID, x, y + (buttonHeight + textWidth) / 2, labels[i]);
       }
@@ -570,7 +583,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     int textWidth = tileWidth - 2 * hPaddingInSelection - LyraMetrics::values.verticalSpacing - coverWidth;
     // タイトルが右端ギリギリまで行かないように、1文字分くらい余白を作る
     const int titleRightMargin = renderer.getTextWidth(UI_12_FONT_ID, "あ", EpdFontFamily::BOLD);
-    textWidth -= titleRightMargin;
+    // Keep one additional CJK character of safety so Japanese titles wrap
+    // before reaching the right edge of the recent-book card.
+    textWidth -= titleRightMargin * 2;
 
     if (textWidth < 20) {
       textWidth = 20;

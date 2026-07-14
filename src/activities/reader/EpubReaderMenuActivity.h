@@ -23,6 +23,7 @@ class EpubReaderMenuActivity final : public Activity {
     GO_TO_PERCENT,
     AUTO_PAGE_TURN,
     ROTATE_SCREEN,
+    RUBY_OFFSET,
     SCREENSHOT,
     DISPLAY_QR,
     GO_HOME,
@@ -40,6 +41,7 @@ class EpubReaderMenuActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  bool supportsLandscape() const override { return true; }
 
  private:
   struct MenuItem {

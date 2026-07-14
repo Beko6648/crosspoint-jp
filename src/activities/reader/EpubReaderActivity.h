@@ -31,6 +31,10 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   bool verticalMode = false;  // resolved effective writing mode for current book
+  enum class RubyAdjustAxis : uint8_t { X, Y };
+  bool rubyAdjustActive = false;
+  bool rubyAdjustIgnoreOpeningRelease = false;
+  bool rubyAdjustChanged = false;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -45,6 +49,7 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
+  void renderRubyAdjustOverlay() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
@@ -53,6 +58,9 @@ class EpubReaderActivity final : public Activity {
   void onReaderMenuBack(uint8_t orientation);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
+  void enterRubyAdjustMode();
+  void exitRubyAdjustMode();
+  void adjustRubyOffset(RubyAdjustAxis axis, int delta);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
   void pregenerateCache();

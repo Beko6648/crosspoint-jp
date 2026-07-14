@@ -12,6 +12,8 @@
 #include <Logging.h>
 #include <esp_system.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -275,6 +277,39 @@ void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
     finish();
+    return;
+  }
+
+  if (rubyAdjustActive) {
+    if (RenderLock::peek()) return;
+    if (rubyAdjustIgnoreOpeningRelease) {
+      if (!mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+          !mappedInput.isPressed(MappedInputManager::Button::Back)) {
+        rubyAdjustIgnoreOpeningRelease = false;
+      }
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      exitRubyAdjustMode();
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      adjustRubyOffset(RubyAdjustAxis::X, -1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      adjustRubyOffset(RubyAdjustAxis::X, 1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      adjustRubyOffset(RubyAdjustAxis::Y, -1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      adjustRubyOffset(RubyAdjustAxis::Y, 1);
+      return;
+    }
     return;
   }
 
@@ -570,6 +605,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                              [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::RUBY_OFFSET:
+      enterRubyAdjustMode();
+      break;
     case EpubReaderMenuActivity::MenuAction::DISPLAY_QR: {
       if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
         auto p = section->loadPageFromSectionFile();
@@ -650,6 +688,39 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::TILT_PAGE_TURN:
       // Toggled inline in menu; IMU sync handled in result callback.
       break;
+  }
+}
+
+void EpubReaderActivity::enterRubyAdjustMode() {
+  rubyAdjustActive = true;
+  rubyAdjustIgnoreOpeningRelease = true;
+  rubyAdjustChanged = false;
+  automaticPageTurnActive = false;
+  requestUpdate();
+}
+
+void EpubReaderActivity::exitRubyAdjustMode() {
+  rubyAdjustActive = false;
+  rubyAdjustIgnoreOpeningRelease = false;
+  if (rubyAdjustChanged) {
+    // Clean the moved ruby from the panel once before returning to normal
+    // reader rendering.
+    pagesUntilFullRefresh = 1;
+  }
+  rubyAdjustChanged = false;
+  SETTINGS.saveToFile();
+  requestUpdate();
+}
+
+void EpubReaderActivity::adjustRubyOffset(const RubyAdjustAxis axis, const int delta) {
+  auto& ds = SETTINGS.getDirectionSettings(verticalMode);
+  uint8_t& target = axis == RubyAdjustAxis::X ? ds.rubyOffsetX : ds.rubyOffsetY;
+  const int maximum = axis == RubyAdjustAxis::X ? 80 : 32;
+  const int next = std::clamp(static_cast<int>(target) + delta, 0, maximum);
+  if (next != target) {
+    target = static_cast<uint8_t>(next);
+    rubyAdjustChanged = true;
+    requestUpdate();
   }
 }
 
@@ -1063,6 +1134,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                                         const int orientedMarginLeft) {
   const int viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const int readerFontId = SETTINGS.getReaderFontId(verticalMode);
+  const auto& directionSettings = SETTINGS.getDirectionSettings(verticalMode);
+  constexpr int horizontalRubyBaseShift = 10;
+  const int rubyOffsetX = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetX, 80)) - 16 +
+                          (verticalMode ? 0 : horizontalRubyBaseShift);
+  const int rubyOffsetY = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetY, 32)) - 16;
   const auto t0 = millis();
 
   // Preload external font glyphs: collect codepoints from page, sort them,
@@ -1085,25 +1161,26 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);  // scan pass
+  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
+               rubyOffsetY);  // scan pass
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 
-  const auto& directionSettings = SETTINGS.getDirectionSettings(verticalMode);
   const bool textAaEnabled = directionSettings.textAntiAliasing;
   const bool useExternalFont = FontManager::getInstance().isExternalFontEnabled();
   // Noto Sans family directories may end in JP, Jp, or CJK. Match the stable
   // family prefix so Serif and other SD fonts keep their full grayscale AA.
   const bool isNotoSans = strncmp(directionSettings.sdFontFamilyName, "NotoSans", 8) == 0;
-  const bool fastTextAA =
-      textAaEnabled && !useExternalFont && isNotoSans && renderer.isSdCardFont(readerFontId);
+  const bool fastTextAA = textAaEnabled && !useExternalFont &&
+                          (verticalMode || (isNotoSans && renderer.isSdCardFont(readerFontId)));
   const bool needsTextGrayscale = textAaEnabled && !useExternalFont && !fastTextAA;
   const bool needsImageGrayscale = page->hasImages() && textAaEnabled && !useExternalFont;
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
 
   auto renderBwPage = [&]() {
-    renderer.setFastAntiAliasing(fastTextAA);
-    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+    renderer.setFastAntiAliasing(fastTextAA, verticalMode);
+    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
+                 rubyOffsetY);
     renderer.setFastAntiAliasing(false);
   };
 
@@ -1112,6 +1189,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   renderBwPage();
   renderStatusBar();
+  renderRubyAdjustOverlay();
   const auto tBwRender = millis();
 
   if (imagePageWithAA) {
@@ -1132,7 +1210,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     }
-    // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
+    // The grayscale image pass can leave charge in the image region that a
+    // FAST refresh on the following text page does not completely clear.
+    // Force that next ordinary page through the ghost-cleanup refresh path.
+    pagesUntilFullRefresh = 1;
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
@@ -1148,7 +1229,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
+                   rubyOffsetY);
+      renderRubyAdjustOverlay();
     } else {
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
     }
@@ -1159,7 +1242,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
+                   rubyOffsetY);
+      renderRubyAdjustOverlay();
     } else {
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
     }
@@ -1228,6 +1313,18 @@ void EpubReaderActivity::renderStatusBar() const {
   }
 
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, verticalMode);
+}
+
+void EpubReaderActivity::renderRubyAdjustOverlay() const {
+  if (!rubyAdjustActive) return;
+  const auto& ds = SETTINGS.getDirectionSettings(verticalMode);
+  char value[24];
+  snprintf(value, sizeof(value), "X:%+d  Y:%+d", static_cast<int>(ds.rubyOffsetX) - 16,
+           static_cast<int>(ds.rubyOffsetY) - 16);
+  renderer.drawCenteredText(UI_10_FONT_ID, 5, value);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "横-", "横+");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawSideButtonHints(renderer, "縦-", "縦+");
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

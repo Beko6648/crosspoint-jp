@@ -18,6 +18,9 @@ struct DirectionSettings {
   uint8_t firstLineIndent = 1;
   uint8_t textAntiAliasing = 0;
   uint8_t rubyEnabled = 1;  // 0=OFF, 1=ON (default ON)
+  // Stored with a bias of 16: X supports -16..+64px, Y supports -16..+16px.
+  uint8_t rubyOffsetX = 16;
+  uint8_t rubyOffsetY = 16;
 };
 
 class CrossPointSettings {

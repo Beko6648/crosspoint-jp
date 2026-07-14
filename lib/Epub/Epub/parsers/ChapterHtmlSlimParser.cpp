@@ -46,6 +46,18 @@ constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
+bool hasClassToken(const std::string& classAttr, const char* token) {
+  const size_t tokenLength = strlen(token);
+  size_t pos = 0;
+  while (pos < classAttr.size()) {
+    while (pos < classAttr.size() && isWhitespace(classAttr[pos])) ++pos;
+    const size_t start = pos;
+    while (pos < classAttr.size() && !isWhitespace(classAttr[pos])) ++pos;
+    if (pos - start == tokenLength && classAttr.compare(start, tokenLength, token) == 0) return true;
+  }
+  return false;
+}
+
 // Check if a Unicode codepoint is an invisible/zero-width character that should be skipped
 bool isInvisibleCodepoint(const uint32_t cp) {
   if (cp == 0xFEFF) return true;                  // BOM / Zero Width No-Break Space
@@ -537,9 +549,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->currentPageNextY = 0;
                   self->currentPageNextX = self->viewportWidth - self->renderer.getLineHeight(self->fontId);
                 }
-                // Create page for image - only break if image won't fit remaining space
+                // Japanese EPUB authoring profiles commonly use class="fit" for a
+                // full-page illustration. Isolate it in horizontal mode as well so
+                // following text cannot occupy the image region.
+                const bool pageFitImage = hasClassToken(classAttr, "fit");
+
+                // Create page for image - break if it is page-fit or won't fit.
                 if (self->currentPage && !self->currentPage->elements.empty() &&
-                    (self->currentPageNextY + displayHeight > self->viewportHeight)) {
+                    (pageFitImage || self->currentPageNextY + displayHeight > self->viewportHeight)) {
                   self->completePageFn(std::move(self->currentPage));
                   self->completedPageCount++;
                   self->currentPage.reset(new Page());
@@ -564,15 +581,19 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   return;
                 }
                 int xPos = (self->viewportWidth - displayWidth) / 2;
-                auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, self->currentPageNextY);
+                const int imageY = (pageFitImage && self->verticalMode)
+                                       ? std::max(0, (self->viewportHeight - displayHeight) / 2)
+                                       : self->currentPageNextY;
+                auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, imageY);
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");
                   return;
                 }
                 self->currentPage->elements.push_back(pageImage);
 
-                if (self->verticalMode) {
-                  // In vertical mode, keep images on their own page to avoid overlap with vertical text columns.
+                if (self->verticalMode || pageFitImage) {
+                  // Vertical images and page-fit illustrations use their own page
+                  // to prevent later text from overlapping the image region.
                   self->completePageFn(std::move(self->currentPage));
                   self->completedPageCount++;
                   self->currentPage.reset(new Page());

@@ -427,17 +427,24 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + metrics.verticalSpacing * 2;
 
     std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
-    std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
     const Rect qrBoundsUrl(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
 
-    // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      hostnameUrl.c_str());
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 100,
-                      ipUrl.c_str());
+    // Keep hotspot connection details inside the narrow column beside the QR.
+    // Use the small UI font and split the fallback prefix from its URL rather
+    // than allowing one long Japanese/ASCII line to run off the display.
+    const int urlTextX = metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing;
+    const std::string orPrefix = tr(STR_OR_HTTP_PREFIX);
+    const std::string ipOnly = std::string("http://") + connectedIP + "/";
+    const std::string hostnameOnly = std::string(AP_HOSTNAME) + ".local/";
+    // Both URL components fit independently in the side column, so preserve
+    // every character instead of replacing the hostname tail with an ellipsis.
+    renderer.drawText(SMALL_FONT_ID, urlTextX, startY + 65, "http://");
+    renderer.drawText(SMALL_FONT_ID, urlTextX, startY + 85, hostnameOnly.c_str());
+    renderer.drawText(SMALL_FONT_ID, urlTextX, startY + 105, orPrefix.c_str());
+    renderer.drawText(SMALL_FONT_ID, urlTextX, startY + 125, ipOnly.c_str());
   } else {
     startY += metrics.verticalSpacing * 2;
 

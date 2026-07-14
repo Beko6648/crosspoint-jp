@@ -159,6 +159,8 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     obj["firstLineIndent"] = ds.firstLineIndent;
     obj["textAntiAliasing"] = ds.textAntiAliasing;
     obj["rubyEnabled"] = ds.rubyEnabled;
+    obj["rubyOffsetX"] = ds.rubyOffsetX;
+    obj["rubyOffsetY"] = ds.rubyOffsetY;
   };
   saveDirection(doc["horizontal"].to<JsonObject>(), s.horizontal);
   saveDirection(doc["vertical"].to<JsonObject>(), s.vertical);
@@ -270,6 +272,10 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     ds.textAntiAliasing = obj["textAntiAliasing"] | ds.textAntiAliasing;
     ds.rubyEnabled = obj["rubyEnabled"] | ds.rubyEnabled;
     if (ds.rubyEnabled > 1) ds.rubyEnabled = 1;
+    ds.rubyOffsetX = obj["rubyOffsetX"] | ds.rubyOffsetX;
+    ds.rubyOffsetY = obj["rubyOffsetY"] | ds.rubyOffsetY;
+    if (ds.rubyOffsetX > 80) ds.rubyOffsetX = 16;
+    if (ds.rubyOffsetY > 32) ds.rubyOffsetY = 16;
     return true;
   };
 

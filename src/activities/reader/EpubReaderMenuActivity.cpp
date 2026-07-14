@@ -4,6 +4,7 @@
 #include <HalGPIO.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "CrossPointSettings.h"
@@ -26,7 +27,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
   std::vector<MenuItem> items;
-  items.reserve(16);
+  items.reserve(17);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
@@ -37,6 +38,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES});
   items.push_back({MenuAction::STYLE_STATUS_BAR, StrId::STR_CUSTOMISE_STATUS_BAR});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
+  items.push_back({MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
@@ -155,10 +157,17 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // Menu Items
   const int startY = 75 + contentY;
   constexpr int lineHeight = 30;
+  constexpr int valueRightMargin = 32;
+  const int footerHeight = UITheme::getInstance().getMetrics().buttonHintsHeight;
+  const int availableHeight = std::max(lineHeight, renderer.getScreenHeight() - startY - footerHeight - 5);
+  const int visibleCount = std::max(1, availableHeight / lineHeight);
+  const int maxFirstVisible = std::max(0, static_cast<int>(menuItems.size()) - visibleCount);
+  const int firstVisible = std::clamp(selectedIndex - visibleCount + 1, 0, maxFirstVisible);
+  const int lastVisible = std::min(static_cast<int>(menuItems.size()), firstVisible + visibleCount);
 
-  for (size_t i = 0; i < menuItems.size(); ++i) {
-    const int displayY = startY + (i * lineHeight);
-    const bool isSelected = (static_cast<int>(i) == selectedIndex);
+  for (int i = firstVisible; i < lastVisible; ++i) {
+    const int displayY = startY + ((i - firstVisible) * lineHeight);
+    const bool isSelected = i == selectedIndex;
 
     if (isSelected) {
       // Highlight only the content area so we don't paint over hint gutters.
@@ -170,14 +179,16 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
     const std::string value = getMenuItemValue(menuItems[i].action);
     if (!value.empty()) {
       const auto width = renderer.getTextWidth(UI_10_FONT_ID, value.c_str());
-      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - width, displayY, value.c_str(), !isSelected);
+      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - valueRightMargin - width, displayY, value.c_str(),
+                        !isSelected);
     }
 
     if (menuItems[i].action == MenuAction::AUTO_PAGE_TURN) {
       // Render current page turn value on the right edge of the content area.
       const auto pageTurnValue = pageTurnLabels[selectedPageTurnOption];
       const auto pageTurnWidth = renderer.getTextWidth(UI_10_FONT_ID, pageTurnValue);
-      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - pageTurnWidth, displayY, pageTurnValue,
+      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - valueRightMargin - pageTurnWidth, displayY,
+                        pageTurnValue,
                         !isSelected);
     }
   }
