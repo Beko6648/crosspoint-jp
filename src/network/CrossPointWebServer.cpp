@@ -8,7 +8,6 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cctype>
@@ -19,6 +18,7 @@
 #include "FontInstaller.h"
 #include "SdCardFontGlobals.h"
 #include "SettingsList.h"
+#include "TaskWatchdog.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "html/FilesPageHtml.generated.h"
@@ -515,7 +515,7 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(c
       LOG_DBG("WEB", "Skipping file entry with invalid name in: %s", path);
       file.close();
       yield();
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       file = root.openNextFile();
       continue;
     }
@@ -535,7 +535,7 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(c
 
     file.close();
     yield();               // Yield to allow WiFi and other tasks to process during long scans
-    esp_task_wdt_reset();  // Reset watchdog to prevent timeout on large directories
+    resetTaskWatchdogIfSubscribed();  // Reset watchdog to prevent timeout on large directories
     file = root.openNextFile();
   }
   root.close();
@@ -666,7 +666,7 @@ void CrossPointWebServer::handleDownload() const {
     size_t bytesRead = static_cast<size_t>(result);
     size_t totalWritten = 0;
     while (totalWritten < bytesRead) {
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       size_t wrote = client.write(buffer + totalWritten, bytesRead - totalWritten);
       if (wrote == 0) {
         downloadOk = false;
@@ -686,12 +686,12 @@ static size_t writeCount = 0;
 
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   if (state.bufferPos > 0 && state.file) {
-    esp_task_wdt_reset();  // Reset watchdog before potentially slow SD write
+    resetTaskWatchdogIfSubscribed();  // Reset watchdog before potentially slow SD write
     const unsigned long writeStart = millis();
     const size_t written = state.file.write(state.buffer.data(), state.bufferPos);
     totalWriteTime += millis() - writeStart;
     writeCount++;
-    esp_task_wdt_reset();  // Reset watchdog after SD write
+    resetTaskWatchdogIfSubscribed();  // Reset watchdog after SD write
 
     if (written != state.bufferPos) {
       LOG_DBG("WEB", "[UPLOAD] Buffer flush failed: expected %d, wrote %d", state.bufferPos, written);
@@ -707,7 +707,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
   static size_t lastLoggedSize = 0;
 
   // Reset watchdog at start of every upload callback - HTTP parsing can be slow
-  esp_task_wdt_reset();
+  resetTaskWatchdogIfSubscribed();
 
   // Safety check: ensure server is still valid
   if (!running || !server) {
@@ -719,7 +719,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
   if (upload.status == UPLOAD_FILE_START) {
     // Reset watchdog - this is the critical 1% crash point
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
 
     state.fileName = upload.filename;
     state.size = 0;
@@ -757,21 +757,21 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     filePath += state.fileName;
 
     // Check if file already exists - SD operations can be slow
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
     if (Storage.exists(filePath.c_str())) {
       LOG_DBG("WEB", "[UPLOAD] Overwriting existing file: %s", filePath.c_str());
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       Storage.remove(filePath.c_str());
     }
 
     // Open file for writing - this can be slow due to FAT cluster allocation
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
     if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
       state.error = "Failed to create file on SD card";
       LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
       return;
     }
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
 
     LOG_DBG("WEB", "[UPLOAD] File created successfully: %s", filePath.c_str());
   } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -1587,26 +1587,26 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
                   filePath.c_str());
 
           // Ensure parent directory exists (needed for font uploads to /.crosspoint/fonts/<family>/)
-          esp_task_wdt_reset();
+          resetTaskWatchdogIfSubscribed();
           if (!Storage.exists(wsUploadPath.c_str())) {
             Storage.mkdir(wsUploadPath.c_str());
           }
 
           // Check if file exists and remove it
-          esp_task_wdt_reset();
+          resetTaskWatchdogIfSubscribed();
           if (Storage.exists(filePath.c_str())) {
             Storage.remove(filePath.c_str());
           }
 
           // Open file for writing
-          esp_task_wdt_reset();
+          resetTaskWatchdogIfSubscribed();
           if (!Storage.openFileForWrite("WS", filePath, wsUploadFile)) {
             wsServer->sendTXT(num, "ERROR:Failed to create file");
             wsUploadInProgress = false;
             wsUploadClientNum = 255;
             return;
           }
-          esp_task_wdt_reset();
+          resetTaskWatchdogIfSubscribed();
 
           // Zero-byte upload: complete immediately without waiting for BIN frames
           if (wsUploadSize == 0) {
@@ -1644,9 +1644,9 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         wsServer->sendTXT(num, "ERROR:Upload overflow");
         return;
       }
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       size_t written = wsUploadFile.write(payload, length);
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
 
       if (written != length) {
         abortWsUpload("WS");
@@ -1816,7 +1816,7 @@ void CrossPointWebServer::handleSleepImageList() const {
       }
       file.close();
       yield();
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       file = dir.openNextFile();
     }
     dir.close();
@@ -1857,7 +1857,7 @@ void CrossPointWebServer::handleSleepThumbnail() const {
     const size_t bytesRead = file.read(buf, sizeof(buf));
     if (bytesRead == 0) break;
     server->client().write(buf, bytesRead);
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
   }
   file.close();
 }
@@ -1911,7 +1911,7 @@ void CrossPointWebServer::handleWifiScan() const {
 
   int n = WIFI_SCAN_RUNNING;
   while (n == WIFI_SCAN_RUNNING && (millis() - scanStart) < SCAN_TIMEOUT_MS) {
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
     delay(20);
     n = WiFi.scanComplete();
   }
