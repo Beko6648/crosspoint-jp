@@ -715,7 +715,7 @@ void EpubReaderActivity::exitRubyAdjustMode() {
 void EpubReaderActivity::adjustRubyOffset(const RubyAdjustAxis axis, const int delta) {
   auto& ds = SETTINGS.getDirectionSettings(verticalMode);
   uint8_t& target = axis == RubyAdjustAxis::X ? ds.rubyOffsetX : ds.rubyOffsetY;
-  const int maximum = axis == RubyAdjustAxis::X ? 80 : 32;
+  constexpr int maximum = 80;
   const int next = std::clamp(static_cast<int>(target) + delta, 0, maximum);
   if (next != target) {
     target = static_cast<uint8_t>(next);
@@ -1133,12 +1133,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
   const int viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
+  const int viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
   const int readerFontId = SETTINGS.getReaderFontId(verticalMode);
   const auto& directionSettings = SETTINGS.getDirectionSettings(verticalMode);
   constexpr int horizontalRubyBaseShift = 10;
   const int rubyOffsetX = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetX, 80)) - 16 +
                           (verticalMode ? 0 : horizontalRubyBaseShift);
-  const int rubyOffsetY = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetY, 32)) - 16;
+  const int rubyOffsetY = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetY, 80)) - 16;
   const auto t0 = millis();
 
   // Preload external font glyphs: collect codepoints from page, sort them,
@@ -1161,8 +1162,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
-               rubyOffsetY);  // scan pass
+  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
+               rubyOffsetX, rubyOffsetY);  // scan pass
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 
@@ -1179,8 +1180,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   auto renderBwPage = [&]() {
     renderer.setFastAntiAliasing(fastTextAA, verticalMode);
-    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
-                 rubyOffsetY);
+    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
+                 rubyOffsetX, rubyOffsetY);
     renderer.setFastAntiAliasing(false);
   };
 
@@ -1229,8 +1230,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
-                   rubyOffsetY);
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
+                   rubyOffsetX, rubyOffsetY);
       renderRubyAdjustOverlay();
     } else {
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
@@ -1242,8 +1243,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, rubyOffsetX,
-                   rubyOffsetY);
+      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
+                   rubyOffsetX, rubyOffsetY);
       renderRubyAdjustOverlay();
     } else {
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
@@ -1318,13 +1319,29 @@ void EpubReaderActivity::renderStatusBar() const {
 void EpubReaderActivity::renderRubyAdjustOverlay() const {
   if (!rubyAdjustActive) return;
   const auto& ds = SETTINGS.getDirectionSettings(verticalMode);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  const int footerHeight = metrics.buttonHintsHeight;
+  const bool frontHintsAtTop = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int footerY = frontHintsAtTop ? 0 : screenHeight - footerHeight;
+  const int valueBandHeight = 26;
+  const int valueY = frontHintsAtTop ? screenHeight - footerHeight - valueBandHeight + 5 : 5;
+
+  // Keep the temporary controls legible over dense book text. The final ruby
+  // position remains visible after Done removes this overlay.
+  renderer.fillRect(0, footerY, screenWidth, footerHeight, false);
+  renderer.fillRect(screenWidth - metrics.sideButtonHintsWidth, 0, metrics.sideButtonHintsWidth, screenHeight, false);
+  renderer.fillRect(0, valueY - 5, screenWidth, valueBandHeight, false);
+
   char value[24];
   snprintf(value, sizeof(value), "X:%+d  Y:%+d", static_cast<int>(ds.rubyOffsetX) - 16,
            static_cast<int>(ds.rubyOffsetY) - 16);
-  renderer.drawCenteredText(UI_10_FONT_ID, 5, value);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "横-", "横+");
+  renderer.drawCenteredText(UI_10_FONT_ID, valueY, value);
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), tr(STR_RUBY_X_MINUS), tr(STR_RUBY_X_PLUS));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  GUI.drawSideButtonHints(renderer, "縦-", "縦+");
+  GUI.drawSideButtonHints(renderer, tr(STR_RUBY_Y_MINUS), tr(STR_RUBY_Y_PLUS));
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

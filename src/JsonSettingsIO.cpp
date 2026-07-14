@@ -275,7 +275,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     ds.rubyOffsetX = obj["rubyOffsetX"] | ds.rubyOffsetX;
     ds.rubyOffsetY = obj["rubyOffsetY"] | ds.rubyOffsetY;
     if (ds.rubyOffsetX > 80) ds.rubyOffsetX = 16;
-    if (ds.rubyOffsetY > 32) ds.rubyOffsetY = 16;
+    if (ds.rubyOffsetY > 80) ds.rubyOffsetY = 16;
     return true;
   };
 

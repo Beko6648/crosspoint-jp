@@ -69,7 +69,8 @@ bool TextBlock::hasRuby() const {
 }
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
-                       const int viewportWidth, const int rubyOffsetX, const int rubyOffsetY) const {
+                       const int viewportWidth, const int viewportHeight, const int viewportLeft,
+                       const int viewportTop, const int rubyOffsetX, const int rubyOffsetY) const {
   // Validate iterator bounds before rendering
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
     LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
@@ -215,14 +216,25 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         // Choose the side before applying the user adjustment. Previously the
         // edge fallback replaced the adjusted coordinate, making vertical ruby
         // appear fixed in columns near the right edge.
+        const int viewportRight = viewportLeft + viewportWidth;
         int rubyBaseX = wx + rubyBaseOffset + gap;
-        if (viewportWidth > 0 && rubyBaseX + rubyColumnWidth >= viewportWidth) {
+        if (viewportWidth > 0 && rubyBaseX + rubyColumnWidth >= viewportRight) {
           rubyBaseX = wx - rubyColumnWidth - gap;
         }
-        const int maxRubyX = viewportWidth > 0 ? std::max(0, viewportWidth - rubyColumnWidth) : INT_MAX;
-        const int rubyX = std::clamp(rubyBaseX + rubyOffsetX, 0, maxRubyX);
+        const int minRubyX = viewportWidth > 0 ? viewportLeft : 0;
+        const int maxRubyX = viewportWidth > 0 ? std::max(minRubyX, viewportRight - rubyColumnWidth) : INT_MAX;
+        const int rubyX = std::clamp(rubyBaseX + rubyOffsetX, minRubyX, maxRubyX);
 
-        const int rubyY = wy + rubyOffsetY;
+        const int rubyTextHeight =
+            std::max(rubyColumnWidth,
+                     renderer.getTextAdvanceYVertical(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR));
+        constexpr int rubyViewportSafety = 2;
+        const int minRubyY = viewportHeight > 0 ? viewportTop + rubyViewportSafety : 0;
+        const int maxRubyY =
+            viewportHeight > 0
+                ? std::max(minRubyY, viewportTop + viewportHeight - rubyTextHeight - rubyViewportSafety)
+                : INT_MAX;
+        const int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
 
         renderer.setRubyFastAaBoost(true);
         renderer.drawTextVertical(
@@ -256,7 +268,10 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int baseWidth = wordXpos[rubyBaseEnd] - wordXpos[i] + lastBaseAdvance;
         const int rubyWidth =
             renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
-        const int rubyX = wordX + (baseWidth - rubyWidth) / 2 + rubyOffsetX;
+        const int viewportRight = viewportLeft + viewportWidth;
+        const int minRubyX = viewportWidth > 0 ? viewportLeft : 0;
+        const int maxRubyX = viewportWidth > 0 ? std::max(minRubyX, viewportRight - rubyWidth) : INT_MAX;
+        const int rubyX = std::clamp(wordX + (baseWidth - rubyWidth) / 2 + rubyOffsetX, minRubyX, maxRubyX);
         const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
         const int rubyLineHeight = renderer.getLineHeight(rubyFontId);
 
@@ -265,7 +280,14 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const bool isBizudLikeFont = (bodyLineHeight == 29 && rubyLineHeight == 17);
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? bodyLineHeight : bodyLineHeight * 70 / 100;
-        const int rubyY = y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY;
+        constexpr int rubyViewportSafety = 2;
+        const int minRubyY = viewportHeight > 0 ? viewportTop + rubyViewportSafety : 0;
+        const int maxRubyY =
+            viewportHeight > 0
+                ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
+                : INT_MAX;
+        const int rubyY = std::clamp(y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY,
+                                     minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 

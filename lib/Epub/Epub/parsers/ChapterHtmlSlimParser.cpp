@@ -581,9 +581,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   return;
                 }
                 int xPos = (self->viewportWidth - displayWidth) / 2;
-                const int imageY = (pageFitImage && self->verticalMode)
-                                       ? std::max(0, (self->viewportHeight - displayHeight) / 2)
-                                       : self->currentPageNextY;
+                const int imageY = pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2)
+                                                : self->currentPageNextY;
                 auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, imageY);
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");

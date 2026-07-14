@@ -1772,6 +1772,35 @@ int GfxRenderer::getTextHeight(const int fontId) const {
   return fontMap.at(effectiveFontId).getData(EpdFontFamily::REGULAR)->ascender;
 }
 
+int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text,
+                                         const EpdFontFamily::Style style) const {
+  if (text == nullptr || *text == '\0') return 0;
+
+  const int effectiveFontId = getEffectiveFontId(fontId);
+  if (fontMap.count(effectiveFontId) == 0) return 0;
+
+  const auto& font = fontMap.at(effectiveFontId);
+  const uint16_t fontScale = getSdCardFontScale(effectiveFontId);
+  int total = 0;
+  int lastAdvance = 0;
+  const char* ptr = text;
+  while (*ptr) {
+    const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
+    if (cp == 0) break;
+    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    if (!glyph) continue;
+
+    int32_t advanceFp = static_cast<int32_t>(glyph->advanceX);
+    if (fontScale != 256) advanceFp = static_cast<int32_t>(static_cast<int64_t>(advanceFp) * fontScale / 256);
+    const int advance = fp4::toPixel(advanceFp);
+    lastAdvance = advance + advance * verticalCharSpacingPercent_ / 100;
+    total += lastAdvance;
+  }
+  // drawTextVertical places the final glyph inside a full line-height cell,
+  // which can extend a few pixels beyond its advance.
+  return total + std::max(0, getLineHeight(effectiveFontId) - lastAdvance);
+}
+
 void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, const char* text, const bool black,
                                    const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') return;

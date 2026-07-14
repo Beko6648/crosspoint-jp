@@ -26,7 +26,7 @@ class PageElement {
   explicit PageElement(const int16_t xPos, const int16_t yPos) : xPos(xPos), yPos(yPos) {}
   virtual ~PageElement() = default;
   virtual void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0,
-                      int rubyOffsetX = 0, int rubyOffsetY = 0) = 0;
+                      int viewportHeight = 0, int rubyOffsetX = 0, int rubyOffsetY = 0) = 0;
   virtual bool serialize(FsFile& file) = 0;
   virtual void collectCodepoints(std::vector<uint32_t>& out, size_t max) const {}
   virtual PageElementTag getTag() const = 0;  // Add type identification
@@ -41,7 +41,7 @@ class PageLine final : public PageElement {
       : PageElement(xPos, yPos), block(std::move(block)) {}
   const std::shared_ptr<TextBlock>& getBlock() const { return block; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0,
-              int rubyOffsetX = 0, int rubyOffsetY = 0) override;
+              int viewportHeight = 0, int rubyOffsetX = 0, int rubyOffsetY = 0) override;
   bool serialize(FsFile& file) override;
   void collectCodepoints(std::vector<uint32_t>& out, size_t max) const override;
   PageElementTag getTag() const override { return TAG_PageLine; }
@@ -56,7 +56,7 @@ class PageImage final : public PageElement {
   PageImage(std::shared_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos)
       : PageElement(xPos, yPos), imageBlock(std::move(block)) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0,
-              int rubyOffsetX = 0, int rubyOffsetY = 0) override;
+              int viewportHeight = 0, int rubyOffsetX = 0, int rubyOffsetY = 0) override;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
@@ -70,7 +70,7 @@ class PageTableRow final : public PageElement {
   PageTableRow(std::shared_ptr<TableRowBlock> block, const int16_t xPos, const int16_t yPos)
       : PageElement(xPos, yPos), block(std::move(block)) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0,
-              int rubyOffsetX = 0, int rubyOffsetY = 0) override;
+              int viewportHeight = 0, int rubyOffsetX = 0, int rubyOffsetY = 0) override;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageTableRow; }
   static std::unique_ptr<PageTableRow> deserialize(FsFile& file);
@@ -94,7 +94,7 @@ class Page {
   }
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0,
-              int rubyOffsetX = 0, int rubyOffsetY = 0) const;
+              int viewportHeight = 0, int rubyOffsetX = 0, int rubyOffsetY = 0) const;
   void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth = 0) const;
   void collectCodepoints(std::vector<uint32_t>& out, size_t max) const;
   bool serialize(FsFile& file) const;
