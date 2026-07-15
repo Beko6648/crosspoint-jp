@@ -11,6 +11,48 @@ uint8_t quantizeSimple(int gray);
 uint8_t quantize1bit(int gray, int x, int y);
 int adjustPixel(int gray);
 
+// Illustration-only tone curve. Preserve black line art while lifting the
+// shadows and midtones that tend to close up on the X4 panel.
+inline uint8_t applyIllustrationToneCurve(uint8_t gray) {
+  struct TonePoint {
+    uint8_t input;
+    uint8_t output;
+  };
+  constexpr TonePoint curve[] = {
+      {0, 0}, {16, 24}, {32, 56}, {64, 98}, {128, 160}, {192, 212}, {255, 255},
+  };
+
+  for (size_t i = 1; i < sizeof(curve) / sizeof(curve[0]); i++) {
+    if (gray <= curve[i].input) {
+      const int inputRange = curve[i].input - curve[i - 1].input;
+      const int outputRange = curve[i].output - curve[i - 1].output;
+      return curve[i - 1].output +
+             ((gray - curve[i - 1].input) * outputRange + inputRange / 2) / inputRange;
+    }
+  }
+  return 255;
+}
+
+// Shared 4x4 Bayer quantizer so JPEG and PNG illustrations use the same four
+// visible gray levels and the same spatial pattern.
+inline uint8_t applyBayerDither4Level(uint8_t gray, int x, int y) {
+  constexpr uint8_t bayer4x4[4][4] = {
+      {0, 8, 2, 10},
+      {12, 4, 14, 6},
+      {3, 11, 1, 9},
+      {15, 7, 13, 5},
+  };
+  const int dither = (static_cast<int>(bayer4x4[y & 3][x & 3]) - 8) * 5;
+  int adjusted = gray + dither;
+  if (adjusted < 0) adjusted = 0;
+  if (adjusted > 255) adjusted = 255;
+
+  if (adjusted < 64) return 0;
+  if (adjusted < 128) return 1;
+  if (adjusted < 192) return 2;
+  return 3;
+}
+
 enum class BmpRowOrder { BottomUp, TopDown };
 
 // Populates a 1-bit BMP header in the provided memory.

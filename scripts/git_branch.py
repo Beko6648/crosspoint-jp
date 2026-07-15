@@ -7,6 +7,7 @@ Release environments are unaffected; they set CROSSPOINT_VERSION in the ini.
 """
 
 import configparser
+import hashlib
 import os
 import subprocess
 import sys
@@ -63,6 +64,23 @@ def get_git_short_sha(project_dir):
     )
 
 
+def get_worktree_suffix(project_dir):
+    """Return a stable suffix for tracked, uncommitted source changes."""
+    try:
+        status = subprocess.check_output(
+            ['git', 'status', '--porcelain', '--untracked-files=no'], cwd=project_dir
+        )
+        if not status.strip():
+            return ''
+        diff = subprocess.check_output(
+            ['git', 'diff', '--binary', 'HEAD'], cwd=project_dir
+        )
+        return f'-dirty-{hashlib.sha256(diff).hexdigest()[:8]}'
+    except (FileNotFoundError, subprocess.CalledProcessError, OSError) as e:
+        warn(f'could not fingerprint working tree: {e}')
+        return '-dirty'
+
+
 def get_version_from_git_tag(project_dir):
     """Try to derive version from the latest v* git tag (e.g. v0.1.3 → 0.1.3)."""
     try:
@@ -107,7 +125,7 @@ def inject_version(env):
     base_version = get_base_version(project_dir)
     branch = get_git_branch(project_dir)
     short_sha = get_git_short_sha(project_dir)
-    version_string = f'{base_version}-dev-{branch}-{short_sha}'
+    version_string = f'{base_version}-dev-{branch}-{short_sha}{get_worktree_suffix(project_dir)}'
 
     env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
     print(f'CrossPoint build version: {version_string}')

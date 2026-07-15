@@ -7,7 +7,7 @@ class ZipFile;
 
 class JpegToBmpConverter {
   static bool jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                          bool oneBit, bool crop = true);
+                                          bool oneBit, bool crop = true, bool useIllustrationRendering = false);
 
  public:
   static bool jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, bool crop = true);

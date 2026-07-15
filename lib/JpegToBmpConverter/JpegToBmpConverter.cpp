@@ -204,6 +204,7 @@ struct BmpConvertCtx {
   int outWidth;
   int outHeight;
   bool oneBit;
+  bool useIllustrationRendering;
   int bytesPerRow;
   bool needsScaling;
   int callbackCount;
@@ -257,9 +258,13 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = darkenForEpaperImage(adjustPixel(srcRow[x]));
+      const uint8_t gray = ctx->useIllustrationRendering
+                               ? applyIllustrationToneCurve(adjustPixel(srcRow[x]))
+                               : darkenForEpaperImage(adjustPixel(srcRow[x]));
       uint8_t twoBit;
-      if (ctx->atkinsonDitherer) {
+      if (ctx->useIllustrationRendering) {
+        twoBit = applyBayerDither4Level(gray, x, outY);
+      } else if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
       } else if (ctx->fsDitherer) {
         twoBit = ctx->fsDitherer->processPixel(gray, x);
@@ -302,10 +307,14 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = darkenForEpaperImage(
-          adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0));
+      const uint8_t sourceGray = (ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0;
+      const uint8_t gray = ctx->useIllustrationRendering
+                               ? applyIllustrationToneCurve(adjustPixel(sourceGray))
+                               : darkenForEpaperImage(adjustPixel(sourceGray));
       uint8_t twoBit;
-      if (ctx->atkinsonDitherer) {
+      if (ctx->useIllustrationRendering) {
+        twoBit = applyBayerDither4Level(gray, x, ctx->currentOutY);
+      } else if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
       } else if (ctx->fsDitherer) {
         twoBit = ctx->fsDitherer->processPixel(gray, x);
@@ -422,8 +431,9 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
 
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                                     bool oneBit, bool crop) {
+                                                     bool oneBit, bool crop, bool useIllustrationRendering) {
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
+  if (useIllustrationRendering) LOG_INF("IMGQ", "JPEG illustration: full-res + PNG Bayer tone v4");
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
@@ -448,7 +458,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const int srcHeight = jpeg->getHeight();
 
   LOG_DBG("JPG", "JPEG dimensions: %dx%d", srcWidth, srcHeight);
-  const int decodeScale = 2;  // JPEG_SCALE_HALF
+  const int decodeScale = useIllustrationRendering ? 1 : 2;
   const int decWidth = (srcWidth + decodeScale - 1) / decodeScale;
   const int decHeight = (srcHeight + decodeScale - 1) / decodeScale;
 
@@ -514,6 +524,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   ctx.outWidth = outWidth;
   ctx.outHeight = outHeight;
   ctx.oneBit = oneBit;
+  ctx.useIllustrationRendering = useIllustrationRendering;
   ctx.bytesPerRow = bytesPerRow;
   ctx.needsScaling = needsScaling;
   ctx.scaleX_fp = scaleX_fp;
@@ -578,7 +589,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
   jpeg->setUserPointer(&ctx);
 
-  rc = jpeg->decode(0, 0, JPEG_SCALE_HALF);
+  rc = jpeg->decode(0, 0, useIllustrationRendering ? 0 : JPEG_SCALE_HALF);
 
   LOG_DBG("JPG", "JPEG decode result: rc=%d callbacks=%d rows=%d expectedRows=%d err=%d",
           rc, ctx.callbackCount, ctx.rowsWritten, ctx.outHeight, jpeg->getLastError());
@@ -598,17 +609,17 @@ bool JpegToBmpConverter::jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, bo
   // Use runtime display dimensions (swapped for portrait cover sizing)
   const int targetWidth = display.getDisplayHeight();
   const int targetHeight = display.getDisplayWidth();
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetWidth, targetHeight, false, crop);
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetWidth, targetHeight, false, crop, false);
 }
 
 // Convert with custom target size (for thumbnails, 2-bit)
 bool JpegToBmpConverter::jpegFileToBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth,
                                                      int targetMaxHeight) {
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false);
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false, false, true);
 }
 
 // Convert to 1-bit BMP (black and white only, no grays) for fast home screen rendering
 bool JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth,
                                                          int targetMaxHeight) {
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true);
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true, false);
 }

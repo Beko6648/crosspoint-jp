@@ -28,12 +28,12 @@ unsigned long failedJpegAt = 0;
 constexpr unsigned long JPEG_RETRY_DELAY_MS = 30000;
 
 std::string getCachePath(const std::string& imagePath) {
-  // Replace extension with .pxc (pixel cache)
+  // Version the cache whenever illustration tone/quantization changes.
   size_t dotPos = imagePath.rfind('.');
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc";
+    return imagePath.substr(0, dotPos) + ".pxc4";
   }
-  return imagePath + ".pxc";
+  return imagePath + ".pxc4";
 }
 
 // RAII guard: conditionally set skipDarkModeForImages so drawPixel skips

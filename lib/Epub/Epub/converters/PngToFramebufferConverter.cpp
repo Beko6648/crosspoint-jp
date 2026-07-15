@@ -222,7 +222,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   for (int dstX = 0; dstX < dstWidth; dstX++) {
     int outX = outXBase + dstX;
     if (outX < screenWidth) {
-      uint8_t gray = ctx->grayLineBuffer[srcX];
+      uint8_t gray = applyIllustrationToneCurve(ctx->grayLineBuffer[srcX]);
 
       uint8_t ditheredGray;
       if (useDithering) {
@@ -276,8 +276,9 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 }
 
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
-                                                    const RenderConfig& config) {
+                                                     const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
+  LOG_INF("IMGQ", "PNG illustration: Bayer tone v4");
 
   size_t freeHeap = ESP.getFreeHeap();
   if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
