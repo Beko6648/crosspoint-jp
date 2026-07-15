@@ -400,9 +400,11 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  // At end of the book, forward button goes home and back button returns to last page
+  // Keep the normal reading direction at the end screen: the forward button
+  // closes the book, while the back button returns to the last page.
   if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
-    if (nextTriggered) {
+    const bool closeBookTriggered = verticalMode ? prevTriggered : nextTriggered;
+    if (closeBookTriggered) {
       onGoHome();
     } else {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
@@ -812,6 +814,22 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     return;
   }
 
+  // Resolve the writing mode before handling a restored end-of-book position.
+  // A finished book has no section to load, but loop() still needs the correct
+  // direction when mapping its end-screen buttons.
+  if (!section) {
+    if (SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL) {
+      verticalMode = true;
+    } else if (SETTINGS.writingMode == CrossPointSettings::WM_HORIZONTAL) {
+      verticalMode = false;
+    } else {
+      // Auto: check OPF hints
+      verticalMode = epub && epub->isPageProgressionRtl() &&
+                     (epub->getLanguage() == "ja" || epub->getLanguage() == "jpn" || epub->getLanguage() == "zh" ||
+                      epub->getLanguage() == "zho");
+    }
+  }
+
   // edge case handling for sub-zero spine index
   if (currentSpineIndex < 0) {
     currentSpineIndex = 0;
@@ -829,20 +847,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.displayBuffer();
     automaticPageTurnActive = false;
     return;
-  }
-
-  // Resolve effective writing mode before viewport calculation (needed for direction-specific settings)
-  if (!section) {
-    if (SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL) {
-      verticalMode = true;
-    } else if (SETTINGS.writingMode == CrossPointSettings::WM_HORIZONTAL) {
-      verticalMode = false;
-    } else {
-      // Auto: check OPF hints
-      verticalMode = epub && epub->isPageProgressionRtl() &&
-                     (epub->getLanguage() == "ja" || epub->getLanguage() == "jpn" || epub->getLanguage() == "zh" ||
-                      epub->getLanguage() == "zho");
-    }
   }
 
   const auto& ds = SETTINGS.getDirectionSettings(verticalMode);

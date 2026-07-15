@@ -68,6 +68,33 @@ bool TextBlock::hasRuby() const {
   return false;
 }
 
+int TextBlock::getVerticalRubyRightOverflow(const GfxRenderer& renderer, const int bodyFontId,
+                                            const int layoutColumnWidth) {
+  if (rubyFontId == 0) return 0;
+
+  int bodyColumnWidth = renderer.getTextAdvanceX(bodyFontId, "\xe4\xb8\x80", EpdFontFamily::REGULAR);
+  if (bodyColumnWidth <= 0) bodyColumnWidth = renderer.getLineHeight(bodyFontId);
+  const int rubyColumnWidth = renderer.getLineHeight(rubyFontId);
+  const bool isBizudLikeFont = bodyColumnWidth == 29 && rubyColumnWidth == 17;
+  const int gap = isBizudLikeFont ? 2 : 1;
+  const int rubyBaseOffset = isBizudLikeFont ? bodyColumnWidth : bodyColumnWidth * 70 / 100;
+  const int occupiedRight = rubyBaseOffset + gap + rubyColumnWidth;
+  return std::max(0, occupiedRight - layoutColumnWidth);
+}
+
+int TextBlock::getHorizontalRubyTopInset(const GfxRenderer& renderer, const int bodyFontId) {
+  if (rubyFontId == 0) return 0;
+
+  const int bodyLineHeight = renderer.getLineHeight(bodyFontId);
+  const int rubyLineHeight = renderer.getLineHeight(rubyFontId);
+  const bool isBizudLikeFont = bodyLineHeight == 29 && rubyLineHeight == 17;
+  const int gap = isBizudLikeFont ? 2 : 1;
+  const int rubyBaseOffset = isBizudLikeFont ? bodyLineHeight : bodyLineHeight * 70 / 100;
+  constexpr int rubyViewportSafety = 2;
+  const int naturalRubyY = bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap;
+  return std::max(0, rubyViewportSafety - naturalRubyY);
+}
+
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
                        const int viewportWidth, const int viewportHeight, const int viewportLeft,
                        const int viewportTop, const int rubyOffsetX, const int rubyOffsetY) const {
@@ -213,13 +240,20 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        // Choose the side before applying the user adjustment. Previously the
-        // edge fallback replaced the adjusted coordinate, making vertical ruby
-        // appear fixed in columns near the right edge.
         const int viewportRight = viewportLeft + viewportWidth;
-        int rubyBaseX = wx + rubyBaseOffset + gap;
-        if (viewportWidth > 0 && rubyBaseX + rubyColumnWidth >= viewportRight) {
-          rubyBaseX = wx - rubyColumnWidth - gap;
+        const int rightBaseX = wx + rubyBaseOffset + gap;
+        const int leftBaseX = wx - rubyColumnWidth - gap;
+        int rubyBaseX = rightBaseX;
+        if (viewportWidth > 0) {
+          // Apply the user adjustment to both candidates, then choose the side
+          // with less viewport overflow. Equal candidates keep standard right-side ruby.
+          const int adjustedRightX = rightBaseX + rubyOffsetX;
+          const int adjustedLeftX = leftBaseX + rubyOffsetX;
+          const int rightOverflow = std::max(0, viewportLeft - adjustedRightX) +
+                                    std::max(0, adjustedRightX + rubyColumnWidth - viewportRight);
+          const int leftOverflow =
+              std::max(0, viewportLeft - adjustedLeftX) + std::max(0, adjustedLeftX + rubyColumnWidth - viewportRight);
+          if (leftOverflow < rightOverflow) rubyBaseX = leftBaseX;
         }
         const int minRubyX = viewportWidth > 0 ? viewportLeft : 0;
         const int maxRubyX = viewportWidth > 0 ? std::max(minRubyX, viewportRight - rubyColumnWidth) : INT_MAX;

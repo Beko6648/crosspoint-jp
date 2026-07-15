@@ -48,6 +48,8 @@ class TextBlock final : public Block {
   const std::vector<int16_t>& getWordYpos() const { return wordYpos; }
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;
+  static int getVerticalRubyRightOverflow(const GfxRenderer& renderer, int bodyFontId, int layoutColumnWidth);
+  static int getHorizontalRubyTopInset(const GfxRenderer& renderer, int bodyFontId);
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }
   // Marks additional base-text tokens that belong to the ruby group stored on the preceding token.
   static constexpr char RUBY_CONTINUATION_MARKER = '\x01';

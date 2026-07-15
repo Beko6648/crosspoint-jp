@@ -1436,18 +1436,24 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     // Vertical mode: columns placed right-to-left
     const int columnWidth = lineHeight;
     const int columnSpacing = columnWidth / 4;
+    // Shift ruby-bearing columns by their excess right-side occupancy. Advancing
+    // the next-column cursor from that shifted position keeps adjacent ranges disjoint.
+    const int rubyRightOverflow =
+        line->hasRuby() ? TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth) : 0;
 
     if (!currentPage) {
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;  // start from right edge
     }
 
-    if (currentPageNextX < 0) {
+    int columnX = currentPageNextX - rubyRightOverflow;
+    if (columnX < 0) {
       // Page full — emit and start new page
       completePageFn(std::move(currentPage));
       completedPageCount++;
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;
+      columnX = currentPageNextX - rubyRightOverflow;
     }
 
     // Track cumulative words for footnote assignment
@@ -1460,8 +1466,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
 
     // Column x-position, y=0 (column starts at top)
-    currentPage->elements.push_back(std::make_shared<PageLine>(line, static_cast<int16_t>(currentPageNextX), 0));
-    currentPageNextX -= (columnWidth + columnSpacing);
+    currentPage->elements.push_back(std::make_shared<PageLine>(line, static_cast<int16_t>(columnX), 0));
+    currentPageNextX = columnX - (columnWidth + columnSpacing);
   } else {
     // Horizontal mode: lines placed top-to-bottom (existing logic)
     if (!currentPage) {
@@ -1469,11 +1475,19 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
       currentPageNextY = 0;
     }
 
-    if (currentPageNextY + lineHeight > viewportHeight) {
+    int rubyTopInset = 0;
+    if (line->hasRuby() && currentPage->elements.empty()) {
+      // Preserve any CSS top spacing and add only the missing room for ruby.
+      const int requiredBodyY = TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId);
+      rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+    }
+
+    if (currentPageNextY + rubyTopInset + lineHeight > viewportHeight) {
       completePageFn(std::move(currentPage));
       completedPageCount++;
       currentPage.reset(new Page());
       currentPageNextY = 0;
+      rubyTopInset = line->hasRuby() ? TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId) : 0;
     }
 
     // Track cumulative words for footnote assignment
@@ -1486,8 +1500,9 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
 
     const int16_t xOffset = line->getBlockStyle().leftInset();
-    currentPage->elements.push_back(std::make_shared<PageLine>(line, xOffset, currentPageNextY));
-    currentPageNextY += lineHeight;
+    currentPage->elements.push_back(
+        std::make_shared<PageLine>(line, xOffset, static_cast<int16_t>(currentPageNextY + rubyTopInset)));
+    currentPageNextY += rubyTopInset + lineHeight;
   }
 }
 
