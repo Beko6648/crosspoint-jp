@@ -1662,6 +1662,7 @@
         <div class="convert-settings" id="xtcConvertSettings">
           <span id="xtcResolutionInfo"></span>
           <span>⚫ 1-bit Dithered</span>
+          <span>📦 JPEG / PNG / GIF / BMP / WebP</span>
           <label style="cursor:pointer; user-select:none;">
             <input type="checkbox" id="xtcRtlCheckbox" checked style="margin:0 3px 0 0; vertical-align:middle;">
             RTL (Manga)
@@ -3032,6 +3033,9 @@ const XTC_HEADER_SIZE = 56;
 const XTC_METADATA_SIZE = 256;
 const XTC_PAGE_TABLE_ENTRY_SIZE = 16;
 const XTC_PAGE_HEADER_SIZE = 22;
+const XTC_MAX_PAGE_COUNT = 0xffff; // XtcHeader::pageCount is uint16_t
+const XTC_MAX_FILE_SIZE = 0xffffffff; // Firmware PageInfo stores 32-bit offsets
+const XTC_IMAGE_LOAD_TIMEOUT_MS = 30000;
 
 function isZipOrCbz(filename) {
   const lower = filename.toLowerCase();
@@ -3055,6 +3059,14 @@ function updateXtcResolutionInfo() {
   if (el) el.textContent = `📏 ${deviceScreenWidth}×${deviceScreenHeight}px`;
 }
 
+function ensureXtcConversionActive() {
+  if (operationCancelled) throw new Error('XTC conversion cancelled');
+}
+
+function yieldXtcConversion() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 /**
  * ZIP画像アーカイブをXTCバイナリに変換する
  * @param {File} file - ZIP/CBZファイル
@@ -3062,10 +3074,20 @@ function updateXtcResolutionInfo() {
  * @returns {Promise<{blob: Blob, name: string}>} XTCデータとファイル名
  */
 async function convertZipToXtc(file, progressCallback) {
-  const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'];
+  const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
   const targetW = deviceScreenWidth;
   const targetH = deviceScreenHeight;
   const isRtl = document.getElementById('xtcRtlCheckbox').checked;
+
+  if (typeof JSZip === 'undefined') {
+    throw new Error('ZIP converter library is unavailable; reload the page and try again');
+  }
+  if (!Number.isInteger(targetW) || !Number.isInteger(targetH) || targetW <= 0 || targetH <= 0) {
+    throw new Error(`Invalid target resolution: ${targetW}×${targetH}`);
+  }
+
+  ensureXtcConversionActive();
+  console.info(`[XTC] Conversion started: ${file.name} (${formatFileSize(file.size)}), target=${targetW}x${targetH}, rtl=${isRtl}`);
 
   // JSZip で画像を列挙
   const zip = await JSZip.loadAsync(file);
@@ -3084,7 +3106,10 @@ async function convertZipToXtc(file, progressCallback) {
   });
 
   if (imageNames.length === 0) {
-    throw new Error('No images found in ZIP');
+    throw new Error('No supported images found in ZIP (JPEG, PNG, GIF, BMP, or WebP)');
+  }
+  if (imageNames.length > XTC_MAX_PAGE_COUNT) {
+    throw new Error(`Too many images for XTC: ${imageNames.length} (maximum ${XTC_MAX_PAGE_COUNT})`);
   }
 
   // Canvas準備（再利用）
@@ -3092,6 +3117,9 @@ async function convertZipToXtc(file, progressCallback) {
   canvas.width = targetW;
   canvas.height = targetH;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('Canvas 2D is unavailable in this browser');
+  }
 
   // 全ページの XTG ビットマップデータを収集
   const pagesData = []; // Array of Uint8Array (XTG bitmap per page)
@@ -3099,19 +3127,27 @@ async function convertZipToXtc(file, progressCallback) {
   const bitmapSize = bytesPerRow * targetH;
 
   for (let i = 0; i < imageNames.length; i++) {
+    await yieldXtcConversion();
+    ensureXtcConversionActive();
     progressCallback(i / imageNames.length);
 
     // 画像をロード
     const imgData = await zip.file(imageNames[i]).async('arraybuffer');
     const blob = new Blob([imgData]);
     const imgUrl = URL.createObjectURL(blob);
-    const img = await new Promise((resolve, reject) => {
-      const im = new Image();
-      im.onload = () => resolve(im);
-      im.onerror = () => reject(new Error('Failed to load image: ' + imageNames[i]));
-      im.src = imgUrl;
-    });
-    URL.revokeObjectURL(imgUrl);
+    let img;
+    try {
+      img = await new Promise((resolve, reject) => {
+        const im = new Image();
+        const timer = setTimeout(() => reject(new Error('Image decode timed out: ' + imageNames[i])), XTC_IMAGE_LOAD_TIMEOUT_MS);
+        im.onload = () => { clearTimeout(timer); resolve(im); };
+        im.onerror = () => { clearTimeout(timer); reject(new Error('Unsupported or corrupt image: ' + imageNames[i])); };
+        im.src = imgUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(imgUrl);
+    }
+    ensureXtcConversionActive();
 
     // 白背景でクリア
     ctx.fillStyle = '#ffffff';
@@ -3136,19 +3172,35 @@ async function convertZipToXtc(file, progressCallback) {
     const imageDataObj = ctx.getImageData(0, 0, targetW, targetH);
     const pixels = imageDataObj.data; // RGBA
     const gray = new Float32Array(targetW * targetH);
+    const histogram = new Uint32Array(256);
     for (let j = 0; j < gray.length; j++) {
       const r = pixels[j * 4];
       const g = pixels[j * 4 + 1];
       const b = pixels[j * 4 + 2];
-      gray[j] = 0.299 * r + 0.587 * g + 0.114 * b;
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      gray[j] = luminance;
+      histogram[Math.max(0, Math.min(255, Math.round(luminance)))]++;
     }
 
+    await yieldXtcConversion();
+    ensureXtcConversionActive();
+
     // コントラスト補正: autocontrast (cutoff=1%) + 1.3x enhance
-    // 1. ヒストグラム引き伸ばし
-    const sorted = Float32Array.from(gray).sort();
-    const cutIdx = Math.floor(gray.length * 0.01);
-    const lo = sorted[cutIdx];
-    const hi = sorted[gray.length - 1 - cutIdx];
+    // 1. Use a fixed-size histogram instead of duplicating and sorting the
+    // entire grayscale frame.
+    const cutCount = Math.floor(gray.length * 0.01);
+    let lo = 0;
+    let hi = 255;
+    let accumulated = 0;
+    for (let value = 0; value < 256; value++) {
+      accumulated += histogram[value];
+      if (accumulated > cutCount) { lo = value; break; }
+    }
+    accumulated = 0;
+    for (let value = 255; value >= 0; value--) {
+      accumulated += histogram[value];
+      if (accumulated > cutCount) { hi = value; break; }
+    }
     if (hi > lo) {
       const scale = 255 / (hi - lo);
       for (let j = 0; j < gray.length; j++) {
@@ -3160,14 +3212,18 @@ async function convertZipToXtc(file, progressCallback) {
       gray[j] = Math.max(0, Math.min(255, (gray[j] - 128) * 1.3 + 128));
     }
 
-    // Floyd-Steinberg ディザリング → 1-bit
-    const bw = new Uint8Array(targetW * targetH); // 0 or 1
+    // Floyd-Steinberg dithering and direct XTG packing. Packing in the same
+    // pass avoids a second full-frame monochrome buffer.
+    const packed = new Uint8Array(bitmapSize);
     for (let y = 0; y < targetH; y++) {
       for (let x = 0; x < targetW; x++) {
         const idx = y * targetW + x;
         const oldVal = gray[idx];
         const newVal = oldVal >= 128 ? 255 : 0;
-        bw[idx] = newVal > 0 ? 1 : 0; // 1=white, 0=black
+        if (newVal > 0) { // 1=white, 0=black
+          const byteIdx = y * bytesPerRow + (x >> 3);
+          packed[byteIdx] |= (1 << (7 - (x & 7)));
+        }
         const err = oldVal - newVal;
         if (x + 1 < targetW) gray[idx + 1] += err * 7 / 16;
         if (y + 1 < targetH) {
@@ -3178,16 +3234,6 @@ async function convertZipToXtc(file, progressCallback) {
       }
     }
 
-    // XTG ビットパック: 行優先、8px/byte、MSB first、0=black、1=white
-    const packed = new Uint8Array(bitmapSize);
-    for (let y = 0; y < targetH; y++) {
-      for (let x = 0; x < targetW; x++) {
-        if (bw[y * targetW + x]) { // white pixel
-          const byteIdx = y * bytesPerRow + (x >> 3);
-          packed[byteIdx] |= (1 << (7 - (x & 7)));
-        }
-      }
-    }
     pagesData.push(packed);
   }
 
@@ -3196,6 +3242,7 @@ async function convertZipToXtc(file, progressCallback) {
   // XTC コンテナ構築
   const xtcBlob = buildXtcContainer(pagesData, targetW, targetH, isRtl, file.name.normalize('NFC'));
   const xtcName = file.name.normalize('NFC').replace(/\.(zip|cbz)$/i, '.xtc');
+  console.info(`[XTC] Conversion complete: ${xtcName}, pages=${imageNames.length}, output=${formatFileSize(xtcBlob.size)}`);
   return { blob: xtcBlob, name: xtcName };
 }
 
@@ -3204,6 +3251,9 @@ async function convertZipToXtc(file, progressCallback) {
  */
 function buildXtcContainer(pagesData, width, height, isRtl, sourceFilename) {
   const pageCount = pagesData.length;
+  if (pageCount === 0 || pageCount > XTC_MAX_PAGE_COUNT) {
+    throw new Error(`Invalid XTC page count: ${pageCount}`);
+  }
   const bitmapSize = pagesData[0].length;
   const pageDataSize = XTC_PAGE_HEADER_SIZE + bitmapSize; // 22 + bitmap per page
 
@@ -3221,9 +3271,15 @@ function buildXtcContainer(pagesData, width, height, isRtl, sourceFilename) {
 
   // 総ファイルサイズ
   const totalSize = dataOffset + pageDataSize * pageCount;
-  const buffer = new ArrayBuffer(totalSize);
-  const view = new DataView(buffer);
-  const bytes = new Uint8Array(buffer);
+  if (!Number.isSafeInteger(totalSize) || totalSize > XTC_MAX_FILE_SIZE) {
+    throw new Error(`Converted XTC is too large: ${formatFileSize(totalSize)} (maximum 4 GiB)`);
+  }
+
+  // Keep only the header, metadata, and page table in one allocation. Page data
+  // is appended as Blob parts so the complete book is not duplicated in RAM.
+  const prefix = new ArrayBuffer(dataOffset);
+  const view = new DataView(prefix);
+  const bytes = new Uint8Array(prefix);
 
   // --- Header (56 bytes) ---
   let off = 0;
@@ -3265,23 +3321,26 @@ function buildXtcContainer(pagesData, width, height, isRtl, sourceFilename) {
   }
 
   // --- Page Data ---
-  let writeOff = dataOffset;
+  const blobParts = [prefix];
   for (let i = 0; i < pageCount; i++) {
+    if (pagesData[i].length !== bitmapSize) {
+      throw new Error(`Unexpected bitmap size on page ${i + 1}`);
+    }
+    const pageHeader = new ArrayBuffer(XTC_PAGE_HEADER_SIZE);
+    const pageView = new DataView(pageHeader);
+    let writeOff = 0;
     // XtgPageHeader (22 bytes)
-    view.setUint32(writeOff, XTG_MAGIC, true); writeOff += 4;     // magic
-    view.setUint16(writeOff, width, true); writeOff += 2;          // width
-    view.setUint16(writeOff, height, true); writeOff += 2;         // height
-    view.setUint8(writeOff, 0); writeOff += 1;                     // colorMode
-    view.setUint8(writeOff, 0); writeOff += 1;                     // compression
-    view.setUint32(writeOff, bitmapSize, true); writeOff += 4;     // dataSize
+    pageView.setUint32(writeOff, XTG_MAGIC, true); writeOff += 4; // magic
+    pageView.setUint16(writeOff, width, true); writeOff += 2;      // width
+    pageView.setUint16(writeOff, height, true); writeOff += 2;     // height
+    pageView.setUint8(writeOff, 0); writeOff += 1;                 // colorMode
+    pageView.setUint8(writeOff, 0); writeOff += 1;                 // compression
+    pageView.setUint32(writeOff, bitmapSize, true); writeOff += 4; // dataSize
     // md5 (8 bytes, zeroed)
-    writeOff += 8;
-    // Bitmap data
-    bytes.set(pagesData[i], writeOff);
-    writeOff += bitmapSize;
+    blobParts.push(pageHeader, pagesData[i]);
   }
 
-  return new Blob([buffer], { type: 'application/octet-stream' });
+  return new Blob(blobParts, { type: 'application/octet-stream' });
 }
 
 // ============================================================================
@@ -3673,8 +3732,8 @@ function exportLogToFile(filename = null, isBatch = false) {
 // EPUB Utilities — ported from EPUB Optimizer Pro
 // ═══════════════════════════════════════════════════════════════════
 
-/** Defensive CSS injected into every XHTML <head> — prevents e-ink overflow. */
-const DEFENSIVE_STYLE = '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
+/** CSS inserted by older WebUI conversions. Remove it when reconverting affected EPUBs. */
+const LEGACY_DEFENSIVE_STYLE = '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
 
 /** Escape a string for safe insertion into XML attribute values / text content. */
 function xmlEscape(str) {
@@ -3759,6 +3818,32 @@ function resolvePath(basePath, href) {
   }
   const resolved = [...baseParts, ...hrefParts].join('/');
   return resolved.replace(/\/+/g, '/');
+}
+
+/**
+ * Update image references without requiring well-formed XHTML. Some EPUBs are
+ * accepted by browsers/readers but rejected by DOMParser in XML mode.
+ */
+function updateRenamedImageReferences(xhtmlPath, content, renamed, splitImages = {}) {
+  let count = 0;
+  const updated = content.replace(/\b(src|href|xlink:href|poster)\s*=\s*(["'])(.*?)\2/gi,
+    (match, attr, quote, value) => {
+      const suffixIndex = value.search(/[?#]/);
+      const pathPart = suffixIndex >= 0 ? value.substring(0, suffixIndex) : value;
+      const suffix = suffixIndex >= 0 ? value.substring(suffixIndex) : '';
+      const decodedPath = decodeHref(pathPart);
+      const resolved = resolvePath(xhtmlPath, decodedPath);
+      const splitInfo = splitImages[resolved];
+      const renamedPath = splitInfo && splitInfo.parts.length > 0 ? splitInfo.parts[0].path : renamed[resolved];
+      if (!renamedPath) return match;
+
+      const newName = renamedPath.split('/').pop();
+      const slash = decodedPath.lastIndexOf('/');
+      const updatedPath = (slash >= 0 ? decodedPath.substring(0, slash + 1) : '') + newName;
+      count++;
+      return `${attr}=${quote}${updatedPath}${suffix}${quote}`;
+    });
+  return { content: updated, count };
 }
 
 /**
@@ -4521,12 +4606,6 @@ async function convertEpubFile(file, progressCallback) {
 
   const zip = await JSZip.loadAsync(file);
   const renamed = {};
-  zip.forEach(p => {
-    const l = p.toLowerCase();
-    if (l.match(/\.(png|gif|webp|bmp|jpeg)$/)) {
-      renamed[p] = p.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
-    }
-  });
 
   const out = new JSZip();
   const entries = Object.entries(zip.files);
@@ -4553,9 +4632,11 @@ async function convertEpubFile(file, progressCallback) {
       const imageState = getImageState(path);
 
       let result;
+      let processingSucceeded = true;
       try {
         result = await processImage(data, imageState, path);
       } catch (imageError) {
+        processingSucceeded = false;
         // Log error but continue with original image
         console.error(`Failed to process image ${path}:`, imageError);
         log(`Warning: Failed to process ${path.split('/').pop()}, using original`, 'warning', 'IMG-ERR');
@@ -4587,6 +4668,13 @@ async function convertEpubFile(file, progressCallback) {
       const parts = result.parts;
       const meta = result.meta;
 
+      // Only rename when the bytes were actually converted to JPEG. Keeping
+      // original bytes under a .jpg name makes the firmware select the wrong
+      // decoder and causes illustrations to disappear.
+      if (processingSucceeded && low.match(/\.(png|gif|webp|bmp|jpeg)$/)) {
+        renamed[path] = path.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
+      }
+
       const baseName = path.replace(/\.[^.]+$/, '');
       const newExt = '.jpg';
 
@@ -4599,7 +4687,7 @@ async function convertEpubFile(file, progressCallback) {
       totalNewSize += meta.finalSize;
 
       if (parts.length === 1 && parts[0].suffix === '') {
-        const newPath = renamed[path] || path.replace(/\.[^.]+$/, newExt);
+        const newPath = processingSucceeded ? (renamed[path] || path.replace(/\.[^.]+$/, newExt)) : path;
         out.file(newPath, parts[0].data, { compression: 'STORE', createFolders: false });
       } else {
         // Store with full path for collision prevention, but also keep original filename
@@ -4639,7 +4727,8 @@ async function convertEpubFile(file, progressCallback) {
   // Second pass: update XHTML using DOMParser
   for (const [xhtmlPath, content] of Object.entries(xhtmlFiles)) {
     if (operationCancelled) throw new Error('Cancelled by user');
-    let t = content;
+    let t = content.split(LEGACY_DEFENSIVE_STYLE).join('');
+    if (t !== content) logFix('Legacy injected CSS removed', xhtmlPath.split('/').pop());
     const r = fixSvgCover(t);
     if (r.fixed) { t = r.c; logFix('SVG cover', xhtmlPath.split('/').pop()); }
 
@@ -4787,9 +4876,12 @@ async function convertEpubFile(file, progressCallback) {
       console.warn('DOMParser error for', xhtmlPath, e.message);
     }
 
-    // Inject universal image constraint — prevents overflow on e-ink displays
-    if (t.includes('</head>')) {
-      t = t.replace('</head>', DEFENSIVE_STYLE + '</head>');
+    // DOMParser may reject HTML-compatible but non-well-formed XHTML. Apply a
+    // path-aware textual fallback so converted images never retain stale src.
+    const referenceUpdate = updateRenamedImageReferences(xhtmlPath, t, renamed, splitImages);
+    t = referenceUpdate.content;
+    if (referenceUpdate.count > 0) {
+      logFix(`Image references (${referenceUpdate.count})`, xhtmlPath.split('/').pop());
     }
 
     out.file(xhtmlPath, t, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
@@ -5258,9 +5350,10 @@ function uploadFile() {
           if (operationCancelled) { if (uploadGeneration === myGeneration) restoreAfterCancel(); return; }
           console.error('XTC conversion error:', convError);
           conversionFailed = true;
-          progressText.textContent = `XTC conversion failed, uploading original ${file.name}...`;
-          progressFill.style.backgroundColor = '#e67e22';
+          progressText.textContent = `XTC conversion failed: ${convError.message}`;
+          progressFill.style.backgroundColor = '#e74c3c';
           progressFill.style.width = '0%';
+          throw new Error(`XTC conversion failed: ${convError.message}`);
         }
       }
 

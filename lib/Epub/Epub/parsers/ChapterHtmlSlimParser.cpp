@@ -41,7 +41,7 @@ constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAG
 const char* IMAGE_TAGS[] = {"img"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
-const char* SKIP_TAGS[] = {"head", "rp"};
+const char* SKIP_TAGS[] = {"head", "style", "script", "title", "rp"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
@@ -263,6 +263,15 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Middle of skip
   if (self->skipUntilDepth < self->depth) {
+    self->depth += 1;
+    return;
+  }
+
+  // Metadata and executable/style content must never enter the book text.
+  // Include style/script/title separately so malformed EPUBs with these tags
+  // outside <head> are still handled safely.
+  if (matches(name, SKIP_TAGS, NUM_SKIP_TAGS)) {
+    self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
   }
