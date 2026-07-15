@@ -48,6 +48,7 @@ class TextBlock final : public Block {
   const std::vector<int16_t>& getWordYpos() const { return wordYpos; }
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;
+  void appendRubyText(std::string& out) const;
   static int getVerticalRubyRightOverflow(const GfxRenderer& renderer, int bodyFontId, int layoutColumnWidth);
   static int getHorizontalRubyTopInset(const GfxRenderer& renderer, int bodyFontId);
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }

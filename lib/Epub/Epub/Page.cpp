@@ -107,6 +107,26 @@ void Page::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
   }
 }
 
+void Page::collectRubyText(std::string& out) const {
+  size_t rubyBytes = 0;
+  for (const auto& element : elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& line = static_cast<const PageLine&>(*element);
+    if (!line.getBlock()) continue;
+    for (const auto& ruby : line.getBlock()->getRubyTexts()) {
+      if (!ruby.empty() && !TextBlock::isRubyContinuation(ruby)) rubyBytes += ruby.size();
+    }
+  }
+  if (rubyBytes == 0) return;
+
+  out.reserve(out.size() + rubyBytes);
+  for (const auto& element : elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& line = static_cast<const PageLine&>(*element);
+    if (line.getBlock()) line.getBlock()->appendRubyText(out);
+  }
+}
+
 bool Page::serialize(FsFile& file) const {
   const uint16_t count = elements.size();
   serialization::writePod(file, count);

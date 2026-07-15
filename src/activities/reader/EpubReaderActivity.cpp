@@ -77,6 +77,7 @@ void EpubReaderActivity::pregenerateCache() {
 
   const auto& ds = SETTINGS.getDirectionSettings(isVertical);
   ensureSdFontLoaded(isVertical);
+  configureRubyFont(isVertical);
 
   // Calculate viewport dimensions (same logic as render())
   int orientedMarginTop = 0, orientedMarginRight = 0, orientedMarginBottom = 0, orientedMarginLeft = 0;
@@ -1166,6 +1167,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
+  // Build the ruby advance table once for the whole page. Previously every
+  // ruby token rebuilt it independently, repeatedly allocating and reading SD.
+  if (TextBlock::rubyFontId != 0 && renderer.isSdCardFont(TextBlock::rubyFontId)) {
+    std::string pageRubyText;
+    page->collectRubyText(pageRubyText);
+    if (!pageRubyText.empty()) renderer.ensureSdCardFontReady(TextBlock::rubyFontId, pageRubyText.c_str());
+  }
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
                rubyOffsetX, rubyOffsetY);  // scan pass
   scope.endScanAndPrewarm();

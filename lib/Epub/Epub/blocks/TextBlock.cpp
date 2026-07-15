@@ -68,6 +68,12 @@ bool TextBlock::hasRuby() const {
   return false;
 }
 
+void TextBlock::appendRubyText(std::string& out) const {
+  for (const auto& ruby : rubyTexts) {
+    if (!ruby.empty() && !isRubyContinuation(ruby)) out += ruby;
+  }
+}
+
 int TextBlock::getVerticalRubyRightOverflow(const GfxRenderer& renderer, const int bodyFontId,
                                             const int layoutColumnWidth) {
   if (rubyFontId == 0) return 0;
@@ -106,7 +112,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   }
 
   const int effectiveFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
-  const bool rubyFontIsSd = (rubyFontId != 0) && renderer.isSdCardFont(rubyFontId);
   /*
   // ルビフォントのグリフをプリロード（SDカードフォントの場合）
   if (rubyFontId != 0 && hasRuby() && renderer.isSdCardFont(rubyFontId)) {
@@ -227,10 +232,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
             wy
         );
         #endif
-        if (rubyFontIsSd) {
-          renderer.ensureSdCardFontReady(rubyFontId, rubyTexts[i].c_str());
-        }
-
         const int rubyColumnWidth = renderer.getLineHeight(rubyFontId);
 
         // BIZUD系は列幅が大きく、従来位置でちょうどよい。
@@ -287,10 +288,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       // 横書きルビ描画
       if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() &&
           !isRubyContinuation(rubyTexts[i])) {
-        if (rubyFontIsSd) {
-          renderer.ensureSdCardFontReady(rubyFontId, rubyTexts[i].c_str());
-        }
-
         size_t rubyBaseEnd = i;
         while (rubyBaseEnd + 1 < rubyTexts.size() && isRubyContinuation(rubyTexts[rubyBaseEnd + 1])) {
           rubyBaseEnd++;

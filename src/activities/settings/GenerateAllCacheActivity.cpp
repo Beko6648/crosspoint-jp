@@ -173,14 +173,6 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const int coverHeight = UITheme::getInstance().getMetrics().homeCoverHeight;
     epub->generateThumbBmp(coverHeight);
 
-    // Check if already fully cached
-    const std::string firstSectionPath = epub->getCachePath() + "/sections/0.bin";
-    const std::string lastSectionPath = epub->getCachePath() + "/sections/" + std::to_string(spineCount - 1) + ".bin";
-    if (Storage.exists(firstSectionPath.c_str()) && Storage.exists(lastSectionPath.c_str())) {
-      processedCount++;
-      continue;  // Already cached
-    }
-
     // Resolve writing mode
     bool isVertical = false;
     if (SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL) {
@@ -203,6 +195,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const auto& ds = SETTINGS.getDirectionSettings(isVertical);
     ensureSdFontLoaded(isVertical);
+    configureRubyFont(isVertical);
 
     // Calculate viewport dimensions with direction-specific margins
     const int bmTop = baseMarginTop + ds.screenMargin;

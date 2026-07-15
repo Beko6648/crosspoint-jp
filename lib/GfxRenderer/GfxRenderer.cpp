@@ -1772,12 +1772,32 @@ int GfxRenderer::getTextHeight(const int fontId) const {
   return fontMap.at(effectiveFontId).getData(EpdFontFamily::REGULAR)->ascender;
 }
 
-int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text,
-                                         const EpdFontFamily::Style style) const {
+int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text, const EpdFontFamily::Style style) const {
   if (text == nullptr || *text == '\0') return 0;
 
   const int effectiveFontId = getEffectiveFontId(fontId);
   if (fontMap.count(effectiveFontId) == 0) return 0;
+
+  // Use the page-batched advance table for SD ruby fonts. This avoids a glyph
+  // miss and random SD read for every character during the prewarm scan.
+  auto sdIt = sdCardFonts_.find(fontId);
+  if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
+    const uint16_t fontScale = getSdCardFontScale(effectiveFontId);
+    const uint8_t styleIdx = static_cast<uint8_t>(style);
+    int total = 0;
+    int lastAdvance = 0;
+    const char* ptr = text;
+    while (*ptr) {
+      const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
+      if (cp == 0) break;
+      int32_t advanceFp = sdIt->second->getAdvance(cp, styleIdx);
+      if (fontScale != 256) advanceFp = static_cast<int32_t>(static_cast<int64_t>(advanceFp) * fontScale / 256);
+      const int advance = fp4::toPixel(advanceFp);
+      lastAdvance = advance + advance * verticalCharSpacingPercent_ / 100;
+      total += lastAdvance;
+    }
+    return total + std::max(0, getLineHeight(effectiveFontId) - lastAdvance);
+  }
 
   const auto& font = fontMap.at(effectiveFontId);
   const uint16_t fontScale = getSdCardFontScale(effectiveFontId);

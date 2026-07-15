@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Epub.h>
+#include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <FontManager.h>
@@ -250,6 +251,22 @@ void enterDeepSleep() {
 }
 
 void ensureSdFontLoaded(bool isVertical) { sdFontSystem.ensureLoaded(renderer, isVertical); }
+
+void configureRubyFont(const bool isVertical) {
+  const auto& ds = SETTINGS.getDirectionSettings(isVertical);
+  if (!ds.rubyEnabled) {
+    TextBlock::rubyFontId = 0;
+    return;
+  }
+
+  static constexpr uint8_t RUBY_FONT_SIZE_ENUM = 5;  // 8pt
+  int rubyId = 0;
+  if (ds.sdFontFamilyName[0] != '\0' && SETTINGS.sdFontIdResolver) {
+    rubyId = SETTINGS.sdFontIdResolver(SETTINGS.sdFontResolverCtx, ds.sdFontFamilyName, RUBY_FONT_SIZE_ENUM);
+  }
+  TextBlock::rubyFontId = rubyId != 0 ? rubyId : SETTINGS.getReaderFontId(isVertical);
+  LOG_DBG("RUBY", "Configured ruby font: vertical=%d fontId=%d", isVertical ? 1 : 0, TextBlock::rubyFontId);
+}
 
 void setupDisplayAndFonts() {
   display.begin();
