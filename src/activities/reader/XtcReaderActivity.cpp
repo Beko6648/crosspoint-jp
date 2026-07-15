@@ -151,7 +151,6 @@ void XtcReaderActivity::loop() {
   // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
     if (prevTriggered) {
-      saveProgress(true);
       onGoHome();
     } else {
       currentPage = xtc->getPageCount() - 1;
@@ -168,6 +167,7 @@ void XtcReaderActivity::loop() {
     currentPage += skipAmount;
     if (currentPage >= xtc->getPageCount()) {
       currentPage = xtc->getPageCount();  // Allow showing "End of book"
+      saveProgress(true);
     }
     requestUpdate();
     } else if (nextTriggered) {
@@ -417,13 +417,16 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
 void XtcReaderActivity::loadProgress() {
   FsFile f;
   if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-      LOG_DBG("XTR", "Loaded progress: page %lu", currentPage);
+    uint8_t data[5] = {0};
+    const int bytesRead = f.read(data, sizeof(data));
+    if (bytesRead >= 4) {
+      currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+                    (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
+      const bool isFinished = bytesRead >= 5 && data[4] == 1;
+      LOG_DBG("XTR", "Loaded progress: page %lu, finished: %d", currentPage, isFinished ? 1 : 0);
 
-      // Validate page number
-      if (currentPage >= xtc->getPageCount()) {
+      // pageCount is the valid end-screen position. Only values beyond it are corrupt.
+      if (currentPage > xtc->getPageCount()) {
         currentPage = 0;
       }
     }
