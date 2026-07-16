@@ -1,9 +1,10 @@
 """
-PlatformIO pre-build script: inject git branch and short SHA into
-CROSSPOINT_VERSION for the default (dev) environment.
+PlatformIO pre-build script: inject a traceable build ID and, for the default
+environment, the configured release version.
 
-Results in a version string like:  1.1.0-dev-feat-kosync-xpath-05c6cf8
-Release environments are unaffected; they set CROSSPOINT_VERSION in the ini.
+The user-facing version remains short (for example, v0.2.0).  The commit SHA
+and dirty-worktree marker are available separately as CROSSPOINT_BUILD_ID for
+serial logs.
 """
 
 import configparser
@@ -48,16 +49,6 @@ def run_git_value(project_dir, args, label):
         return 'unknown'
 
 
-def get_git_branch(project_dir):
-    branch = run_git_value(
-        project_dir, ['rev-parse', '--abbrev-ref', 'HEAD'], 'branch'
-    )
-    # Detached HEAD has no branch name.
-    if branch == 'HEAD':
-        return 'detached'
-    return branch
-
-
 def get_git_short_sha(project_dir):
     return run_git_value(
         project_dir, ['rev-parse', '--short', 'HEAD'], 'short SHA'
@@ -81,28 +72,8 @@ def get_worktree_suffix(project_dir):
         return '-dirty'
 
 
-def get_version_from_git_tag(project_dir):
-    """Try to derive version from the latest v* git tag (e.g. v0.1.3 → 0.1.3)."""
-    try:
-        tag = subprocess.check_output(
-            ['git', 'describe', '--tags', '--match', 'v*', '--abbrev=0'],
-            text=True, stderr=subprocess.PIPE, cwd=project_dir
-        ).strip()
-        version = tag.lstrip('v')
-        if version:
-            return version
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
-    return None
-
-
 def get_base_version(project_dir):
-    # Prefer version from latest git tag (single source of truth)
-    git_version = get_version_from_git_tag(project_dir)
-    if git_version:
-        return git_version
-
-    # Fall back to platformio.ini (for repos without tags)
+    """Read the release version from platformio.ini."""
     ini_path = os.path.join(project_dir, 'platformio.ini')
     if not os.path.isfile(ini_path):
         warn(f'platformio.ini not found at {ini_path}; base version will be "0.0.0"')
@@ -116,19 +87,17 @@ def get_base_version(project_dir):
 
 
 def inject_version(env):
-    # Only applies to the dev (default) environment; release envs set the
-    # version via build_flags in platformio.ini and are unaffected.
+    project_dir = env['PROJECT_DIR']
+    short_sha = get_git_short_sha(project_dir)
+    build_id = f'{short_sha}{get_worktree_suffix(project_dir)}'
+    env.Append(CPPDEFINES=[('CROSSPOINT_BUILD_ID', f'\\"{build_id}\\"')])
+
     if env['PIOENV'] != 'default':
         return
 
-    project_dir = env['PROJECT_DIR']
-    base_version = get_base_version(project_dir)
-    branch = get_git_branch(project_dir)
-    short_sha = get_git_short_sha(project_dir)
-    version_string = f'{base_version}-dev-{branch}-{short_sha}{get_worktree_suffix(project_dir)}'
-
-    env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
-    print(f'CrossPoint build version: {version_string}')
+    version = get_base_version(project_dir)
+    env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version}\\"')])
+    print(f'CrossPoint build version: {version} (build {build_id})')
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.
