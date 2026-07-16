@@ -41,11 +41,6 @@ class GfxRenderer {
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
-  // Single-pass AA for 2-bit fonts. Partial-coverage pixels are dithered
-  // in the BW frame, avoiding grayscale controller state between screens.
-  bool fastAntiAliasing = false;
-  bool denseFastAntiAliasing = false;
-  mutable bool rubyFastAaBoost = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
@@ -249,29 +244,6 @@ class GfxRenderer {
   // Grayscale functions
   void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
   RenderMode getRenderMode() const { return renderMode; }
-  void setFastAntiAliasing(bool enabled, bool dense = false) {
-    fastAntiAliasing = enabled;
-    denseFastAntiAliasing = enabled && dense;
-  }
-  bool isFastAntiAliasing() const { return fastAntiAliasing; }
-  void setRubyFastAaBoost(bool enabled) const { rubyFastAaBoost = enabled; }
-  bool shouldDrawFastAaPixel(uint8_t coverage, int x, int y) const {
-    if (denseFastAntiAliasing) {
-      const uint8_t patternIndex = static_cast<uint8_t>((x & 3) | ((y & 1) << 2));
-      // Body text preserves 7/8 of dark-gray and 5/8 of light-gray coverage.
-      // Small vertical ruby keeps one extra light-gray pixel per pattern so
-      // its fine strokes stay legible without making body AA look like AA-off.
-      constexpr uint8_t DARK_GRAY_PATTERN = 0b11111110;
-      constexpr uint8_t LIGHT_GRAY_PATTERN = 0b10110110;
-      constexpr uint8_t RUBY_LIGHT_GRAY_PATTERN = 0b10111110;
-      const uint8_t lightGrayPattern = rubyFastAaBoost ? RUBY_LIGHT_GRAY_PATTERN : LIGHT_GRAY_PATTERN;
-      return coverage == 0 ||
-             (coverage == 1 && ((DARK_GRAY_PATTERN >> patternIndex) & 1u) != 0) ||
-             (coverage == 2 && ((lightGrayPattern >> patternIndex) & 1u) != 0);
-    }
-    return coverage == 0 || (coverage == 1 && ((x + y) & 1) == 0) ||
-           (coverage == 2 && (x & 1) == 0 && (y & 1) == 0);
-  }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer(bool turnOffScreen = false, bool darkMode = false) const;

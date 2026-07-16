@@ -157,7 +157,6 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     obj["hyphenationEnabled"] = ds.hyphenationEnabled;
     obj["screenMargin"] = ds.screenMargin;
     obj["firstLineIndent"] = ds.firstLineIndent;
-    obj["textAntiAliasing"] = ds.textAntiAliasing;
     obj["rubyEnabled"] = ds.rubyEnabled;
     obj["rubyOffsetX"] = ds.rubyOffsetX;
     obj["rubyOffsetY"] = ds.rubyOffsetY;
@@ -177,6 +176,14 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   if (error) {
     LOG_ERR("CPS", "JSON parse error: %s", error.c_str());
     return false;
+  }
+
+  // Text anti-aliasing was removed. Mark existing files for resave so the
+  // obsolete keys are discarded without affecting the remaining settings.
+  if ((!doc["horizontal"]["textAntiAliasing"].isNull() || !doc["vertical"]["textAntiAliasing"].isNull() ||
+       !doc["textAntiAliasing"].isNull()) &&
+      needsResave) {
+    *needsResave = true;
   }
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
@@ -269,7 +276,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     if (ds.screenMargin < 5) ds.screenMargin = 5;
     if (ds.screenMargin > 40) ds.screenMargin = 40;
     ds.firstLineIndent = obj["firstLineIndent"] | ds.firstLineIndent;
-    ds.textAntiAliasing = obj["textAntiAliasing"] | ds.textAntiAliasing;
     ds.rubyEnabled = obj["rubyEnabled"] | ds.rubyEnabled;
     if (ds.rubyEnabled > 1) ds.rubyEnabled = 1;
     ds.rubyOffsetX = obj["rubyOffsetX"] | ds.rubyOffsetX;
@@ -287,7 +293,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       s.vertical.*field = val;
     };
     migrateBoth("extraParagraphSpacing", &DirectionSettings::extraParagraphSpacing);
-    migrateBoth("textAntiAliasing", &DirectionSettings::textAntiAliasing);
     migrateBoth("paragraphAlignment", &DirectionSettings::paragraphAlignment);
     migrateBoth("hyphenationEnabled", &DirectionSettings::hyphenationEnabled);
     migrateBoth("screenMargin", &DirectionSettings::screenMargin);

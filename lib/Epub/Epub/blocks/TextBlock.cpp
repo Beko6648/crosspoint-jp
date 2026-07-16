@@ -271,7 +271,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
                 : INT_MAX;
         const int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
 
-        renderer.setRubyFastAaBoost(true);
         renderer.drawTextVertical(
             rubyFontId,
             rubyX,
@@ -280,7 +279,6 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
             true,
             EpdFontFamily::REGULAR
         );
-        renderer.setRubyFastAaBoost(false);
       }
     } else {
       const int wordX = wordXpos[i] + x;

@@ -61,9 +61,6 @@ void DirectionSettingsActivity::buildItems() {
   // First Line Indent
   items.push_back({StrId::STR_FIRST_LINE_INDENT, Item::Type::TOGGLE, &DirectionSettings::firstLineIndent, {}, {}});
 
-  // Text Anti-Aliasing
-  items.push_back({StrId::STR_TEXT_AA, Item::Type::TOGGLE, &DirectionSettings::textAntiAliasing, {}, {}});
-
   // Ruby (Furigana)
   items.push_back({StrId::STR_RUBY_ENABLED, Item::Type::TOGGLE, &DirectionSettings::rubyEnabled, {}, {}});
 }

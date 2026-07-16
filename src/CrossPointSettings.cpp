@@ -207,8 +207,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
       opdsServerUrl[sizeof(opdsServerUrl) - 1] = '\0';
     }
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, horizontal.textAntiAliasing);
-    vertical.textAntiAliasing = horizontal.textAntiAliasing;
+    // Obsolete text anti-aliasing setting. Consume it so subsequent legacy
+    // settings retain their original binary offsets.
+    uint8_t obsoleteTextAntiAliasing;
+    serialization::readPod(inputFile, obsoleteTextAntiAliasing);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;

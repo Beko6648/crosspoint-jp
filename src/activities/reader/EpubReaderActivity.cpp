@@ -1020,116 +1020,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 
-  const bool textAaEnabled = directionSettings.textAntiAliasing;
-  const bool useExternalFont = FontManager::getInstance().isExternalFontEnabled();
-  // Noto Sans family directories may end in JP, Jp, or CJK. Match the stable
-  // family prefix so Serif and other SD fonts keep their full grayscale AA.
-  const bool isNotoSans = strncmp(directionSettings.sdFontFamilyName, "NotoSans", 8) == 0;
-  const bool fastTextAA = textAaEnabled && !useExternalFont &&
-                          (verticalMode || (isNotoSans && renderer.isSdCardFont(readerFontId)));
-  const bool needsTextGrayscale = textAaEnabled && !useExternalFont && !fastTextAA;
-  const bool needsImageGrayscale = page->hasImages() && textAaEnabled && !useExternalFont;
-  const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
-
-  auto renderBwPage = [&]() {
-    renderer.setFastAntiAliasing(fastTextAA, verticalMode);
-    page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
-                 rubyOffsetX, rubyOffsetY);
-    renderer.setFastAntiAliasing(false);
-  };
-
-  // Force special handling for pages with images when anti-aliasing is on
-  bool imagePageWithAA = page->hasImages() && textAaEnabled;
-
-  renderBwPage();
+  page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
+               rubyOffsetX, rubyOffsetY);
   renderStatusBar();
   renderRubyAdjustOverlay();
   const auto tBwRender = millis();
 
-  if (imagePageWithAA) {
-    // Double FAST_REFRESH with selective image blanking (pablohc's technique):
-    // HALF_REFRESH sets particles too firmly for the grayscale LUT to adjust.
-    // Instead, blank only the image area and do two fast refreshes.
-    // Step 1: Display page with image area blanked (text appears, image area white)
-    // Step 2: Re-render with images and display again (images appear clean)
-    int16_t imgX, imgY, imgW, imgH;
-    if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
-      renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-
-      // Re-render page content to restore images into the blanked area
-      // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
-      renderBwPage();
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    } else {
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-    }
-    // The grayscale image pass can leave charge in the image region that a
-    // FAST refresh on the following text page does not completely clear.
-    // Force that next ordinary page through the ghost-cleanup refresh path.
-    pagesUntilFullRefresh = 1;
-  } else {
-    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-  }
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   const auto tDisplay = millis();
 
-  // Save bw buffer to reset buffer state after grayscale data sync
-  renderer.storeBwBuffer();
-  const auto tBwStore = millis();
-
-  // Built-in fonts use full grayscale AA. SD fonts use single-pass BW dithering
-  // to avoid carrying grayscale controller state into page/home transitions.
-  if (needsAnyGrayscale) {
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
-                   rubyOffsetX, rubyOffsetY);
-      renderRubyAdjustOverlay();
-    } else {
-      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
-    }
-    renderer.copyGrayscaleLsbBuffers();
-    const auto tGrayLsb = millis();
-
-    // Render and copy to MSB buffer
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    if (needsTextGrayscale) {
-      page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
-                   rubyOffsetX, rubyOffsetY);
-      renderRubyAdjustOverlay();
-    } else {
-      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
-    }
-    renderer.copyGrayscaleMsbBuffers();
-    const auto tGrayMsb = millis();
-
-    // display grayscale part
-    renderer.displayGrayBuffer();
-    const auto tGrayDisplay = millis();
-    renderer.setRenderMode(GfxRenderer::BW);
-    // restore the bw data
-    renderer.restoreBwBuffer();
-    const auto tBwRestore = millis();
-
-    const auto tEnd = millis();
-    LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums "
-            "gray_lsb=%lums gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tGrayLsb - tBwStore,
-            tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
-  } else {
-    // restore the bw data
-    renderer.restoreBwBuffer();
-    const auto tBwRestore = millis();
-
-    const auto tEnd = millis();
-    LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
-            tEnd - t0);
-  }
+  const auto tEnd = millis();
+  LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
+          tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
 }
 
 void EpubReaderActivity::renderStatusBar() const {

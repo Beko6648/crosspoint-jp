@@ -275,9 +275,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
           if (renderMode == GfxRenderer::BW && bmpVal < 3) {
-            if (!renderer.isFastAntiAliasing() || renderer.shouldDrawFastAaPixel(bmpVal, screenX, screenY)) {
-              renderer.drawPixel(screenX, screenY, pixelState);
-            }
+            renderer.drawPixel(screenX, screenY, pixelState);
           } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
             // Light gray (also mark the MSB if it's going to be a dark gray too)
             // Dedicated X3 gray LUTs now provide proper 4-level gray on both devices
@@ -1911,9 +1909,7 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
           const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
           if (renderMode == BW && bmpVal < 3) {
-            if (!fastAntiAliasing || shouldDrawFastAaPixel(bmpVal, screenX, screenY)) {
-              drawPixel(screenX, screenY, black);
-            }
+            drawPixel(screenX, screenY, black);
           } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
             drawPixel(screenX, screenY, false);
           } else if (renderMode == GRAYSCALE_LSB && bmpVal == 1) {
@@ -2009,9 +2005,7 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
             const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
             if (renderMode == BW && bmpVal < 3) {
-              if (!fastAntiAliasing || shouldDrawFastAaPixel(bmpVal, screenX, screenY)) {
-                drawPixel(screenX, screenY, black);
-              }
+              drawPixel(screenX, screenY, black);
             } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
               drawPixel(screenX, screenY, false);
             } else if (renderMode == GRAYSCALE_LSB && bmpVal == 1) {
@@ -2195,9 +2189,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
             const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
             if (renderMode == BW && bmpVal < 3) {
-              if (!fastAntiAliasing || shouldDrawFastAaPixel(bmpVal, screenX, screenY)) {
-                drawPixel(screenX, screenY, black);
-              }
+              drawPixel(screenX, screenY, black);
             } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
               drawPixel(screenX, screenY, false);
             } else if (renderMode == GRAYSCALE_LSB && bmpVal == 1) {
@@ -2722,9 +2714,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
 
             if (renderMode == BW) {
               bool shouldDraw = false;
-              if (fastAntiAliasing) {
-                shouldDraw = bmpVal < 3 && shouldDrawFastAaPixel(bmpVal, screenX, screenY);
-              } else if (darkMode) {
+              if (darkMode) {
                 if (bmpVal == 0) {
                   shouldDraw = true;
                 }
