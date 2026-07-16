@@ -382,6 +382,12 @@ CssStyle CssParser::parseDeclarations(const std::string& declBlock) {
 // Rule processing
 
 void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style) {
+  // A selector whose declarations contain no supported properties can never
+  // affect resolveStyle().  Do not spend a hash-map node and selector string on it.
+  if (!style.defined.anySet()) {
+    return;
+  }
+
   // Check if we've reached the rule limit before processing
   if (rulesBySelector_.size() >= MAX_RULES) {
     LOG_DBG("CSS", "Reached max rules limit (%zu), stopping CSS parsing", MAX_RULES);

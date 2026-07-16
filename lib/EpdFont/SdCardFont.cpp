@@ -32,6 +32,9 @@ static constexpr uint16_t CPFONT_VERSION_MIN = 4;
 static constexpr uint16_t CPFONT_VERSION_MAX = 5;
 static constexpr uint32_t HEADER_SIZE = 32;
 static constexpr uint32_t STYLE_TOC_ENTRY_SIZE = 32;
+// Vertical substitution is optional punctuation shaping.  Preserve enough
+// contiguous heap for the page renderer and font fallback data before loading it.
+static constexpr size_t MIN_FREE_HEAP_FOR_VERT_DATA = 32 * 1024;
 
 // Helper to read little-endian values from byte buffer
 static inline uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -775,6 +778,12 @@ bool SdCardFont::loadVertData(uint8_t style) {
   auto& s = styles_[style];
   if (s.vertLoaded) return true;
   if (s.vertSectionOffset == 0) return false;
+
+  if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
+    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
+    return false;
+  }
 
   FsFile file;
   if (!Storage.openFileForRead("SDCF", filePath_, file)) {

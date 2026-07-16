@@ -238,6 +238,7 @@ void Epub::parseCssFiles() const {
   }
 
   LOG_DBG("EBP", "CSS files to parse: %zu", cssFiles.size());
+  LOG_DBG("EBP", "CSS heap before parsing: free=%u, maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // See if we have a cached version of the CSS rules
   if (cssParser->hasCache()) {
@@ -294,6 +295,8 @@ void Epub::parseCssFiles() const {
     // Explicitly close() file before calling Storage.remove()
     tempCssFile.close();
     Storage.remove(tmpCssPath.c_str());
+    LOG_DBG("EBP", "CSS heap after %s: rules=%zu, free=%u, maxAlloc=%u", cssPath.c_str(),
+            cssParser->ruleCount(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   }
 
   // Save to cache for next time
@@ -303,6 +306,7 @@ void Epub::parseCssFiles() const {
 
   LOG_DBG("EBP", "Loaded %zu CSS style rules from %zu files", cssParser->ruleCount(), cssFiles.size());
   cssParser->clear();
+  LOG_DBG("EBP", "CSS rules released: free=%u, maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 // load in the meta data for the epub file
@@ -318,7 +322,8 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   if (bookMetadataCache->load()) {
     if (!skipLoadingCss) {
       // Rebuild CSS cache when missing or when cache version changed (loadFromCache removes stale file)
-      if (!cssParser->hasCache() || !cssParser->loadFromCache()) {
+      const bool cssCacheLoaded = cssParser->hasCache() && cssParser->loadFromCache();
+      if (!cssCacheLoaded) {
         LOG_DBG("EBP", "CSS rules cache missing or stale, attempting to parse CSS files");
         cssParser->deleteCache();
 
@@ -339,6 +344,12 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         }
         // Invalidate section caches so they are rebuilt with the new CSS
         Storage.removeDir((cachePath + "/sections").c_str());
+      } else {
+        // Existing section caches do not need CSS rules in RAM.  A section that
+        // must be rebuilt reloads them on demand, then releases them after use.
+        // Keeping a large rule map resident here can starve vertical font data.
+        cssParser->clear();
+        LOG_DBG("EBP", "Validated CSS cache and released loaded rules");
       }
     }
     LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
@@ -444,19 +455,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
     LOG_ERR("EBP", "Failed to reload cache after writing");
     return false;
   }
-
-
-  if (!skipLoadingCss) {
-    // Handle case where CSS files are not listed in OPF manifest
-    // but are still referenced by HTML files - discover and parse them too
-    discoverCssFilesFromZip();
-    // Parse CSS files after cache reload
-    parseCssFiles();
-    Storage.removeDir((cachePath + "/sections").c_str());
-  }
-  discoverCssFilesFromZip();
-
-
   LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
   return true;
 }

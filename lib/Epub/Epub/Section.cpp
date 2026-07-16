@@ -25,7 +25,12 @@ constexpr size_t MIN_FREE_HEAP_FOR_TINY_SECTION_BUILD = 30 * 1024;   // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SMALL_SECTION_BUILD = 36 * 1024;  // 36KB
 constexpr size_t MIN_FREE_HEAP_FOR_MEDIUM_SECTION_BUILD = 48 * 1024; // 48KB
 constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;  // 64KB
-constexpr size_t MIN_FREE_HEAP_AFTER_CSS_LOAD = 64 * 1024;           // 64KB
+// Keep additional room for page objects, font metrics, and parser buffers when
+// deciding whether a loaded external stylesheet can remain resident.
+constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;              // 32KB
+// XHTML size alone cannot predict a single long text block or a large glyph
+// advance table.  Below this floor, release external rules and use inline CSS.
+constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;        // 96KB
 // ZIP inflate streaming needs a 32KB sliding window plus a little room for file and temp allocations.
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
@@ -198,7 +203,7 @@ bool Section::clearCache() const {
   return true;
 }
 
-CssParser* Section::loadEmbeddedCssForSection(const bool embeddedStyle) {
+CssParser* Section::loadEmbeddedCssForSection(const bool embeddedStyle, const uint32_t fileSize) {
   if (!embeddedStyle) {
     return nullptr;
   }
@@ -213,15 +218,20 @@ CssParser* Section::loadEmbeddedCssForSection(const bool embeddedStyle) {
     return nullptr;
   }
 
+  LOG_DBG("SCT", "CSS cache loaded: rules=%zu, free=%u, maxAlloc=%u", cssParser->ruleCount(), ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
+
   if (cssParser->empty()) {
     LOG_DBG("SCT", "CSS cache has no rules, skipping stylesheet lookup for this section");
     cssParser->clear();
     return nullptr;
   }
 
-  if (ESP.getFreeHeap() < MIN_FREE_HEAP_AFTER_CSS_LOAD) {
-    LOG_INF("SCT", "Skipping external CSS for section build (rules=%zu, free=%u, need>=%zu)", cssParser->ruleCount(),
-            ESP.getFreeHeap(), MIN_FREE_HEAP_AFTER_CSS_LOAD);
+  const size_t minFreeHeap =
+      std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
+  if (ESP.getFreeHeap() < minFreeHeap) {
+    LOG_INF("SCT", "Skipping external CSS for section build (rules=%zu, free=%u, need>=%zu, html=%lu)",
+            cssParser->ruleCount(), ESP.getFreeHeap(), minFreeHeap, static_cast<unsigned long>(fileSize));
     cssParser->clear();
     return nullptr;
   }
@@ -377,7 +387,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                          verticalMode, charSpacing);
   std::vector<uint32_t> lut = {};
 
-  CssParser* cssParser = loadEmbeddedCssForSection(embeddedStyle);
+  CssParser* cssParser = loadEmbeddedCssForSection(embeddedStyle, fileSize);
 
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');
