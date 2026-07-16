@@ -1195,11 +1195,21 @@ void CrossPointWebServer::handleGetSettings() const {
   server->send(200, "application/json", "");
   server->sendContent("[");
 
-  static char output[2048];
-  constexpr size_t outputSize = sizeof(output);
   bool seenFirst = false;
   JsonDocument doc;
   bool fontsScanned = false;
+  String output;
+
+  const auto sendDocument = [&](const JsonDocument& document) {
+    output.clear();
+    serializeJson(document, output);
+    if (seenFirst) {
+      server->sendContent(",");
+    } else {
+      seenFirst = true;
+    }
+    server->sendContent(output);
+  };
 
   for (const auto& s : settings) {
     if (!s.key) continue;  // Skip ACTION-only entries
@@ -1294,18 +1304,7 @@ void CrossPointWebServer::handleGetSettings() const {
         continue;
     }
 
-    const size_t written = serializeJson(doc, output, outputSize);
-    if (written >= outputSize) {
-      LOG_DBG("WEB", "Skipping oversized setting JSON for: %s", s.key);
-      continue;
-    }
-
-    if (seenFirst) {
-      server->sendContent(",");
-    } else {
-      seenFirst = true;
-    }
-    server->sendContent(output);
+    sendDocument(doc);
   }
 
   // Add UI font selector for web settings.
@@ -1334,16 +1333,7 @@ void CrossPointWebServer::handleGetSettings() const {
     uiOptions.add(label);
   }
 
-  const size_t uiWritten = serializeJson(doc, output, outputSize);
-  if (uiWritten < outputSize) {
-    if (seenFirst) {
-      server->sendContent(",");
-    }
-    seenFirst = true;
-    server->sendContent(output);
-  } else {
-    LOG_DBG("WEB", "Skipping oversized setting JSON for: uiFontFamily");
-  }
+  sendDocument(doc);
 
   // Add language selector for web settings.
   doc.clear();
@@ -1358,15 +1348,7 @@ void CrossPointWebServer::handleGetSettings() const {
     languageOptions.add(I18N.getLanguageName(static_cast<Language>(i)));
   }
 
-  const size_t langWritten = serializeJson(doc, output, outputSize);
-  if (langWritten < outputSize) {
-    if (seenFirst) {
-      server->sendContent(",");
-    }
-    server->sendContent(output);
-  } else {
-    LOG_DBG("WEB", "Skipping oversized setting JSON for: language");
-  }
+  sendDocument(doc);
 
   server->sendContent("]");
   server->sendContent("");
