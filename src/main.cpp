@@ -25,7 +25,6 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OrientationHelper.h"
 #include "RecentBooksStore.h"
@@ -369,7 +368,6 @@ void setup() {
 
   SETTINGS.loadFromFile();
   I18N.loadSettings();
-  KOREADER_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
