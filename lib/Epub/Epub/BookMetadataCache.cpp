@@ -4,6 +4,8 @@
 #include <Serialization.h>
 #include <ZipFile.h>
 
+#include <algorithm>
+#include <cstring>
 #include <deque>
 
 #include "FsHelpers.h"
@@ -13,6 +15,60 @@ constexpr uint8_t BOOK_CACHE_VERSION = 7;
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
+
+// FsFile writes are expensive on the SD card when entries are serialized in
+// several small fields. Buffer final book.bin output without changing its byte
+// layout or requiring heap allocation.
+class BufferedFileWriter {
+  static constexpr size_t BUFFER_SIZE = 512;
+
+  FsFile& file;
+  uint8_t buffer[BUFFER_SIZE] = {};
+  size_t used = 0;
+
+ public:
+  explicit BufferedFileWriter(FsFile& file) : file(file) {}
+
+  uint32_t position() const { return file.position() + used; }
+
+  void write(const uint8_t* data, size_t size) {
+    while (size > 0) {
+      if (used == BUFFER_SIZE) {
+        flush();
+      }
+
+      if (used == 0 && size >= BUFFER_SIZE) {
+        file.write(data, size);
+        return;
+      }
+
+      const size_t chunkSize = std::min(size, BUFFER_SIZE - used);
+      memcpy(buffer + used, data, chunkSize);
+      used += chunkSize;
+      data += chunkSize;
+      size -= chunkSize;
+    }
+  }
+
+  template <typename T>
+  void writePod(const T& value) {
+    write(reinterpret_cast<const uint8_t*>(&value), sizeof(T));
+  }
+
+  void writeString(const std::string& value) {
+    const uint32_t length = value.size();
+    writePod(length);
+    write(reinterpret_cast<const uint8_t*>(value.data()), length);
+  }
+
+  void flush() {
+    if (used == 0) {
+      return;
+    }
+    file.write(buffer, used);
+    used = 0;
+  }
+};
 }  // namespace
 
 /* ============= WRITING / BUILDING FUNCTIONS ================ */
@@ -50,7 +106,7 @@ bool BookMetadataCache::beginTocPass() {
     return false;
   }
 
-  if (spineCount >= LARGE_SPINE_THRESHOLD) {
+  if (spineCount >= FAST_INDEX_THRESHOLD) {
     spineHrefIndex.clear();
     spineHrefIndex.resize(spineCount);
     spineFile.seek(0);
@@ -100,6 +156,7 @@ bool BookMetadataCache::endWrite() {
 }
 
 bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata) {
+  const uint32_t buildStartedAt = millis();
   // Open all three files, writing to meta, reading from spine and toc
   if (!Storage.openFileForWrite("BMC", cachePath + bookBinFile, bookFile)) {
     return false;
@@ -126,6 +183,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   const uint32_t lutSize = sizeof(uint32_t) * spineCount + sizeof(uint32_t) * tocCount;
   const uint32_t lutOffset = headerASize + metadataSize;
 
+  const uint32_t headerAndLutStartedAt = millis();
   // Header A
   serialization::writePod(bookFile, BOOK_CACHE_VERSION);
   serialization::writePod(bookFile, lutOffset);
@@ -139,26 +197,27 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   serialization::writeString(bookFile, metadata.textReferenceHref);
   serialization::writePod(bookFile, metadata.pageProgressionRtl);
 
-  // Loop through spine entries, writing LUT positions
-  spineFile.seek(0);
-  for (int i = 0; i < spineCount; i++) {
-    uint32_t pos = spineFile.position();
-    auto spineEntry = readSpineEntry(spineFile);
-    serialization::writePod(bookFile, pos + lutOffset + lutSize);
+  // Reserve the lookup-table region.  The final spine and TOC positions are
+  // known only after their entries are written, so collect and backfill them
+  // below. This avoids a complete extra read of both temporary files.
+  constexpr size_t LUT_ZERO_CHUNK_SIZE = 64;
+  const uint8_t zeroLutChunk[LUT_ZERO_CHUNK_SIZE] = {};
+  for (uint32_t remaining = lutSize; remaining > 0;) {
+    const size_t chunkSize = std::min<size_t>(remaining, LUT_ZERO_CHUNK_SIZE);
+    bookFile.write(zeroLutChunk, chunkSize);
+    remaining -= chunkSize;
   }
+  LOG_DBG("BMC", "book.bin header/LUT reservation: %lu ms", millis() - headerAndLutStartedAt);
 
-  // Loop through toc entries, writing LUT positions
-  tocFile.seek(0);
-  for (int i = 0; i < tocCount; i++) {
-    uint32_t pos = tocFile.position();
-    auto tocEntry = readTocEntry(tocFile);
-    serialization::writePod(bookFile, pos + lutOffset + lutSize + static_cast<uint32_t>(spineFile.position()));
-  }
+  std::deque<uint32_t> spineLutPositions(spineCount);
+  std::deque<uint32_t> tocLutPositions(tocCount);
+  BufferedFileWriter finalWriter(bookFile);
 
-  // LUTs complete
-  // Loop through spines from spine file matching up TOC indexes, calculating cumulative size and writing to book.bin
+  // Loop through spines from spine file, calculate cumulative sizes, and
+  // record each final book.bin position for the LUT.
 
   // Build spineIndex->tocIndex mapping in one pass (O(n) instead of O(n*m))
+  const uint32_t tocMappingStartedAt = millis();
   std::deque<int16_t> spineToTocIndex(spineCount, -1);
   tocFile.seek(0);
   for (int j = 0; j < tocCount; j++) {
@@ -169,7 +228,9 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       }
     }
   }
+  LOG_DBG("BMC", "spine-to-TOC mapping: %lu ms", millis() - tocMappingStartedAt);
 
+  const uint32_t zipOpenStartedAt = millis();
   ZipFile zip(epubPath);
   // Pre-open zip file to speed up size calculations
   if (!zip.open()) {
@@ -180,6 +241,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     tocFile.close();
     return false;
   }
+  LOG_DBG("BMC", "ZIP open: %lu ms", millis() - zipOpenStartedAt);
   // NOTE: We intentionally skip calling loadAllFileStatSlims() here.
   // For large EPUBs (2000+ chapters), pre-loading all ZIP central directory entries
   // into memory causes OOM crashes on ESP32-C3's limited ~380KB RAM.
@@ -191,7 +253,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   std::deque<uint32_t> spineSizes;
   bool useBatchSizes = false;
 
-  if (spineCount >= LARGE_SPINE_THRESHOLD) {
+  if (spineCount >= FAST_INDEX_THRESHOLD) {
     LOG_DBG("BMC", "Using batch size lookup for %d spine items", spineCount);
 
     std::deque<ZipFile::SizeTarget> targets;
@@ -224,6 +286,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   }
 
   uint32_t cumSize = 0;
+  const uint32_t spineWriteStartedAt = millis();
   spineFile.seek(0);
   int lastSpineTocIndex = -1;
   for (int i = 0; i < spineCount; i++) {
@@ -259,25 +322,47 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     cumSize += itemSize;
     spineEntry.cumulativeSize = cumSize;
 
-    // Write out spine data to book.bin
-    writeSpineEntry(bookFile, spineEntry);
+    spineLutPositions[i] = finalWriter.position();
+    finalWriter.writeString(spineEntry.href);
+    finalWriter.writePod(spineEntry.cumulativeSize);
+    finalWriter.writePod(spineEntry.tocIndex);
   }
+  finalWriter.flush();
+  LOG_DBG("BMC", "spine size lookup/write: %lu ms", millis() - spineWriteStartedAt);
   // Close opened zip file
   zip.close();
 
-  // Loop through toc entries from toc file writing to book.bin
+  // Loop through toc entries from toc file, recording final positions for the LUT.
+  const uint32_t tocWriteStartedAt = millis();
   tocFile.seek(0);
   for (int i = 0; i < tocCount; i++) {
     auto tocEntry = readTocEntry(tocFile);
-    writeTocEntry(bookFile, tocEntry);
+    tocLutPositions[i] = finalWriter.position();
+    finalWriter.writeString(tocEntry.title);
+    finalWriter.writeString(tocEntry.href);
+    finalWriter.writeString(tocEntry.anchor);
+    finalWriter.writePod(tocEntry.level);
+    finalWriter.writePod(tocEntry.spineIndex);
   }
+  finalWriter.flush();
+  LOG_DBG("BMC", "TOC write: %lu ms", millis() - tocWriteStartedAt);
+
+  const uint32_t lutBackfillStartedAt = millis();
+  bookFile.seek(lutOffset);
+  for (const uint32_t pos : spineLutPositions) {
+    serialization::writePod(bookFile, pos);
+  }
+  for (const uint32_t pos : tocLutPositions) {
+    serialization::writePod(bookFile, pos);
+  }
+  LOG_DBG("BMC", "book.bin LUT backfill: %lu ms", millis() - lutBackfillStartedAt);
 
   // Explicit close() required: member variables persist beyond function scope
   bookFile.close();
   spineFile.close();
   tocFile.close();
 
-  LOG_DBG("BMC", "Successfully built book.bin");
+  LOG_DBG("BMC", "Successfully built book.bin in %lu ms", millis() - buildStartedAt);
   return true;
 }
 

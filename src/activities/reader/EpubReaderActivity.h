@@ -63,8 +63,6 @@ class EpubReaderActivity final : public Activity {
   void adjustRubyOffset(RubyAdjustAxis axis, int delta);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
-  void pregenerateCache();
-
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
   void restoreSavedPosition();

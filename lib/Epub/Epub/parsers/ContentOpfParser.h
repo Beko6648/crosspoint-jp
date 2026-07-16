@@ -32,7 +32,12 @@ class ContentOpfParser final : public Print {
   FsFile tempItemStore;
   std::string coverItemId;
 
-  // Index for fast idref→href lookup (used only for large EPUBs)
+  static constexpr size_t ITEM_WRITE_BUFFER_SIZE = 512;
+  uint8_t itemWriteBuffer[ITEM_WRITE_BUFFER_SIZE] = {};
+  size_t itemWriteBufferUsed = 0;
+
+  // Index for fast idref→href lookup. The small index is cheaper than repeated
+  // SD-card scans once a manifest has 64 or more entries.
   struct ItemIndexEntry {
     uint32_t idHash;      // FNV-1a hash of itemId
     uint16_t idLen;       // length for collision reduction
@@ -41,7 +46,7 @@ class ContentOpfParser final : public Print {
   std::deque<ItemIndexEntry> itemIndex;
   bool useItemIndex = false;
 
-  static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
+  static constexpr uint16_t FAST_INDEX_THRESHOLD = 64;
 
   // FNV-1a hash function
   static uint32_t fnvHash(const std::string& s) {
@@ -56,6 +61,9 @@ class ContentOpfParser final : public Print {
   static void startElement(void* userData, const XML_Char* name, const XML_Char** atts);
   static void characterData(void* userData, const XML_Char* s, int len);
   static void endElement(void* userData, const XML_Char* name);
+  void writeItemStore(const uint8_t* data, size_t size);
+  void writeItemString(const std::string& value);
+  void flushItemStore();
 
  public:
   std::string title;
