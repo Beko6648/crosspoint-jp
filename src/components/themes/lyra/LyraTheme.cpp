@@ -615,20 +615,6 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     const int authorHeight = book.author.empty() ? 0 : (authorLineHeight * 3 / 2);
 
-    // Lyraのカード内でタイトルに使える高さを計算
-    const int verticalMargin = 12;
-    int availableTitleHeight = tileHeight - authorHeight - readingStatusBlockHeight - verticalMargin;
-
-    int maxTitleLines = availableTitleHeight / titleLineHeight;
-    if (maxTitleLines < 1) {
-      maxTitleLines = 1;
-    }
-
-    // 念のため上限も付ける。全文寄りにしたい場合は 8 や 10 に増やしてOK
-    if (maxTitleLines > 8) {
-     maxTitleLines = 8;
-    }
-
     auto titleLines =
         wrapUtf8TextByPixelWidth(renderer, UI_12_FONT_ID, book.title.c_str(), textWidth, 8, EpdFontFamily::BOLD);
 
