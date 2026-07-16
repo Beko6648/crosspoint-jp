@@ -99,44 +99,54 @@ bool SdCardFontRegistry::discover() {
   families_.clear();
   families_.reserve(MAX_SD_FAMILIES);
 
-  FsFile root = Storage.open(FONTS_DIR);
-  if (!root) {
-    LOG_ERR("SDREG", "Fonts directory not found: %s", FONTS_DIR);
-    return false;
-  }
-  if (!root.isDirectory()) {
-    LOG_ERR("SDREG", "Fonts path is not a directory: %s", FONTS_DIR);
-    root.close();
-    return false;
-  }
-
-  char nameBuffer[128];
-  while (true) {
-    FsFile entry = root.openNextFile();
-    if (!entry) break;
-    if (entry.isDirectory()) {
-      // Subdirectory = font family
-      entry.getName(nameBuffer, sizeof(nameBuffer));
-      entry.close();
-
-      // Skip hidden/system directories (macOS ._*, .Trashes, etc.)
-      if (nameBuffer[0] == '.' || nameBuffer[0] == '_') continue;
-
-      SdCardFontFamilyInfo family;
-      family.name = nameBuffer;
-      std::string subDirPath = std::string(FONTS_DIR) + "/" + nameBuffer;
-      scanDirectory(subDirPath.c_str(), family);
-
-      if (!family.files.empty()) {
-        families_.push_back(std::move(family));
-        LOG_DBG("SDREG", "Found family: %s (%d files)", families_.back().name.c_str(),
-                static_cast<int>(families_.back().files.size()));
-      }
-    } else {
-      entry.close();
+  const char* fontDirs[] = {FONTS_DIR, LEGACY_FONTS_DIR};
+  bool foundDirectory = false;
+  for (const char* fontDir : fontDirs) {
+    FsFile root = Storage.open(fontDir);
+    if (!root) continue;
+    if (!root.isDirectory()) {
+      LOG_ERR("SDREG", "Fonts path is not a directory: %s", fontDir);
+      root.close();
+      continue;
     }
+    foundDirectory = true;
+
+    char nameBuffer[128];
+    while (true) {
+      FsFile entry = root.openNextFile();
+      if (!entry) break;
+      if (entry.isDirectory()) {
+        // Subdirectory = font family
+        entry.getName(nameBuffer, sizeof(nameBuffer));
+        entry.close();
+
+        // Skip hidden/system directories (macOS ._*, .Trashes, etc.)
+        if (nameBuffer[0] == '.' || nameBuffer[0] == '_') continue;
+
+        // FONTS_DIR is scanned first, so it wins when both locations have a family.
+        if (findFamily(nameBuffer)) continue;
+
+        SdCardFontFamilyInfo family;
+        family.name = nameBuffer;
+        family.path = std::string(fontDir) + "/" + nameBuffer;
+        scanDirectory(family.path.c_str(), family);
+
+        if (!family.files.empty()) {
+          families_.push_back(std::move(family));
+          LOG_DBG("SDREG", "Found family: %s (%d files)", families_.back().name.c_str(),
+                  static_cast<int>(families_.back().files.size()));
+        }
+      } else {
+        entry.close();
+      }
+    }
+    root.close();
   }
-  root.close();
+
+  if (!foundDirectory) {
+    LOG_ERR("SDREG", "Fonts directories not found: %s or %s", FONTS_DIR, LEGACY_FONTS_DIR);
+    return false;
+  }
 
   // Sort families alphabetically
   std::sort(families_.begin(), families_.end(),

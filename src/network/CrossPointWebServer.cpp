@@ -1586,8 +1586,12 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           LOG_DBG("WS", "Starting upload: %s (%d bytes) to %s", wsUploadFileName.c_str(), wsUploadSize,
                   filePath.c_str());
 
-          // Ensure parent directory exists (needed for font uploads to /.crosspoint/fonts/<family>/)
+          // Ensure the reader-font root and family directory exist for /fonts/<family>/ uploads.
           resetTaskWatchdogIfSubscribed();
+          if (wsUploadPath.startsWith(String(SdCardFontRegistry::FONTS_DIR) + "/") &&
+              !Storage.exists(SdCardFontRegistry::FONTS_DIR)) {
+            Storage.mkdir(SdCardFontRegistry::FONTS_DIR);
+          }
           if (!Storage.exists(wsUploadPath.c_str())) {
             Storage.mkdir(wsUploadPath.c_str());
           }

@@ -12,6 +12,7 @@ struct SdCardFontFileInfo {
 
 struct SdCardFontFamilyInfo {
   std::string name;  // directory name, e.g. "NotoSansCJK"
+  std::string path;  // directory containing this family
   std::vector<SdCardFontFileInfo> files;
 
   const SdCardFontFileInfo* findFile(uint8_t size, uint8_t style = 0) const;
@@ -22,7 +23,8 @@ struct SdCardFontFamilyInfo {
 class SdCardFontRegistry {
  public:
   static constexpr int MAX_SD_FAMILIES = 128;
-  static constexpr const char* FONTS_DIR = "/.crosspoint/fonts";
+  static constexpr const char* FONTS_DIR = "/fonts";
+  static constexpr const char* LEGACY_FONTS_DIR = "/.crosspoint/fonts";
 
   // Scan SD card, populate families_. Returns true if any families found.
   bool discover();

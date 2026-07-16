@@ -81,8 +81,15 @@ FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
     return Error::INVALID_FAMILY_NAME;
   }
 
+  const SdCardFontFamilyInfo* family = registry_.findFamily(familyName);
+  const char* familyDir = family ? family->path.c_str() : SdCardFontRegistry::FONTS_DIR;
+
   char dirPath[128];
-  snprintf(dirPath, sizeof(dirPath), "%s/%s", SdCardFontRegistry::FONTS_DIR, familyName);
+  if (family) {
+    snprintf(dirPath, sizeof(dirPath), "%s", familyDir);
+  } else {
+    snprintf(dirPath, sizeof(dirPath), "%s/%s", familyDir, familyName);
+  }
 
   if (!Storage.exists(dirPath)) {
     LOG_DBG("FONT", "Family dir does not exist: %s", dirPath);
