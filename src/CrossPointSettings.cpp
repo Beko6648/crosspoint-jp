@@ -200,12 +200,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverMode, SLEEP_SCREEN_COVER_MODE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    {
-      std::string urlStr;
-      serialization::readString(inputFile, urlStr);
-      strncpy(opdsServerUrl, urlStr.c_str(), sizeof(opdsServerUrl) - 1);
-      opdsServerUrl[sizeof(opdsServerUrl) - 1] = '\0';
-    }
+    // Obsolete OPDS server URL. Keep consuming it to preserve the binary
+    // layout of subsequent legacy settings during migration.
+    std::string obsoleteOpdsServerUrl;
+    serialization::readString(inputFile, obsoleteOpdsServerUrl);
     if (++settingsRead >= fileSettingsCount) break;
     // Obsolete text anti-aliasing setting. Consume it so subsequent legacy
     // settings retain their original binary offsets.
@@ -219,19 +217,13 @@ bool CrossPointSettings::loadFromBinaryFile() {
     serialization::readPod(inputFile, horizontal.hyphenationEnabled);
     vertical.hyphenationEnabled = horizontal.hyphenationEnabled;
     if (++settingsRead >= fileSettingsCount) break;
-    {
-      std::string usernameStr;
-      serialization::readString(inputFile, usernameStr);
-      strncpy(opdsUsername, usernameStr.c_str(), sizeof(opdsUsername) - 1);
-      opdsUsername[sizeof(opdsUsername) - 1] = '\0';
-    }
+    // Obsolete OPDS username. Consume without retaining it.
+    std::string obsoleteOpdsUsername;
+    serialization::readString(inputFile, obsoleteOpdsUsername);
     if (++settingsRead >= fileSettingsCount) break;
-    {
-      std::string passwordStr;
-      serialization::readString(inputFile, passwordStr);
-      strncpy(opdsPassword, passwordStr.c_str(), sizeof(opdsPassword) - 1);
-      opdsPassword[sizeof(opdsPassword) - 1] = '\0';
-    }
+    // Obsolete OPDS password. Consume without retaining it.
+    std::string obsoleteOpdsPassword;
+    serialization::readString(inputFile, obsoleteOpdsPassword);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverFilter, SLEEP_SCREEN_COVER_FILTER_COUNT);
     if (++settingsRead >= fileSettingsCount) break;

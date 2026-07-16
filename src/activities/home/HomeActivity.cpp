@@ -15,7 +15,6 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
-#include "OpdsServerStore.h"
 #include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
 #include "activities/settings/AozoraActivity.h"
@@ -26,9 +25,6 @@ int HomeActivity::getMenuItemCount() const {
   int count = 5;  // File Browser, Recents, Aozora, File transfer, Settings
   if (!recentBooks.empty()) {
     count += recentBooks.size();
-  }
-  if (hasOpdsUrl) {
-    count++;
   }
   return count;
 }
@@ -116,9 +112,6 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 void HomeActivity::onEnter() {
   Activity::onEnter();
 
-  // Check if any OPDS server is configured
-  hasOpdsUrl = !OPDS_STORE.getServers().empty();
-
   selectorIndex = 0;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -204,7 +197,6 @@ void HomeActivity::loop() {
     int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
     const int fileBrowserIdx = idx++;
     const int recentsIdx = idx++;
-    const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
     const int aozoraIdx = idx++;
     const int fileTransferIdx = idx++;
     const int settingsIdx = idx;
@@ -215,8 +207,6 @@ void HomeActivity::loop() {
       onFileBrowserOpen();
     } else if (menuSelectedIndex == recentsIdx) {
       onRecentsOpen();
-    } else if (menuSelectedIndex == opdsLibraryIdx) {
-      onOpdsBrowserOpen();
     } else if (menuSelectedIndex == aozoraIdx) {
       onAozoraOpen();
     } else if (menuSelectedIndex == fileTransferIdx) {
@@ -260,15 +250,9 @@ GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopP
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
 
-  if (hasOpdsUrl) {
-    menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Library);
-  }
-
   {
-    int aozoraPos = hasOpdsUrl ? 3 : 2;
-    menuItems.insert(menuItems.begin() + aozoraPos, tr(STR_AOZORA_BUNKO));
-    menuIcons.insert(menuIcons.begin() + aozoraPos, Book);
+    menuItems.insert(menuItems.begin() + 2, tr(STR_AOZORA_BUNKO));
+    menuIcons.insert(menuIcons.begin() + 2, Book);
   }
 
   GUI.drawButtonMenu(
@@ -306,8 +290,6 @@ void HomeActivity::onRecentsOpen() { activityManager.goToRecentBooks(); }
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
-
-void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onAozoraOpen() {
   // カバーバッファと最近の本リストを解放（TLSバッファ用にヒープ確保）
