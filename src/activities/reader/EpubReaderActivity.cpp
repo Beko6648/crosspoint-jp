@@ -122,19 +122,18 @@ void EpubReaderActivity::pregenerateCache() {
     }
 
     Section sec(epub, i, renderer);
-    if (sec.loadSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
-                            ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                            ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
-                            ds.charSpacing)) {
-      continue;
-    }
-
-    if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
-                               ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                               ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
-                               ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical))) {
-      LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
-      continue;
+    const bool sectionCached = sec.loadSectionFile(
+        SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+        viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+        SETTINGS.imageRendering, isVertical, ds.charSpacing);
+    if (!sectionCached) {
+      if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
+                                 ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
+                                 ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
+                                 ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical))) {
+        LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
+        continue;
+      }
     }
 
     const std::string imgPrefix = epub->getCachePath() + "/img_" + std::to_string(i) + "_";
@@ -147,7 +146,17 @@ void EpubReaderActivity::pregenerateCache() {
 
       const size_t dotPos = jpgPath.rfind('.');
       const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc4.bmp";
-      if (Storage.exists(bmpCachePath.c_str())) continue;
+      if (Storage.exists(bmpCachePath.c_str())) {
+        FsFile existingBmp;
+        if (Storage.openFileForRead("PRE", bmpCachePath, existingBmp)) {
+          const size_t existingSize = existingBmp.size();
+          existingBmp.close();
+          if (existingSize > 70) continue;
+          LOG_DBG("ERS", "Removing incomplete JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
+                  static_cast<unsigned long>(existingSize));
+          Storage.remove(bmpCachePath.c_str());
+        }
+      }
 
       FsFile jpegFile, bmpFile;
       if (Storage.openFileForRead("PRE", jpgPath, jpegFile) && Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
