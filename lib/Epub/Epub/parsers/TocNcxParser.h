@@ -30,6 +30,11 @@ class TocNcxParser final : public Print {
 
   bool setup();
 
+  // Completes a streamed document when its uncompressed size is not known in
+  // advance.  This lets callers parse directly from the EPUB ZIP stream
+  // instead of staging the NCX on the SD card merely to learn its size.
+  bool finish();
+
   size_t write(uint8_t) override;
   size_t write(const uint8_t* buffer, size_t size) override;
 };

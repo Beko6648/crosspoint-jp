@@ -40,7 +40,8 @@ size_t TocNavParser::write(const uint8_t* buffer, const size_t size) {
     const auto toRead = remainingInBuffer < 1024 ? remainingInBuffer : 1024;
     memcpy(buf, currentBufferPos, toRead);
 
-    if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead) == XML_STATUS_ERROR) {
+    if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize != 0 && remainingSize == toRead) ==
+        XML_STATUS_ERROR) {
       LOG_DBG("NAV", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
               XML_ErrorString(XML_GetErrorCode(parser)));
       destroyXmlParser(parser);
@@ -52,6 +53,19 @@ size_t TocNavParser::write(const uint8_t* buffer, const size_t size) {
     remainingSize -= toRead;
   }
   return size;
+}
+
+bool TocNavParser::finish() {
+  if (!parser) return false;
+  if (remainingSize != 0) return true;
+
+  if (XML_Parse(parser, nullptr, 0, XML_TRUE) == XML_STATUS_ERROR) {
+    LOG_DBG("NAV", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
+            XML_ErrorString(XML_GetErrorCode(parser)));
+    destroyXmlParser(parser);
+    return false;
+  }
+  return true;
 }
 
 void XMLCALL TocNavParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {

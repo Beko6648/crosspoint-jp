@@ -42,6 +42,10 @@ class TocNavParser final : public Print {
 
   bool setup();
 
+  // Completes a streamed document when its uncompressed size is not known in
+  // advance.  This avoids a temporary SD-card copy of nav.xhtml.
+  bool finish();
+
   size_t write(uint8_t) override;
   size_t write(const uint8_t* buffer, size_t size) override;
 };
