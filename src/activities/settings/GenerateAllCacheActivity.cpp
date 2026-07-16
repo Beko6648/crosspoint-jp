@@ -18,7 +18,9 @@
 
 namespace {
 
-constexpr int CACHE_PROGRESS_STEP_PERCENT = 5;
+// E-paper progress redraws are expensive (~670 ms in the measured run).
+// Quarter-step updates keep useful feedback without dominating cache creation.
+constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 
 // Recursively scan a directory for EPUB files
 void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
@@ -140,6 +142,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
   for (int bookIdx = 0; bookIdx < totalCount; bookIdx++) {
     const auto& epubPath = epubFiles[bookIdx];
+    const uint32_t bookStartedAt = millis();
+    uint32_t sectionBuildMs = 0;
+    uint32_t imageCacheMs = 0;
+    int sectionCacheHits = 0;
+    int generatedSections = 0;
+    int generatedImageCaches = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     // Update progress
@@ -214,7 +222,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
           SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
           SETTINGS.imageRendering, isVertical, ds.charSpacing);
-      if (!sectionCached) {
+      if (sectionCached) {
+        sectionCacheHits++;
+      } else {
+        const uint32_t sectionStartedAt = millis();
         if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                    ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
@@ -222,6 +233,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           continue;
         }
+        sectionBuildMs += millis() - sectionStartedAt;
+        generatedSections++;
       }
 
       // Generate image BMP caches
@@ -250,13 +263,21 @@ void GenerateAllCacheActivity::generateAllCaches() {
         FsFile jpegFile, bmpFile;
         if (Storage.openFileForRead("GEN", jpgPath, jpegFile) &&
             Storage.openFileForWrite("GEN", bmpCachePath, bmpFile)) {
-          JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+          const uint32_t imageStartedAt = millis();
+          const bool success =
+              JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+          imageCacheMs += millis() - imageStartedAt;
           jpegFile.close();
           bmpFile.close();
+          if (success) generatedImageCaches++;
         }
       }
     }
 
+    LOG_DBG("GENALL",
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images)",
+            millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
+            generatedImageCaches);
     processedCount++;
   }
 

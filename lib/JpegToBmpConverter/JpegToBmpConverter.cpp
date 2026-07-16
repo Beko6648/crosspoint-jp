@@ -164,6 +164,77 @@ namespace {
 constexpr int MAX_MCU_HEIGHT = 16;
 constexpr size_t JPEG_DECODER_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP = JPEG_DECODER_SIZE + 32 * 1024;
+constexpr size_t BMP_WRITE_BUFFER_SIZE = 4096;
+
+// JPEG conversion emits one small BMP row at a time.  Writing every row
+// directly to SD turns a normal screen-sized illustration into hundreds of
+// individual filesystem writes.  Buffer the byte-identical BMP stream so the
+// cache generator and the on-demand renderer use larger SD writes instead.
+class TimedBufferedPrint final : public Print {
+ public:
+  explicit TimedBufferedPrint(Print& output) : output(output), buffer(new (std::nothrow) uint8_t[BMP_WRITE_BUFFER_SIZE]) {}
+
+  ~TimedBufferedPrint() override { delete[] buffer; }
+
+  bool isBuffered() const { return buffer != nullptr; }
+  uint32_t getWriteMs() const { return writeMs; }
+  size_t getBytesWritten() const { return bytesWritten; }
+
+  size_t write(uint8_t value) override { return write(&value, 1); }
+
+  size_t write(const uint8_t* data, size_t size) override {
+    if (failed) return 0;
+    if (!buffer) {
+      const uint32_t startedAt = millis();
+      const size_t written = output.write(data, size);
+      writeMs += millis() - startedAt;
+      if (written != size) {
+        LOG_ERR("JPG", "Short direct BMP write: %u/%u", static_cast<unsigned>(written), static_cast<unsigned>(size));
+        failed = true;
+        return 0;
+      }
+      bytesWritten += written;
+      return written;
+    }
+
+    size_t accepted = 0;
+    while (size > 0) {
+      const size_t available = BMP_WRITE_BUFFER_SIZE - used;
+      const size_t chunk = size < available ? size : available;
+      memcpy(buffer + used, data, chunk);
+      used += chunk;
+      data += chunk;
+      size -= chunk;
+      accepted += chunk;
+      if (used == BMP_WRITE_BUFFER_SIZE && !flushOutput()) return 0;
+    }
+    return accepted;
+  }
+
+  bool flushOutput() {
+    if (failed || used == 0) return !failed;
+    const uint32_t startedAt = millis();
+    const size_t written = output.write(buffer, used);
+    writeMs += millis() - startedAt;
+    if (written != used) {
+      LOG_ERR("JPG", "Short buffered BMP write: %u/%u", static_cast<unsigned>(written),
+              static_cast<unsigned>(used));
+      failed = true;
+      return false;
+    }
+    bytesWritten += written;
+    used = 0;
+    return true;
+  }
+
+ private:
+  Print& output;
+  uint8_t* buffer = nullptr;
+  size_t used = 0;
+  size_t bytesWritten = 0;
+  uint32_t writeMs = 0;
+  bool failed = false;
+};
 
 // Static file pointer for JPEGDEC open callback.
 // Safe in single-threaded embedded context; never accessed concurrently.
@@ -432,12 +503,18 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
                                                      bool oneBit, bool crop, bool useIllustrationRendering) {
+  const uint32_t conversionStartedAt = millis();
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
   if (useIllustrationRendering) LOG_INF("IMGQ", "JPEG illustration: full-res + PNG Bayer tone v4");
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
     return false;
+  }
+
+  TimedBufferedPrint bufferedOutput(bmpOut);
+  if (!bufferedOutput.isBuffered()) {
+    LOG_DBG("JPG", "BMP write buffer unavailable; using direct writes");
   }
 
   s_jpegFile = &jpegFile;
@@ -507,18 +584,18 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   // Write BMP header with output dimensions
   int bytesPerRow;
   if (USE_8BIT_OUTPUT && !oneBit) {
-    writeBmpHeader8bit(bmpOut, outWidth, outHeight);
+    writeBmpHeader8bit(bufferedOutput, outWidth, outHeight);
     bytesPerRow = (outWidth + 3) / 4 * 4;
   } else if (oneBit) {
-    writeBmpHeader1bit(bmpOut, outWidth, outHeight);
+    writeBmpHeader1bit(bufferedOutput, outWidth, outHeight);
     bytesPerRow = (outWidth + 31) / 32 * 4;
   } else {
-    writeBmpHeader2bit(bmpOut, outWidth, outHeight);
+    writeBmpHeader2bit(bufferedOutput, outWidth, outHeight);
     bytesPerRow = (outWidth * 2 + 31) / 32 * 4;
   }
 
   BmpConvertCtx ctx = {};
-  ctx.bmpOut = &bmpOut;
+  ctx.bmpOut = &bufferedOutput;
   ctx.srcWidth = decWidth;
   ctx.srcHeight = decHeight;
   ctx.outWidth = outWidth;
@@ -591,15 +668,22 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
   rc = jpeg->decode(0, 0, useIllustrationRendering ? 0 : JPEG_SCALE_HALF);
 
+  const bool flushSuccess = bufferedOutput.flushOutput();
+
   LOG_DBG("JPG", "JPEG decode result: rc=%d callbacks=%d rows=%d expectedRows=%d err=%d",
           rc, ctx.callbackCount, ctx.rowsWritten, ctx.outHeight, jpeg->getLastError());
 
-  if (rc != 1 || ctx.error || ctx.rowsWritten != ctx.outHeight) {
+  if (rc != 1 || ctx.error || !flushSuccess || ctx.rowsWritten != ctx.outHeight) {
     LOG_ERR("JPG", "JPEG decode incomplete: rc=%d callbacks=%d rows=%d/%d err=%d",
             rc, ctx.callbackCount, ctx.rowsWritten, ctx.outHeight, jpeg->getLastError());
     return false;
   }
 
+  const uint32_t totalMs = millis() - conversionStartedAt;
+  const uint32_t writeMs = bufferedOutput.getWriteMs();
+  LOG_DBG("JPG", "JPEG timing: total=%lu ms, decode/resize/dither=%lu ms, BMP write=%lu ms, output=%lu bytes",
+          totalMs, totalMs >= writeMs ? totalMs - writeMs : 0, writeMs,
+          static_cast<unsigned long>(bufferedOutput.getBytesWritten()));
   LOG_DBG("JPG", "Successfully converted JPEG to BMP");
   return true;
 }

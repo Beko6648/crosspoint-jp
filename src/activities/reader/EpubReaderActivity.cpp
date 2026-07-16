@@ -38,7 +38,9 @@
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
-constexpr int CACHE_PROGRESS_STEP_PERCENT = 5;
+// E-paper progress redraws are expensive (~670 ms in the measured run).
+// Quarter-step updates keep useful feedback without dominating cache creation.
+constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -56,6 +58,11 @@ int clampPercent(int percent) {
 
 void EpubReaderActivity::pregenerateCache() {
   const uint32_t generationStartedAt = millis();
+  uint32_t sectionBuildMs = 0;
+  uint32_t imageCacheMs = 0;
+  int sectionCacheHits = 0;
+  int generatedSections = 0;
+  int generatedImageCaches = 0;
   if (!epub) return;
 
   const int spineCount = epub->getSpineItemsCount();
@@ -126,7 +133,10 @@ void EpubReaderActivity::pregenerateCache() {
         SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
         viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
         SETTINGS.imageRendering, isVertical, ds.charSpacing);
-    if (!sectionCached) {
+    if (sectionCached) {
+      sectionCacheHits++;
+    } else {
+      const uint32_t sectionStartedAt = millis();
       if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                  ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
                                  ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
@@ -134,6 +144,8 @@ void EpubReaderActivity::pregenerateCache() {
         LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
         continue;
       }
+      sectionBuildMs += millis() - sectionStartedAt;
+      generatedSections++;
     }
 
     const std::string imgPrefix = epub->getCachePath() + "/img_" + std::to_string(i) + "_";
@@ -159,10 +171,15 @@ void EpubReaderActivity::pregenerateCache() {
       }
 
       FsFile jpegFile, bmpFile;
-      if (Storage.openFileForRead("PRE", jpgPath, jpegFile) && Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
-        JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+      if (Storage.openFileForRead("PRE", jpgPath, jpegFile) &&
+          Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
+        const uint32_t imageStartedAt = millis();
+        const bool success =
+            JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+        imageCacheMs += millis() - imageStartedAt;
         jpegFile.close();
         bmpFile.close();
+        if (success) generatedImageCaches++;
       }
     }
   }
@@ -170,8 +187,10 @@ void EpubReaderActivity::pregenerateCache() {
   const uint32_t finalDisplayStartedAt = millis();
   GUI.fillPopupProgress(renderer, popupRect, 100);
   progressDisplayMs += millis() - finalDisplayStartedAt;
-  LOG_DBG("ERS", "Pregenerate completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
-          progressDisplayMs);
+  LOG_DBG("ERS",
+          "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), progress=%lu ms",
+          millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
+          generatedImageCaches, progressDisplayMs);
 }
 
 void EpubReaderActivity::onEnter() {
