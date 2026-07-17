@@ -58,9 +58,9 @@ class CrossPointSettings {
     SLEEP_CALENDAR_POSITION_COUNT
   };
 
-  // EPUB rendering policy. Keep the first two values compatible with the
-  // former embeddedStyle toggle: 0 disabled CSS, 1 enabled CSS.
-  enum BOOK_STYLE { CROSSPOINT_STYLE = 0, EPUB_STYLE = 1, HYBRID_STYLE = 2, BOOK_STYLE_COUNT };
+  // EPUB rendering is intentionally fixed to the hybrid policy: CrossPoint
+  // lays out body text, while EPUB CSS is reserved for headings.
+  static constexpr uint8_t EPUB_HYBRID_STYLE = 2;
 
   // Status bar enum - legacy
   enum STATUS_BAR_MODE {
@@ -237,8 +237,6 @@ class CrossPointSettings {
   uint8_t uiTheme = LYRA;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
-  // EPUB book style (CROSSPOINT_STYLE, EPUB_STYLE, or HYBRID_STYLE).
-  uint8_t embeddedStyle = EPUB_STYLE;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Image rendering mode in EPUB reader

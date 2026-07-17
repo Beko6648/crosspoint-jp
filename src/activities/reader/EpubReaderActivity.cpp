@@ -131,7 +131,7 @@ void EpubReaderActivity::pregenerateCache() {
     Section sec(epub, i, renderer);
     const bool sectionCached = sec.loadSectionFile(
         SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-        viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+        viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE,
         SETTINGS.imageRendering, isVertical, ds.charSpacing);
     if (sectionCached) {
       sectionCacheHits++;
@@ -139,7 +139,7 @@ void EpubReaderActivity::pregenerateCache() {
       const uint32_t sectionStartedAt = millis();
       if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                  ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                 ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
+                                 ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering, isVertical,
                                  ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical))) {
         LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
         continue;
@@ -927,7 +927,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing,
                                   ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                  ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
+                                  ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering, verticalMode,
                                   ds.charSpacing)) {
       LOG_DBG("ERS", "Cache not found, building...");
 
@@ -951,7 +951,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing,
                                       ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                      ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
+                                      ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering, verticalMode,
                                       ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode))) {
         LOG_ERR("ERS", "Failed to persist page data to SD (free heap: %d)", ESP.getFreeHeap());
         section.reset();
@@ -1082,7 +1082,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(verticalMode),
                                   SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing,
                                   silentDs.paragraphAlignment, viewportWidth, viewportHeight,
-                                  silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
+                                  silentDs.hyphenationEnabled, silentDs.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE,
                                   SETTINGS.imageRendering, verticalMode, silentDs.charSpacing)) {
     return;
   }
@@ -1093,7 +1093,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   if (!nextSection.createSectionFile(
           SETTINGS.getReaderFontId(verticalMode), SETTINGS.getReaderLineCompression(verticalMode),
           silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth, viewportHeight,
-          silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+          silentDs.hyphenationEnabled, silentDs.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering,
           verticalMode, silentDs.charSpacing, nullptr, silentHeadingFontIds, SETTINGS.getTableFontId(verticalMode))) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }

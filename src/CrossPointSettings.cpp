@@ -240,7 +240,10 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, fadingFix);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, embeddedStyle, BOOK_STYLE_COUNT);
+    // Consume the retired book-style setting to preserve the legacy binary
+    // layout. EPUB rendering is now always the fixed hybrid policy.
+    uint8_t legacyEmbeddedStyle = 0;
+    readAndValidate(inputFile, legacyEmbeddedStyle, 3);
     if (++settingsRead >= fileSettingsCount) break;
     // CJK-specific fields appended at end for backward compatibility
     serialization::readPod(inputFile, uiOrientation);

@@ -305,11 +305,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);
     }
-    // Hybrid style keeps CrossPoint's body layout. EPUB CSS is still used
-    // for headings and images; semantic HTML handling keeps ruby and EPUB
-    // pagebreak elements intact without a CSS dependency.
-    if (self->bookStyle == 2 && !matches(name, HEADER_TAGS, NUM_HEADER_TAGS) &&
-        !matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
+    // Hybrid style keeps CrossPoint's body layout. EPUB CSS is only used for
+    // headings; images keep the reader's fit-to-viewport behavior.
+    if (self->bookStyle == 2 && !matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
       cssStyle.reset();
     }
   }
@@ -379,7 +377,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       }
 
       // Skip image if CSS display:none
-      if (self->cssParser) {
+      if (self->cssParser && self->bookStyle != 2) {
         CssStyle imgDisplayStyle = self->cssParser->resolveStyle("img", classAttr);
         if (!styleAttr.empty()) {
           imgDisplayStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
@@ -446,9 +444,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = self->cssParser ? self->cssParser->resolveStyle("img", classAttr) : CssStyle{};
+                CssStyle imgStyle = (self->cssParser && self->bookStyle != 2)
+                                        ? self->cssParser->resolveStyle("img", classAttr)
+                                        : CssStyle{};
                 // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty()) {
+                if (!styleAttr.empty() && self->bookStyle != 2) {
                   imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
                 }
                 const bool hasCssHeight = imgStyle.hasImageHeight();

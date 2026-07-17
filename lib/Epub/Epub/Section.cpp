@@ -16,8 +16,8 @@ namespace {
 // Version 43: full-page illustrations are isolated in both writing modes.
 // Version 44: page layout reserves edge space for vertical and first-line horizontal ruby.
 // Version 45: fast cache generation resolves ruby metrics before column placement.
-// Version 46: stores the three-state EPUB book-style policy in the cache key.
-constexpr uint8_t SECTION_FILE_VERSION = 46;
+// Version 47: hybrid mode no longer applies EPUB CSS to images.
+constexpr uint8_t SECTION_FILE_VERSION = 47;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

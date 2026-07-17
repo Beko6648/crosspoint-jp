@@ -169,7 +169,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
-    if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
+    if (!epub->load(true)) {
       LOG_ERR("GENALL", "Failed to load: %s", epubPath.c_str());
       continue;
     }
@@ -220,7 +220,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
       Section sec(epub, i, renderer);
       const bool sectionCached = sec.loadSectionFile(
           SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE,
           SETTINGS.imageRendering, isVertical, ds.charSpacing);
       if (sectionCached) {
         sectionCacheHits++;
@@ -228,7 +228,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         const uint32_t sectionStartedAt = millis();
         if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                    ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                   ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
+                                   ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering, isVertical,
                                    ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical))) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           continue;

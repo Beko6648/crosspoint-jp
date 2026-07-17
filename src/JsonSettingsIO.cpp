@@ -182,6 +182,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       needsResave) {
     *needsResave = true;
   }
+  // The former EPUB style selector is retired.  Mark existing settings for
+  // rewrite so its stale value is removed from settings.json.
+  if (!doc["embeddedStyle"].isNull() && needsResave) {
+    *needsResave = true;
+  }
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
 
