@@ -29,6 +29,7 @@ struct BlockStyle {
   int16_t textIndent = 0;
   bool textIndentDefined = false;  // true if text-indent was explicitly set in CSS
   bool textAlignDefined = false;   // true if text-align was explicitly set in CSS
+  float lineHeightMultiplier = 1.0f;
 
   // Per-block font override (0 = use page-level fontId)
   int fontId = 0;
@@ -74,6 +75,7 @@ struct BlockStyle {
     }
     // Font override: child takes precedence
     combinedBlockStyle.fontId = (child.fontId != 0) ? child.fontId : fontId;
+    combinedBlockStyle.lineHeightMultiplier = child.lineHeightMultiplier;
     combinedBlockStyle.drawSeparatorBelow = child.drawSeparatorBelow || drawSeparatorBelow;
     combinedBlockStyle.isListItem = child.isListItem;
 
@@ -82,8 +84,10 @@ struct BlockStyle {
 
   // Create a BlockStyle from CSS style properties, resolving CssLength values to pixels
   // emSize is the current font line height, used for em/rem unit conversion
-  // paragraphAlignment is the user's paragraphAlignment setting preference
+  // paragraphAlignment is the CrossPoint fallback when EPUB does not provide
+  // an alignment. EPUB alignment is selected explicitly per book style.
   static BlockStyle fromCssStyle(const CssStyle& cssStyle, const float emSize, const CssTextAlign paragraphAlignment,
+                                 const bool preferCssAlignment,
                                  const uint16_t viewportWidth = 0) {
     BlockStyle blockStyle;
     const float vw = viewportWidth;
@@ -106,11 +110,14 @@ struct BlockStyle {
       blockStyle.textIndentDefined = true;
     }
     blockStyle.textAlignDefined = cssStyle.hasTextAlign();
-    // User setting overrides CSS, unless "Book's Style" alignment setting is selected
-    if (paragraphAlignment == CssTextAlign::None) {
-      blockStyle.alignment = blockStyle.textAlignDefined ? cssStyle.textAlign : CssTextAlign::Justify;
-    } else {
-      blockStyle.alignment = paragraphAlignment;
+    const CssTextAlign fallbackAlignment =
+        paragraphAlignment == CssTextAlign::None ? CssTextAlign::Justify : paragraphAlignment;
+    blockStyle.alignment = (preferCssAlignment && blockStyle.textAlignDefined) ? cssStyle.textAlign : fallbackAlignment;
+    if (cssStyle.hasLineHeight()) {
+      const float cssLineHeight = cssStyle.lineHeightIsMultiplier
+                                      ? cssStyle.lineHeight
+                                      : cssStyle.lineHeightLength.toPixels(emSize) / std::max(1.0f, emSize);
+      blockStyle.lineHeightMultiplier = std::clamp(cssLineHeight, 0.8f, 2.0f);
     }
     return blockStyle;
   }

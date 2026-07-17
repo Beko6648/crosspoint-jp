@@ -240,10 +240,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, fadingFix);
     if (++settingsRead >= fileSettingsCount) break;
-    // Consume the retired book-style setting to preserve the legacy binary
-    // layout. EPUB rendering is now always the fixed hybrid policy.
-    uint8_t legacyEmbeddedStyle = 0;
-    readAndValidate(inputFile, legacyEmbeddedStyle, 3);
+    readAndValidate(inputFile, embeddedStyle, BOOK_STYLE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     // CJK-specific fields appended at end for backward compatibility
     serialization::readPod(inputFile, uiOrientation);
@@ -306,10 +303,15 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId(bool isVertical) const {
+  return getReaderFontIdForSize(isVertical, getDirectionSettings(isVertical).fontSize);
+}
+
+int CrossPointSettings::getReaderFontIdForSize(bool isVertical, uint8_t fontSize) const {
   const auto& ds = getDirectionSettings(isVertical);
+  fontSize = std::min<uint8_t>(fontSize, EXTRA_LARGE);
   // Check SD card font first (upstream PR #1392)
   if (ds.sdFontFamilyName[0] != '\0' && sdFontIdResolver) {
-    int id = sdFontIdResolver(sdFontResolverCtx, ds.sdFontFamilyName, ds.fontSize);
+    int id = sdFontIdResolver(sdFontResolverCtx, ds.sdFontFamilyName, fontSize);
     if (id != 0) return id;
     // Fall through to built-in if SD font not found
   }
@@ -319,7 +321,30 @@ int CrossPointSettings::getReaderFontId(bool isVertical) const {
   if (fm.isExternalFontEnabled()) {
     return -(fm.getSelectedIndex() + 1000);
   }
-  return getBuiltInReaderFontId(isVertical);
+  switch (ds.fontFamily) {
+    case NOTOSERIF:
+    default:
+      switch (fontSize) {
+        case SMALL: return NOTOSERIF_12_FONT_ID;
+        case LARGE: return NOTOSERIF_16_FONT_ID;
+        case EXTRA_LARGE: return NOTOSERIF_18_FONT_ID;
+        case MEDIUM: default: return NOTOSERIF_14_FONT_ID;
+      }
+    case NOTOSANS:
+      switch (fontSize) {
+        case SMALL: return NOTOSANS_12_FONT_ID;
+        case LARGE: return NOTOSANS_16_FONT_ID;
+        case EXTRA_LARGE: return NOTOSANS_18_FONT_ID;
+        case MEDIUM: default: return NOTOSANS_14_FONT_ID;
+      }
+    case OPENDYSLEXIC:
+      switch (fontSize) {
+        case SMALL: return OPENDYSLEXIC_8_FONT_ID;
+        case LARGE: return OPENDYSLEXIC_12_FONT_ID;
+        case EXTRA_LARGE: return OPENDYSLEXIC_14_FONT_ID;
+        case MEDIUM: default: return OPENDYSLEXIC_10_FONT_ID;
+      }
+  }
 }
 
 int CrossPointSettings::getBuiltInReaderFontId(bool isVertical) const {

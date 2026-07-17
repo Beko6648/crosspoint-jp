@@ -49,6 +49,7 @@ class ChapterHtmlSlimParser {
   std::string rubyTextBuffer;
   int fontId;
   int headingFontIds[6] = {0, 0, 0, 0, 0, 0};  // per heading level (h1-h6), 0 = use page fontId
+  int cssBodyFontIds[4] = {0, 0, 0, 0};         // reader family at each supported body size
   float lineCompression;
   bool extraParagraphSpacing;
   uint8_t paragraphAlignment;
@@ -128,7 +129,8 @@ class ChapterHtmlSlimParser {
                                  const uint8_t bookStyle, const std::string& contentBase,
                                  const std::string& imageBasePath, const uint8_t imageRendering = 0,
                                  const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr,
-                                 const int* headingFontIds = nullptr, int tableFontId = 0, bool verticalMode = false)
+                                 const int* headingFontIds = nullptr, int tableFontId = 0, bool verticalMode = false,
+                                 const int* cssBodyFontIds = nullptr)
 
       : epub(epub),
         filepath(filepath),
@@ -151,6 +153,9 @@ class ChapterHtmlSlimParser {
         verticalMode(verticalMode) {
     if (headingFontIds) {
       for (int i = 0; i < 6; i++) this->headingFontIds[i] = headingFontIds[i];
+    }
+    if (cssBodyFontIds) {
+      for (int i = 0; i < 4; i++) this->cssBodyFontIds[i] = cssBodyFontIds[i];
     }
     this->tableFontId = tableFontId;
   }

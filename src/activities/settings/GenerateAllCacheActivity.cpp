@@ -169,7 +169,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
-    if (!epub->load(true)) {
+    if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
       LOG_ERR("GENALL", "Failed to load: %s", epubPath.c_str());
       continue;
     }
@@ -220,16 +220,21 @@ void GenerateAllCacheActivity::generateAllCaches() {
       Section sec(epub, i, renderer);
       const bool sectionCached = sec.loadSectionFile(
           SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE,
+          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
           SETTINGS.imageRendering, isVertical, ds.charSpacing);
       if (sectionCached) {
         sectionCacheHits++;
       } else {
         const uint32_t sectionStartedAt = millis();
+        const int cssBodyFontIds[4] = {SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::SMALL),
+                                       SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::MEDIUM),
+                                       SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::LARGE),
+                                       SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::EXTRA_LARGE)};
         if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                    ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                   ds.firstLineIndent, CrossPointSettings::EPUB_HYBRID_STYLE, SETTINGS.imageRendering, isVertical,
-                                   ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical))) {
+                                   ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
+                                   ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
+                                   cssBodyFontIds)) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           continue;
         }

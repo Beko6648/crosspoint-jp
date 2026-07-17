@@ -182,12 +182,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       needsResave) {
     *needsResave = true;
   }
-  // The former EPUB style selector is retired.  Mark existing settings for
-  // rewrite so its stale value is removed from settings.json.
-  if (!doc["embeddedStyle"].isNull() && needsResave) {
-    *needsResave = true;
-  }
-
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
 
   // Legacy migration: if statusBarChapterPageCount is absent this is a pre-refactor settings file.
@@ -256,7 +250,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.tiltPageTurn = clamp(doc["tiltPageTurn"] | (uint8_t)0, 2, 0);
 
   // Load direction-specific settings (nested objects)
-  auto loadDirection = [](JsonObject obj, DirectionSettings& ds) -> bool {
+  auto loadDirection = [needsResave](JsonObject obj, DirectionSettings& ds) -> bool {
     if (obj.isNull()) return false;
     ds.fontFamily = obj["fontFamily"] | ds.fontFamily;
     if (ds.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT) ds.fontFamily = 0;
@@ -271,7 +265,10 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     ds.charSpacing = obj["charSpacing"] | ds.charSpacing;
     if (ds.charSpacing > 50) ds.charSpacing = 0;
     ds.paragraphAlignment = obj["paragraphAlignment"] | ds.paragraphAlignment;
-    if (ds.paragraphAlignment >= CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT) ds.paragraphAlignment = 0;
+    if (ds.paragraphAlignment >= CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT) {
+      ds.paragraphAlignment = 0;
+      if (needsResave) *needsResave = true;
+    }
     ds.extraParagraphSpacing = obj["extraParagraphSpacing"] | ds.extraParagraphSpacing;
     ds.hyphenationEnabled = obj["hyphenationEnabled"] | ds.hyphenationEnabled;
     ds.screenMargin = obj["screenMargin"] | ds.screenMargin;
@@ -327,13 +324,16 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     // verticalCharSpacing → vertical.charSpacing only
     s.vertical.charSpacing = doc["verticalCharSpacing"] | s.vertical.charSpacing;
     // Clamp migrated values to valid ranges
-    auto clampDs = [](DirectionSettings& d) {
+    auto clampDs = [needsResave](DirectionSettings& d) {
       if (d.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT) d.fontFamily = 0;
       if (d.fontSize >= CrossPointSettings::FONT_SIZE_COUNT) d.fontSize = 1;
       if (d.lineSpacing < CrossPointSettings::LINE_SPACING_MIN) d.lineSpacing = CrossPointSettings::LINE_SPACING_MIN;
       if (d.lineSpacing > CrossPointSettings::LINE_SPACING_MAX) d.lineSpacing = CrossPointSettings::LINE_SPACING_MAX;
       if (d.charSpacing > 50) d.charSpacing = 0;
-      if (d.paragraphAlignment >= CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT) d.paragraphAlignment = 0;
+      if (d.paragraphAlignment >= CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT) {
+        d.paragraphAlignment = 0;
+        if (needsResave) *needsResave = true;
+      }
       if (d.screenMargin < 5) d.screenMargin = 5;
       if (d.screenMargin > 40) d.screenMargin = 40;
     };

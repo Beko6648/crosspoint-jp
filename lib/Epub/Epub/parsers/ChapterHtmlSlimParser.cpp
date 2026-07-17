@@ -41,8 +41,71 @@ constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAG
 const char* IMAGE_TAGS[] = {"img"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
+constexpr float MIN_CSS_FONT_SCALE = 0.75f;
+constexpr float MAX_CSS_FONT_SCALE = 1.50f;
+
+float cssFontScale(const CssLength& size, const float currentEmSize) {
+  switch (size.unit) {
+    case CssUnit::Percent:
+      return size.value / 100.0f;
+    case CssUnit::Em:
+    case CssUnit::Rem:
+      return size.value;
+    default:
+      return size.toPixels(currentEmSize) / std::max(1.0f, currentEmSize);
+  }
+}
+
 const char* SKIP_TAGS[] = {"head", "style", "script", "title", "rp"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
+
+// Balanced mode takes only paragraph geometry from the book. Typography,
+// inline decoration, writing direction, visibility and image dimensions stay
+// under CrossPoint control; headings are handled separately.
+void retainBalancedParagraphStyle(CssStyle& style) {
+  CssStyle balanced;
+  if (style.hasTextAlign()) {
+    balanced.textAlign = style.textAlign;
+    balanced.defined.textAlign = 1;
+  }
+  if (style.hasTextIndent()) {
+    balanced.textIndent = style.textIndent;
+    balanced.defined.textIndent = 1;
+  }
+  if (style.hasMarginTop()) {
+    balanced.marginTop = style.marginTop;
+    balanced.defined.marginTop = 1;
+  }
+  if (style.hasMarginBottom()) {
+    balanced.marginBottom = style.marginBottom;
+    balanced.defined.marginBottom = 1;
+  }
+  if (style.hasMarginLeft()) {
+    balanced.marginLeft = style.marginLeft;
+    balanced.defined.marginLeft = 1;
+  }
+  if (style.hasMarginRight()) {
+    balanced.marginRight = style.marginRight;
+    balanced.defined.marginRight = 1;
+  }
+  if (style.hasPaddingTop()) {
+    balanced.paddingTop = style.paddingTop;
+    balanced.defined.paddingTop = 1;
+  }
+  if (style.hasPaddingBottom()) {
+    balanced.paddingBottom = style.paddingBottom;
+    balanced.defined.paddingBottom = 1;
+  }
+  if (style.hasPaddingLeft()) {
+    balanced.paddingLeft = style.paddingLeft;
+    balanced.defined.paddingLeft = 1;
+  }
+  if (style.hasPaddingRight()) {
+    balanced.paddingRight = style.paddingRight;
+    balanced.defined.paddingRight = 1;
+  }
+  style = balanced;
+}
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
@@ -305,10 +368,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);
     }
-    // Hybrid style keeps CrossPoint's body layout. EPUB CSS is only used for
-    // headings; images keep the reader's fit-to-viewport behavior.
     if (self->bookStyle == 2 && !matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
-      cssStyle.reset();
+      retainBalancedParagraphStyle(cssStyle);
     }
   }
 
@@ -377,7 +438,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       }
 
       // Skip image if CSS display:none
-      if (self->cssParser && self->bookStyle != 2) {
+      if (self->cssParser && self->bookStyle == 1) {
         CssStyle imgDisplayStyle = self->cssParser->resolveStyle("img", classAttr);
         if (!styleAttr.empty()) {
           imgDisplayStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
@@ -444,11 +505,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = (self->cssParser && self->bookStyle != 2)
+                CssStyle imgStyle = (self->cssParser && self->bookStyle == 1)
                                         ? self->cssParser->resolveStyle("img", classAttr)
                                         : CssStyle{};
                 // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty() && self->bookStyle != 2) {
+                if (!styleAttr.empty() && self->bookStyle == 1) {
                   imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
                 }
                 const bool hasCssHeight = imgStyle.hasImageHeight();
@@ -740,13 +801,34 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
+  // Balanced and Book Priority use an EPUB text-align when it is present.
+  // CrossPoint Priority always keeps the reader's configured alignment.
+  const bool preferCssAlignment = self->bookStyle != 0;
   const auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
-      cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), self->viewportWidth);
+      cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
+
+  auto bodyBlockStyle = userAlignmentBlockStyle;
+  if (self->bookStyle == 1 && cssStyle.hasFontSize()) {
+    const float targetEmSize = emSize * std::clamp(cssFontScale(cssStyle.fontSize, emSize), MIN_CSS_FONT_SCALE,
+                                                    MAX_CSS_FONT_SCALE);
+    int closestFontId = self->fontId;
+    float closestDistance = std::abs(static_cast<float>(self->renderer.getFontAscenderSize(closestFontId)) - targetEmSize);
+    for (const int candidateFontId : self->cssBodyFontIds) {
+      if (candidateFontId == 0) continue;
+      const float candidateDistance =
+          std::abs(static_cast<float>(self->renderer.getFontAscenderSize(candidateFontId)) - targetEmSize);
+      if (candidateDistance < closestDistance) {
+        closestFontId = candidateFontId;
+        closestDistance = candidateDistance;
+      }
+    }
+    bodyBlockStyle.fontId = closestFontId == self->fontId ? 0 : closestFontId;
+  }
 
   if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     self->currentCssStyle = cssStyle;
     auto headerBlockStyle = BlockStyle::fromCssStyle(
-        cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), self->viewportWidth);
+        cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
 
     // Heading level (h1→1, h2→2, etc.)
     const int level = name[1] - '0';
@@ -789,7 +871,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
           self->currentTextBlock.reset();
         }
-        auto liBlockStyle = userAlignmentBlockStyle;
+        auto liBlockStyle = bodyBlockStyle;
         liBlockStyle.isListItem = true;
         const int bulletW = self->renderer.getTextAdvanceX(self->fontId, "\xe2\x80\xa2", EpdFontFamily::REGULAR);
         const int spaceW = self->renderer.getTextAdvanceX(self->fontId, " ", EpdFontFamily::REGULAR);
@@ -803,7 +885,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         self->updateEffectiveInlineStyle();
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
       } else {
-        self->startNewTextBlock(userAlignmentBlockStyle);
+        self->startNewTextBlock(bodyBlockStyle);
         self->updateEffectiveInlineStyle();
       }
     }
@@ -1446,7 +1528,8 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int effectiveFontId = (line->getBlockStyle().fontId != 0) ? line->getBlockStyle().fontId : fontId;
-  const int lineHeight = renderer.getLineHeight(effectiveFontId) * lineCompression;
+  const int lineHeight = renderer.getLineHeight(effectiveFontId) * lineCompression *
+                         line->getBlockStyle().lineHeightMultiplier;
 
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
@@ -1699,7 +1782,8 @@ void ChapterHtmlSlimParser::makePages() {
     }
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
+                         currentTextBlock->getBlockStyle().lineHeightMultiplier;
 
   // Apply top spacing before the paragraph (stored in pixels)
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();

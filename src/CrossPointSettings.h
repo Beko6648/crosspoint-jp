@@ -58,9 +58,10 @@ class CrossPointSettings {
     SLEEP_CALENDAR_POSITION_COUNT
   };
 
-  // EPUB rendering is intentionally fixed to the hybrid policy: CrossPoint
-  // lays out body text, while EPUB CSS is reserved for headings.
-  static constexpr uint8_t EPUB_HYBRID_STYLE = 2;
+  // EPUB rendering policy. Values 0 and 1 retain compatibility with the
+  // former embeddedStyle toggle; 2 preserves the fixed hybrid policy that
+  // shipped before this selector was restored.
+  enum BOOK_STYLE { CROSSPOINT_STYLE = 0, EPUB_STYLE = 1, BALANCED_STYLE = 2, BOOK_STYLE_COUNT };
 
   // Status bar enum - legacy
   enum STATUS_BAR_MODE {
@@ -141,7 +142,6 @@ class CrossPointSettings {
     LEFT_ALIGN = 1,
     CENTER_ALIGN = 2,
     RIGHT_ALIGN = 3,
-    BOOK_STYLE = 4,
     PARAGRAPH_ALIGNMENT_COUNT
   };
   enum WRITING_MODE : uint8_t { WM_AUTO = 0, WM_HORIZONTAL = 1, WM_VERTICAL = 2, WRITING_MODE_COUNT };
@@ -237,6 +237,9 @@ class CrossPointSettings {
   uint8_t uiTheme = LYRA;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  // EPUB book style. Balanced preserves the rendering policy used before the
+  // selector was restored, so existing users keep the same appearance.
+  uint8_t embeddedStyle = BALANCED_STYLE;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Image rendering mode in EPUB reader
@@ -276,6 +279,7 @@ class CrossPointSettings {
   // Returns the vertical character spacing as a percentage (0–50).
   uint8_t getVerticalCharSpacingPercent() const { return vertical.charSpacing; }
   int getReaderFontId(bool isVertical) const;
+  int getReaderFontIdForSize(bool isVertical, uint8_t fontSize) const;
   int getBuiltInReaderFontId(bool isVertical) const;
   // Returns font ID for heading level (1-6). Returns 0 if same as body font.
   int getHeadingFontId(int headingLevel, bool isVertical) const;

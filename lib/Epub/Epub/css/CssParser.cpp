@@ -288,6 +288,28 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
   } else if (propNameBuf == "text-decoration" || propNameBuf == "text-decoration-line") {
     style.textDecoration = interpretDecoration(propValueBuf);
     style.defined.textDecoration = 1;
+  } else if (propNameBuf == "font-size") {
+    CssLength len;
+    if (tryInterpretLength(propValueBuf, len)) {
+      style.fontSize = len;
+      style.fontSizeDefined = true;
+    }
+  } else if (propNameBuf == "line-height") {
+    const std::string lineHeightValue(stripTrailingImportant(propValueBuf));
+    char* endPtr = nullptr;
+    const float unitlessValue = std::strtof(lineHeightValue.c_str(), &endPtr);
+    if (endPtr != lineHeightValue.c_str() && *endPtr == '\0') {
+      style.lineHeight = unitlessValue;
+      style.lineHeightIsMultiplier = true;
+      style.lineHeightDefined = true;
+    } else {
+      CssLength len;
+      if (tryInterpretLength(lineHeightValue, len)) {
+        style.lineHeightLength = len;
+        style.lineHeightIsMultiplier = false;
+        style.lineHeightDefined = true;
+      }
+    }
   } else if (propNameBuf == "text-indent") {
     style.textIndent = interpretLength(propValueBuf);
     style.defined.textIndent = 1;
@@ -384,7 +406,7 @@ CssStyle CssParser::parseDeclarations(const std::string& declBlock) {
 void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style) {
   // A selector whose declarations contain no supported properties can never
   // affect resolveStyle().  Do not spend a hash-map node and selector string on it.
-  if (!style.defined.anySet()) {
+  if (!style.anySet()) {
     return;
   }
 
@@ -735,6 +757,12 @@ bool CssParser::saveToCache() const {
     writeLength(style.paddingRight);
     writeLength(style.imageHeight);
     writeLength(style.imageWidth);
+    writeLength(style.fontSize);
+    writeLength(style.lineHeightLength);
+    file.write(reinterpret_cast<const uint8_t*>(&style.lineHeight), sizeof(style.lineHeight));
+    file.write(static_cast<uint8_t>(style.lineHeightIsMultiplier));
+    file.write(static_cast<uint8_t>(style.fontSizeDefined));
+    file.write(static_cast<uint8_t>(style.lineHeightDefined));
     file.write(static_cast<uint8_t>(style.display));
 
     // Write defined flags as uint16_t
@@ -802,10 +830,11 @@ bool CssParser::loadFromCache() {
     return static_cast<size_t>(file.available()) >= neededBytes;
   };
 
-  constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
+  constexpr size_t CSS_LENGTH_FIELD_COUNT = 13;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
   constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(uint8_t) + sizeof(uint16_t);
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 4 * sizeof(uint8_t) +
+      sizeof(uint16_t);
 
   // Read each rule
   for (uint16_t i = 0; i < ruleCount; ++i) {
@@ -883,10 +912,29 @@ bool CssParser::loadFromCache() {
     if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
         !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
         !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
-        !readLength(style.imageHeight) || !readLength(style.imageWidth)) {
+        !readLength(style.imageHeight) || !readLength(style.imageWidth) || !readLength(style.fontSize) ||
+        !readLength(style.lineHeightLength)) {
       rulesBySelector_.clear();
       return false;
     }
+
+    uint8_t boolValue = 0;
+    if (file.read(&style.lineHeight, sizeof(style.lineHeight)) != sizeof(style.lineHeight) ||
+        file.read(&boolValue, 1) != 1) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    style.lineHeightIsMultiplier = boolValue != 0;
+    if (file.read(&boolValue, 1) != 1) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    style.fontSizeDefined = boolValue != 0;
+    if (file.read(&boolValue, 1) != 1) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    style.lineHeightDefined = boolValue != 0;
 
     // Read display value
     uint8_t displayVal;

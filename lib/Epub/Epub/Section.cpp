@@ -16,8 +16,9 @@ namespace {
 // Version 43: full-page illustrations are isolated in both writing modes.
 // Version 44: page layout reserves edge space for vertical and first-line horizontal ruby.
 // Version 45: fast cache generation resolves ruby metrics before column placement.
-// Version 47: hybrid mode no longer applies EPUB CSS to images.
-constexpr uint8_t SECTION_FILE_VERSION = 47;
+// Version 49: book style, rather than the paragraph-alignment selector,
+// determines whether EPUB text-align applies.
+constexpr uint8_t SECTION_FILE_VERSION = 50;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -344,7 +345,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
                                 const bool verticalMode, const uint8_t charSpacing,
                                 const std::function<void()>& popupFn, const int* headingFontIds,
-                                const int tableFontId,
+                                const int tableFontId, const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn) {
   const uint32_t createSectionStart = millis();
   const auto localPath = epub->getSpineItem(spineIndex).href;
@@ -427,7 +428,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
         }
       },
       bookStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser, headingFontIds, tableFontId,
-      verticalMode);
+      verticalMode, cssBodyFontIds);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
 

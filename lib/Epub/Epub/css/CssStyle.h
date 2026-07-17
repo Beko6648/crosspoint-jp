@@ -133,6 +133,12 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
+  CssLength fontSize;       // Text size for Book Priority (resolved relative to the reader font)
+  CssLength lineHeightLength;
+  float lineHeight = 1.0f;  // Unitless multiplier
+  bool lineHeightIsMultiplier = true;
+  bool fontSizeDefined = false;
+  bool lineHeightDefined = false;
   CssDisplay display = CssDisplay::Block;                     // display property (Block or None)
   CssWritingMode writingMode = CssWritingMode::HorizontalTb;  // writing-mode property
 
@@ -201,6 +207,16 @@ struct CssStyle {
       imageWidth = base.imageWidth;
       defined.imageWidth = 1;
     }
+    if (base.hasFontSize()) {
+      fontSize = base.fontSize;
+      fontSizeDefined = true;
+    }
+    if (base.hasLineHeight()) {
+      lineHeight = base.lineHeight;
+      lineHeightLength = base.lineHeightLength;
+      lineHeightIsMultiplier = base.lineHeightIsMultiplier;
+      lineHeightDefined = true;
+    }
     if (base.hasDisplay()) {
       display = base.display;
       defined.display = 1;
@@ -226,6 +242,9 @@ struct CssStyle {
   [[nodiscard]] bool hasPaddingRight() const { return defined.paddingRight; }
   [[nodiscard]] bool hasImageHeight() const { return defined.imageHeight; }
   [[nodiscard]] bool hasImageWidth() const { return defined.imageWidth; }
+  [[nodiscard]] bool hasFontSize() const { return fontSizeDefined; }
+  [[nodiscard]] bool hasLineHeight() const { return lineHeightDefined; }
+  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined; }
   [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasWritingMode() const { return defined.writingMode; }
 
@@ -237,7 +256,10 @@ struct CssStyle {
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};
-    imageHeight = imageWidth = CssLength{};
+    imageHeight = imageWidth = fontSize = lineHeightLength = CssLength{};
+    lineHeight = 1.0f;
+    lineHeightIsMultiplier = true;
+    fontSizeDefined = lineHeightDefined = false;
     display = CssDisplay::Block;
     writingMode = CssWritingMode::HorizontalTb;
     defined.clearAll();

@@ -378,6 +378,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.paddingRight);
   serialization::writePod(file, blockStyle.textIndent);
   serialization::writePod(file, blockStyle.textIndentDefined);
+  serialization::writePod(file, blockStyle.lineHeightMultiplier);
   serialization::writePod(file, blockStyle.fontId);
   serialization::writePod(file, blockStyle.drawSeparatorBelow);
   serialization::writePod(file, blockStyle.isListItem);
@@ -433,6 +434,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.paddingRight);
   serialization::readPod(file, blockStyle.textIndent);
   serialization::readPod(file, blockStyle.textIndentDefined);
+  serialization::readPod(file, blockStyle.lineHeightMultiplier);
   serialization::readPod(file, blockStyle.fontId);
   serialization::readPod(file, blockStyle.drawSeparatorBelow);
   serialization::readPod(file, blockStyle.isListItem);

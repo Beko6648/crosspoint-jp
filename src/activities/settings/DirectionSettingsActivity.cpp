@@ -46,7 +46,7 @@ void DirectionSettingsActivity::buildItems() {
       {StrId::STR_PARA_ALIGNMENT,
        Item::Type::ENUM,
        &DirectionSettings::paragraphAlignment,
-       {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT, StrId::STR_BOOK_S_STYLE},
+       {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
        {}});
 
   // Extra Paragraph Spacing
