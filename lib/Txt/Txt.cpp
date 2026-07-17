@@ -252,12 +252,15 @@ bool Txt::readContent(uint8_t* buffer, size_t offset, size_t length) const {
 }
 
 bool Txt::readDecodedLine(const size_t offset, const size_t maxRawBytes, DecodedLine& out) const {
+  FsFile file;
+  if (!Storage.openFileForRead("TXT", filepath, file)) return false;
+  return readDecodedLine(file, offset, maxRawBytes, out);
+}
+
+bool Txt::readDecodedLine(FsFile& file, const size_t offset, const size_t maxRawBytes, DecodedLine& out) const {
   out = {};
   out.nextOffset = offset;
-  if (!loaded || offset >= fileSize) return false;
-
-  FsFile file;
-  if (!Storage.openFileForRead("TXT", filepath, file) || !file.seek(offset)) return false;
+  if (!loaded || offset >= fileSize || !file || (file.position() != offset && !file.seek(offset))) return false;
 
   size_t rawRead = 0;
   while (file.available() && rawRead < maxRawBytes) {

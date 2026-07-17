@@ -49,4 +49,5 @@ class Txt {
   // Read content from file
   [[nodiscard]] bool readContent(uint8_t* buffer, size_t offset, size_t length) const;
   [[nodiscard]] bool readDecodedLine(size_t offset, size_t maxRawBytes, DecodedLine& out) const;
+  [[nodiscard]] bool readDecodedLine(FsFile& file, size_t offset, size_t maxRawBytes, DecodedLine& out) const;
 };
