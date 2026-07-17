@@ -240,7 +240,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, fadingFix);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, embeddedStyle);
+    readAndValidate(inputFile, embeddedStyle, BOOK_STYLE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     // CJK-specific fields appended at end for backward compatibility
     serialization::readPod(inputFile, uiOrientation);

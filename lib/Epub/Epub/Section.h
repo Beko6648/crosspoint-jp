@@ -21,10 +21,10 @@ class Section {
 
  void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
-                              bool firstLineIndent, bool embeddedStyle, uint8_t imageRendering, bool verticalMode,
+                              bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering, bool verticalMode,
                               uint8_t charSpacing);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
-  CssParser* loadEmbeddedCssForSection(bool embeddedStyle, uint32_t fileSize);
+  CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize);
   bool streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
                                  uint32_t& fileSize);
   bool readSectionOffsets(FsFile& file, uint32_t& lutOffset, uint32_t& anchorMapOffset) const;
@@ -45,11 +45,11 @@ class Section {
   ~Section() = default;
   bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                        uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
-                       bool embeddedStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
+                       uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
   bool clearCache() const;
   bool createSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
-                         bool embeddedStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
+                         uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
                          const std::function<void()>& popupFn = nullptr, const int* headingFontIds = nullptr,
                          int tableFontId = 0,
                          const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn = nullptr);

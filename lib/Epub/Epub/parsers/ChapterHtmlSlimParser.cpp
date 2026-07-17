@@ -305,6 +305,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);
     }
+    // Hybrid style keeps CrossPoint's body layout. EPUB CSS is still used
+    // for headings and images; semantic HTML handling keeps ruby and EPUB
+    // pagebreak elements intact without a CSS dependency.
+    if (self->bookStyle == 2 && !matches(name, HEADER_TAGS, NUM_HEADER_TAGS) &&
+        !matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
+      cssStyle.reset();
+    }
   }
 
   // Skip elements with display:none before all fast paths (tables, links, etc.).

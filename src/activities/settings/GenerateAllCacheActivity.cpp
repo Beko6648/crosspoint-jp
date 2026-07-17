@@ -169,7 +169,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
-    if (!epub->load(true, SETTINGS.embeddedStyle == 0)) {
+    if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
       LOG_ERR("GENALL", "Failed to load: %s", epubPath.c_str());
       continue;
     }
