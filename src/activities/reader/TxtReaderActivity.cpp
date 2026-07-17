@@ -116,6 +116,7 @@ void TxtReaderActivity::loop() {
       ++currentPage;
       requestUpdate();
     } else {
+      saveProgress(true);
       onGoHome();
     }
   }
@@ -325,7 +326,8 @@ void TxtReaderActivity::render(RenderLock&&) {
   renderPage();
 
   // Save progress
-  saveProgress();
+  const bool nearEnd = totalPages > 0 && static_cast<float>(currentPage + 1) / totalPages >= 0.95f;
+  saveProgress(nearEnd);
 
 }
 
@@ -394,33 +396,32 @@ void TxtReaderActivity::renderStatusBar() const {
   GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title);
 }
 
-void TxtReaderActivity::saveProgress() const {
-
-  FsFile f;
-  if (Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    data[0] = currentPage & 0xFF;
-    data[1] = (currentPage >> 8) & 0xFF;
-    data[2] = 0;
-    data[3] = 0;
-    f.write(data, 4);
-  }
-
+void TxtReaderActivity::saveProgress(const bool isFinished) const {
+  uint8_t data[5];
+  data[0] = currentPage & 0xFF;
+  data[1] = (currentPage >> 8) & 0xFF;
+  data[2] = (currentPage >> 16) & 0xFF;
+  data[3] = (currentPage >> 24) & 0xFF;
+  data[4] = isFinished ? 1 : 0;
+  ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data));
 }
 
 void TxtReaderActivity::loadProgress() {
   FsFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      currentPage = data[0] + (data[1] << 8);
+    uint8_t data[5] = {0};
+    const int bytesRead = f.read(data, sizeof(data));
+    if (bytesRead >= 4) {
+      currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+                    (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
       if (currentPage >= totalPages) {
         currentPage = totalPages - 1;
       }
       if (currentPage < 0) {
         currentPage = 0;
       }
-      LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
+      const bool isFinished = bytesRead >= 5 && data[4] == 1;
+      LOG_DBG("TRS", "Loaded progress: page %d/%d, finished=%d", currentPage, totalPages, isFinished ? 1 : 0);
     }
   }
 }

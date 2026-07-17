@@ -92,7 +92,8 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
 }
 
 UIIcon UITheme::getFileIcon(const std::string& filename, ReadingStatus status) {
-  if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename)) {
+  if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+      FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename)) {
     switch (status) {
       case ReadingStatus::Finished:
         return BookFinished;

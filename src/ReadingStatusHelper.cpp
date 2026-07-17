@@ -21,6 +21,9 @@ bool getCacheEntryName(const std::string& filepath, std::string& entryName, bool
   } else if (FsHelpers::hasXtcExtension(filepath)) {
     prefix = "xtc_";
     isEpub = false;
+  } else if (FsHelpers::hasTxtExtension(filepath) || FsHelpers::hasMarkdownExtension(filepath)) {
+    prefix = "txt_";
+    isEpub = false;
   } else {
     return false;
   }
@@ -120,6 +123,9 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   } else if (FsHelpers::hasXtcExtension(filepath)) {
     prefix = "xtc_";
     isEpub = false;
+  } else if (FsHelpers::hasTxtExtension(filepath) || FsHelpers::hasMarkdownExtension(filepath)) {
+    prefix = "txt_";
+    isEpub = false;
   } else {
     return false;
   }
@@ -128,7 +134,7 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   const std::string bookDir = cacheDir + "/" + prefix + hash;
   const std::string progressPath = bookDir + "/progress.bin";
 
-  // EPUB=7, XTC=5
+  // EPUB=7, XTC/TXT=5
   const size_t recordSize = isEpub ? 7 : 5;
   const size_t flagOffset = isEpub ? 6 : 4;
 

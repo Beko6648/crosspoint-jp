@@ -41,7 +41,7 @@ class TxtReaderActivity final : public Activity {
   void buildPageIndex();
   bool loadPageIndexCache();
   void savePageIndexCache() const;
-  void saveProgress() const;
+  void saveProgress(bool isFinished = false) const;
   void loadProgress();
 
  public:
