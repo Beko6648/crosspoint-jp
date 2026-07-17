@@ -4,6 +4,74 @@
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 
+#include <algorithm>
+
+#include "Cp932Table.generated.h"
+
+namespace {
+bool isUtf8Continuation(const uint8_t value) { return (value & 0xC0) == 0x80; }
+
+bool isValidUtf8(const uint8_t* data, const size_t length) {
+  size_t i = 0;
+  while (i < length) {
+    const uint8_t first = data[i++];
+    if (first < 0x80) continue;
+    int continuationCount = 0;
+    uint32_t codepoint = 0;
+    if (first >= 0xC2 && first <= 0xDF) {
+      continuationCount = 1;
+      codepoint = first & 0x1F;
+    } else if (first >= 0xE0 && first <= 0xEF) {
+      continuationCount = 2;
+      codepoint = first & 0x0F;
+    } else if (first >= 0xF0 && first <= 0xF4) {
+      continuationCount = 3;
+      codepoint = first & 0x07;
+    } else {
+      return false;
+    }
+    // The detection sample can end in the middle of a valid UTF-8 character.
+    if (i + continuationCount > length) return true;
+    for (int j = 0; j < continuationCount; ++j) {
+      if (!isUtf8Continuation(data[i])) return false;
+      codepoint = (codepoint << 6) | (data[i++] & 0x3F);
+    }
+    if ((continuationCount == 2 && codepoint < 0x800) || (continuationCount == 3 && codepoint < 0x10000) ||
+        codepoint > 0x10FFFF || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+uint16_t cp932ToUnicode(const uint16_t value) {
+  size_t left = 0;
+  size_t right = kCp932TableSize;
+  while (left < right) {
+    const size_t mid = left + (right - left) / 2;
+    if (kCp932Table[mid].sjis < value) {
+      left = mid + 1;
+    } else {
+      right = mid;
+    }
+  }
+  return left < kCp932TableSize && kCp932Table[left].sjis == value ? kCp932Table[left].unicode : 0xFFFD;
+}
+
+void appendUtf8(std::string& output, const uint32_t codepoint) {
+  if (codepoint <= 0x7F) {
+    output.push_back(static_cast<char>(codepoint));
+  } else if (codepoint <= 0x7FF) {
+    output.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+    output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+  } else {
+    output.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+    output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+    output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+  }
+}
+}  // namespace
+
 Txt::Txt(std::string path, std::string cacheBasePath)
     : filepath(std::move(path)), cacheBasePath(std::move(cacheBasePath)) {
   // Generate cache path from file path hash
@@ -28,10 +96,20 @@ bool Txt::load() {
   }
 
   fileSize = file.size();
+  uint8_t sample[4096] = {};
+  const size_t sampleSize = file.read(sample, std::min(fileSize, sizeof(sample)));
+  if (sampleSize >= 3 && sample[0] == 0xEF && sample[1] == 0xBB && sample[2] == 0xBF) {
+    encoding = Encoding::UTF8;
+    contentOffset = 3;
+  } else {
+    encoding = isValidUtf8(sample, sampleSize) ? Encoding::UTF8 : Encoding::CP932;
+    contentOffset = 0;
+  }
   file.close();
 
   loaded = true;
-  LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes)", filepath.c_str(), fileSize);
+  LOG_INF("TXT", "Loaded TXT file: %s (%zu bytes, encoding=%s, contentOffset=%zu)", filepath.c_str(), fileSize,
+          encoding == Encoding::UTF8 ? "UTF-8" : "CP932", contentOffset);
   return true;
 }
 
@@ -171,4 +249,62 @@ bool Txt::readContent(uint8_t* buffer, size_t offset, size_t length) const {
 
   size_t bytesRead = file.read(buffer, length);
   return bytesRead > 0;
+}
+
+bool Txt::readDecodedLine(const size_t offset, const size_t maxRawBytes, DecodedLine& out) const {
+  out = {};
+  out.nextOffset = offset;
+  if (!loaded || offset >= fileSize) return false;
+
+  FsFile file;
+  if (!Storage.openFileForRead("TXT", filepath, file) || !file.seek(offset)) return false;
+
+  size_t rawRead = 0;
+  while (file.available() && rawRead < maxRawBytes) {
+    const int next = file.read();
+    if (next < 0) break;
+    const uint8_t first = static_cast<uint8_t>(next);
+    ++rawRead;
+    ++out.nextOffset;
+
+    if (first == '\n') {
+      out.newline = true;
+      break;
+    }
+    if (first == '\f') {
+      out.pageBreak = true;
+      break;
+    }
+    if (first == '\r') continue;
+
+    const size_t outputStart = out.text.size();
+    if (encoding == Encoding::UTF8 || first < 0x80) {
+      out.text.push_back(static_cast<char>(first));
+      if (encoding == Encoding::UTF8 && first >= 0xC2) {
+        int needed = first <= 0xDF ? 1 : (first <= 0xEF ? 2 : 3);
+        // Once a multibyte character starts, finish it even if the raw chunk
+        // boundary is reached so the next page never starts mid-character.
+        while (needed-- > 0 && file.available()) {
+          const int continuation = file.read();
+          if (continuation < 0) break;
+          out.text.push_back(static_cast<char>(continuation));
+          ++rawRead;
+          ++out.nextOffset;
+        }
+      }
+    } else if (first >= 0xA1 && first <= 0xDF) {
+      appendUtf8(out.text, 0xFF61 + (first - 0xA1));
+    } else if (((first >= 0x81 && first <= 0x9F) || (first >= 0xE0 && first <= 0xFC)) && file.available()) {
+      const int trailValue = file.read();
+      if (trailValue < 0) break;
+      ++rawRead;
+      ++out.nextOffset;
+      appendUtf8(out.text, cp932ToUnicode(static_cast<uint16_t>((first << 8) | trailValue)));
+    } else {
+      appendUtf8(out.text, 0xFFFD);
+    }
+    for (size_t i = outputStart; i < out.text.size(); ++i) out.rawEnds.push_back(out.nextOffset);
+  }
+
+  return out.nextOffset > offset;
 }

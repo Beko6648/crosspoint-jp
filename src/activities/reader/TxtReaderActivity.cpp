@@ -13,6 +13,7 @@
 #include "ProgressFile.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -20,7 +21,39 @@ namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 5;          // Font-I/O-free TXT indexing
+
+struct TextLayoutMap {
+  std::vector<size_t> boundaries;
+  std::vector<int> extents;
+};
+
+TextLayoutMap getApproximateLayout(const std::string& text, const bool vertical, const int fullWidth,
+                                   const uint8_t verticalSpacing) {
+  TextLayoutMap result;
+  result.boundaries.reserve(text.size() + 1);
+  result.extents.reserve(text.size() + 1);
+  result.boundaries.push_back(0);
+  result.extents.push_back(0);
+
+  const auto* begin = reinterpret_cast<const unsigned char*>(text.c_str());
+  const unsigned char* ptr = begin;
+  while (*ptr) {
+    const uint32_t codepoint = utf8NextCodepoint(&ptr);
+    int advance = 0;
+    if (!utf8IsCombiningMark(codepoint)) {
+      if (!vertical && codepoint < 0x80) {
+        advance = codepoint == ' ' ? std::max(1, fullWidth / 3) : std::max(1, fullWidth / 2);
+      } else {
+        advance = fullWidth;
+      }
+      if (vertical) advance += advance * verticalSpacing / 100;
+    }
+    result.boundaries.push_back(static_cast<size_t>(ptr - begin));
+    result.extents.push_back(result.extents.back() + advance);
+  }
+  return result;
+}
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -77,12 +110,14 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  if (prevTriggered && currentPage > 0) {
-    currentPage--;
+  const bool forwardTriggered = verticalMode ? prevTriggered : nextTriggered;
+  const bool backwardTriggered = verticalMode ? nextTriggered : prevTriggered;
+  if (backwardTriggered && currentPage > 0) {
+    --currentPage;
     requestUpdate();
-  } else if (nextTriggered) {
+  } else if (forwardTriggered) {
     if (currentPage < totalPages - 1) {
-      currentPage++;
+      ++currentPage;
       requestUpdate();
     } else {
       onGoHome();
@@ -95,10 +130,14 @@ void TxtReaderActivity::initializeReader() {
     return;
   }
 
-  // Store current settings for cache validation
-  cachedFontId = SETTINGS.getReaderFontId(false);
-  cachedScreenMargin = SETTINGS.horizontal.screenMargin;
-  cachedParagraphAlignment = SETTINGS.horizontal.paragraphAlignment;
+  verticalMode = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
+  ensureSdFontLoaded(verticalMode);
+  const auto& directionSettings = SETTINGS.getDirectionSettings(verticalMode);
+  cachedFontId = SETTINGS.getReaderFontId(verticalMode);
+  cachedScreenMargin = directionSettings.screenMargin;
+  cachedParagraphAlignment = directionSettings.paragraphAlignment;
+  cachedCharSpacing = directionSettings.charSpacing;
+  renderer.setVerticalCharSpacing(verticalMode ? SETTINGS.getVerticalCharSpacingPercent() : 0);
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
@@ -110,15 +149,18 @@ void TxtReaderActivity::initializeReader() {
       std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
-  const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
+  viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
   const int baseLineHeight = renderer.getLineHeight(cachedFontId);
+  layoutGlyphAdvance = std::max(1, baseLineHeight);
   const int lineHeight =
-      std::max(1, static_cast<int>(baseLineHeight * SETTINGS.getReaderLineCompression(false) + 0.5f));
+      std::max(1, static_cast<int>(baseLineHeight * SETTINGS.getReaderLineCompression(verticalMode) + 0.5f));
 
-  linesPerPage = viewportHeight / lineHeight;
+  linesPerPage = (verticalMode ? viewportWidth : viewportHeight) / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
-  LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
+  LOG_INF("TRS", "Viewport: %dx%d, units per page: %d, vertical=%d, font=%d, sdFont=%d", viewportWidth,
+          viewportHeight, linesPerPage, verticalMode ? 1 : 0, cachedFontId,
+          renderer.isSdCardFont(cachedFontId) ? 1 : 0);
 
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
@@ -135,10 +177,11 @@ void TxtReaderActivity::initializeReader() {
 }
 
 void TxtReaderActivity::buildPageIndex() {
+  const unsigned long startedAt = millis();
   pageOffsets.clear();
-  pageOffsets.push_back(0);  // First page starts at offset 0
+  pageOffsets.push_back(txt->getContentOffset());
 
-  size_t offset = 0;
+  size_t offset = txt->getContentOffset();
   const size_t fileSize = txt->getFileSize();
 
   LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
@@ -170,133 +213,78 @@ void TxtReaderActivity::buildPageIndex() {
   }
 
   totalPages = pageOffsets.size();
-  LOG_DBG("TRS", "Built page index: %d pages", totalPages);
+  LOG_INF("TRS", "Built page index: pages=%d bytes=%zu duration=%lu ms", totalPages, fileSize,
+          millis() - startedAt);
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
   outLines.clear();
   const size_t fileSize = txt->getFileSize();
-
   if (offset >= fileSize) {
     return false;
   }
+  nextOffset = offset;
+  const int wrapExtent = verticalMode ? viewportHeight : viewportWidth;
 
-  // Read a chunk from file
-  size_t chunkSize = std::min(CHUNK_SIZE, fileSize - offset);
-  auto* buffer = static_cast<uint8_t*>(malloc(chunkSize + 1));
-  if (!buffer) {
-    LOG_ERR("TRS", "Failed to allocate %zu bytes", chunkSize);
-    return false;
-  }
+  while (nextOffset < fileSize && static_cast<int>(outLines.size()) < linesPerPage) {
+    Txt::DecodedLine decoded;
+    if (!txt->readDecodedLine(nextOffset, CHUNK_SIZE, decoded)) break;
 
-  if (!txt->readContent(buffer, offset, chunkSize)) {
-    free(buffer);
-    return false;
-  }
-  buffer[chunkSize] = '\0';
-
-  // Parse lines from buffer
-  size_t pos = 0;
-
-  while (pos < chunkSize && static_cast<int>(outLines.size()) < linesPerPage) {
-    // Find end of line
-    size_t lineEnd = pos;
-    while (lineEnd < chunkSize && buffer[lineEnd] != '\n') {
-      lineEnd++;
+    const bool forcePageBreak = decoded.pageBreak;
+    if (forcePageBreak && decoded.text.empty()) {
+      nextOffset = decoded.nextOffset;
+      if (!outLines.empty()) break;
+      continue;
     }
 
-    // Check if we have a complete line
-    bool lineComplete = (lineEnd < chunkSize) || (offset + lineEnd >= fileSize);
-
-    if (!lineComplete && static_cast<int>(outLines.size()) > 0) {
-      // Incomplete line and we already have some lines, stop here
-      break;
+    if (decoded.text.empty()) {
+      if (decoded.newline) outLines.emplace_back();
+      nextOffset = decoded.nextOffset;
+      continue;
     }
 
-    // Calculate the actual length of line content in the buffer (excluding newline)
-    size_t lineContentLen = lineEnd - pos;
-
-    // Check for carriage return
-    bool hasCR = (lineContentLen > 0 && buffer[pos + lineContentLen - 1] == '\r');
-    size_t displayLen = hasCR ? lineContentLen - 1 : lineContentLen;
-
-    // Extract line content for display (without CR/LF)
-    std::string line(reinterpret_cast<char*>(buffer + pos), displayLen);
-
-    // Track position within this source line (in bytes from pos)
-    size_t lineBytePos = 0;
-
-    // Word wrap if needed
-    while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage) {
-      int lineWidth = renderer.getTextWidth(cachedFontId, line.c_str());
-
-      if (lineWidth <= viewportWidth) {
-        outLines.push_back(line);
-        lineBytePos = displayLen;  // Consumed entire display content
-        line.clear();
-        break;
-      }
-
-      // Find break point
-      size_t breakPos = line.length();
-      while (breakPos > 0 && renderer.getTextWidth(cachedFontId, line.substr(0, breakPos).c_str()) > viewportWidth) {
-        // Try to break at space
-        size_t spacePos = line.rfind(' ', breakPos - 1);
-        if (spacePos != std::string::npos && spacePos > 0) {
-          breakPos = spacePos;
+    const auto layout = getApproximateLayout(decoded.text, verticalMode, layoutGlyphAdvance, cachedCharSpacing);
+    const auto& boundaries = layout.boundaries;
+    size_t textPos = 0;
+    while (textPos < decoded.text.size() && static_cast<int>(outLines.size()) < linesPerPage) {
+      const auto startIt = std::lower_bound(boundaries.begin(), boundaries.end(), textPos);
+      const size_t startIndex = static_cast<size_t>(startIt - boundaries.begin());
+      // Find the largest complete UTF-8 character range that fits. This keeps
+      // indexing independent of SD-card glyph reads. TXT layout intentionally
+      // uses full-width Japanese and half-width ASCII estimates.
+      size_t low = startIndex + 1;
+      size_t high = boundaries.size() - 1;
+      size_t fittingIndex = startIndex;
+      while (low <= high) {
+        const size_t mid = low + (high - low) / 2;
+        if (layout.extents[mid] - layout.extents[startIndex] <= wrapExtent) {
+          fittingIndex = mid;
+          low = mid + 1;
         } else {
-          // Break at character boundary for UTF-8
-          breakPos--;
-          // Make sure we don't break in the middle of a UTF-8 sequence
-          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) {
-            breakPos--;
-          }
+          high = mid - 1;
         }
       }
 
-      if (breakPos == 0) {
-        breakPos = 1;
+      size_t breakPos = boundaries[fittingIndex > startIndex ? fittingIndex : startIndex + 1];
+      if (!verticalMode && breakPos < decoded.text.size()) {
+        const size_t space = decoded.text.rfind(' ', breakPos - 1);
+        if (space != std::string::npos && space > textPos) {
+          breakPos = space;
+        }
       }
 
-      outLines.push_back(line.substr(0, breakPos));
-
-      // Skip space at break point
-      size_t skipChars = breakPos;
-      if (breakPos < line.length() && line[breakPos] == ' ') {
-        skipChars++;
-      }
-      lineBytePos += skipChars;
-      line = line.substr(skipChars);
+      outLines.push_back(decoded.text.substr(textPos, breakPos - textPos));
+      size_t consumedEnd = breakPos;
+      if (!verticalMode && consumedEnd < decoded.text.size() && decoded.text[consumedEnd] == ' ') ++consumedEnd;
+      nextOffset = decoded.rawEnds[consumedEnd - 1];
+      textPos = consumedEnd;
     }
 
-    // Determine how much of the source buffer we consumed
-    if (line.empty()) {
-      // Fully consumed this source line, move past the newline
-      pos = lineEnd + 1;
-    } else {
-      // Partially consumed - page is full mid-line
-      // Move pos to where we stopped in the line (NOT past the line)
-      pos = pos + lineBytePos;
-      break;
-    }
+    if (textPos >= decoded.text.size()) nextOffset = decoded.nextOffset;
+    if (forcePageBreak) break;
   }
 
-  // Ensure we make progress even if calculations go wrong
-  if (pos == 0 && !outLines.empty()) {
-    // Fallback: at minimum, consume something to avoid infinite loop
-    pos = 1;
-  }
-
-  nextOffset = offset + pos;
-
-  // Make sure we don't go past the file
-  if (nextOffset > fileSize) {
-    nextOffset = fileSize;
-  }
-
-  free(buffer);
-
-  return !outLines.empty();
+  return !outLines.empty() || nextOffset > offset;
 }
 
 void TxtReaderActivity::render(RenderLock&&) {
@@ -337,14 +325,28 @@ void TxtReaderActivity::render(RenderLock&&) {
 void TxtReaderActivity::renderPage() {
   const int baseLineHeight = renderer.getLineHeight(cachedFontId);
   const int lineHeight =
-      std::max(1, static_cast<int>(baseLineHeight * SETTINGS.getReaderLineCompression(false) + 0.5f));
+      std::max(1, static_cast<int>(baseLineHeight * SETTINGS.getReaderLineCompression(verticalMode) + 0.5f));
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
   auto renderLines = [&]() {
     int y = cachedOrientedMarginTop;
+    int columnX = cachedOrientedMarginLeft + viewportWidth - lineHeight;
     for (const auto& line : currentPageLines) {
       if (!line.empty()) {
+        if (verticalMode) {
+          int columnY = cachedOrientedMarginTop;
+          const int textHeight =
+              getApproximateLayout(line, true, layoutGlyphAdvance, cachedCharSpacing).extents.back();
+          if (cachedParagraphAlignment == CrossPointSettings::CENTER_ALIGN) {
+            columnY += std::max(0, (viewportHeight - textHeight) / 2);
+          } else if (cachedParagraphAlignment == CrossPointSettings::RIGHT_ALIGN) {
+            columnY += std::max(0, viewportHeight - textHeight);
+          }
+          renderer.drawTextVertical(cachedFontId, columnX, columnY, line.c_str());
+          columnX -= lineHeight;
+          continue;
+        }
         int x = cachedOrientedMarginLeft;
 
         // Apply text alignment
@@ -354,12 +356,12 @@ void TxtReaderActivity::renderPage() {
             // x already set to left margin
             break;
           case CrossPointSettings::CENTER_ALIGN: {
-            int textWidth = renderer.getTextWidth(cachedFontId, line.c_str());
+            const int textWidth = getApproximateLayout(line, false, layoutGlyphAdvance, 0).extents.back();
             x = cachedOrientedMarginLeft + (contentWidth - textWidth) / 2;
             break;
           }
           case CrossPointSettings::RIGHT_ALIGN: {
-            int textWidth = renderer.getTextWidth(cachedFontId, line.c_str());
+            const int textWidth = getApproximateLayout(line, false, layoutGlyphAdvance, 0).extents.back();
             x = cachedOrientedMarginLeft + contentWidth - textWidth;
             break;
           }
@@ -371,7 +373,11 @@ void TxtReaderActivity::renderPage() {
 
         renderer.drawText(cachedFontId, x, y, line.c_str());
       }
-      y += lineHeight;
+      if (verticalMode) {
+        columnX -= lineHeight;
+      } else {
+        y += lineHeight;
+      }
     }
   };
 
@@ -440,6 +446,8 @@ bool TxtReaderActivity::loadPageIndexCache() {
   // - int32_t: font ID (to invalidate cache on font change)
   // - int32_t: screen margin (to invalidate cache on margin change)
   // - uint8_t: paragraph alignment (to invalidate cache on alignment change)
+  // - uint8_t: vertical mode
+  // - uint8_t: vertical character spacing
   // - uint32_t: total pages count
   // - N * uint32_t: page offsets
 
@@ -507,6 +515,20 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t cachedVertical;
+  serialization::readPod(f, cachedVertical);
+  if (cachedVertical != static_cast<uint8_t>(verticalMode)) {
+    LOG_DBG("TRS", "Cache writing mode mismatch, rebuilding");
+    return false;
+  }
+
+  uint8_t charSpacing;
+  serialization::readPod(f, charSpacing);
+  if (charSpacing != cachedCharSpacing) {
+    LOG_DBG("TRS", "Cache character spacing mismatch, rebuilding");
+    return false;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -542,6 +564,8 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, static_cast<uint8_t>(verticalMode));
+  serialization::writePod(f, cachedCharSpacing);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets

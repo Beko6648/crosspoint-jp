@@ -19,12 +19,16 @@ class TxtReaderActivity final : public Activity {
   std::vector<std::string> currentPageLines;
   int linesPerPage = 0;
   int viewportWidth = 0;
+  int viewportHeight = 0;
+  bool verticalMode = false;
   bool initialized = false;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int cachedFontId = 0;
   uint8_t cachedScreenMargin = 0;
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
+  uint8_t cachedCharSpacing = 0;
+  int layoutGlyphAdvance = 1;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;

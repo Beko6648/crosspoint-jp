@@ -4,13 +4,29 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class Txt {
+ public:
+  enum class Encoding : uint8_t { UTF8 = 0, CP932 = 1 };
+
+  struct DecodedLine {
+    std::string text;
+    // Raw source offset corresponding to each UTF-8 byte in text.
+    std::vector<size_t> rawEnds;
+    size_t nextOffset = 0;
+    bool newline = false;
+    bool pageBreak = false;
+  };
+
+ private:
   std::string filepath;
   std::string cacheBasePath;
   std::string cachePath;
   bool loaded = false;
   size_t fileSize = 0;
+  size_t contentOffset = 0;
+  Encoding encoding = Encoding::UTF8;
 
  public:
   explicit Txt(std::string path, std::string cacheBasePath);
@@ -20,6 +36,8 @@ class Txt {
   [[nodiscard]] const std::string& getCachePath() const { return cachePath; }
   [[nodiscard]] std::string getTitle() const;
   [[nodiscard]] size_t getFileSize() const { return fileSize; }
+  [[nodiscard]] size_t getContentOffset() const { return contentOffset; }
+  [[nodiscard]] Encoding getEncoding() const { return encoding; }
 
   void setupCacheDir() const;
 
@@ -30,4 +48,5 @@ class Txt {
 
   // Read content from file
   [[nodiscard]] bool readContent(uint8_t* buffer, size_t offset, size_t length) const;
+  [[nodiscard]] bool readDecodedLine(size_t offset, size_t maxRawBytes, DecodedLine& out) const;
 };
