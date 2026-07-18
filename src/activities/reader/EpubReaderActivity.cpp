@@ -578,9 +578,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::READER_SETTINGS: {
-      // Open settings directly on the Reader category and return to reader on back.
+      // Open settings directly on the Reader category and select the submenu
+      // that matches this book's current writing mode.
+      const int directionSettingIndex = verticalMode ? 1 : 0;
       startActivityForResult(std::make_unique<SettingsActivity>(
-                                 renderer, mappedInput, [this] { finish(); }, 1, 1),
+                                 renderer, mappedInput, [this] { finish(); }, 1, directionSettingIndex),
                              [this](const ActivityResult&) {
                                // Reader settings (font/line spacing/margins etc.) may change pagination.
                                // Cache dir may have been deleted by ClearCacheActivity — recreate it.
