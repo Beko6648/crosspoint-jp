@@ -103,6 +103,45 @@ bool isSingleCjkWord(const std::string& word) {
          (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFFEF);
 }
 
+// Adjust a greedy horizontal line break so prohibited punctuation does not
+// start or end a line. Moving the preceding character with a prohibited
+// line-head character avoids extending text beyond the configured viewport.
+// Continuation tokens include the remaining base characters of a ruby group,
+// so every adjustment also keeps those groups on one line.
+size_t adjustHorizontalKinsokuBreak(const std::vector<std::string>& words,
+                                    const std::vector<bool>& continuesVec,
+                                    const size_t lineStart,
+                                    size_t breakAt) {
+  auto keepContinuationTogether = [&]() {
+    while (breakAt > lineStart + 1 && breakAt < continuesVec.size() && continuesVec[breakAt]) {
+      --breakAt;
+    }
+  };
+
+  keepContinuationTogether();
+
+  bool adjusted;
+  do {
+    adjusted = false;
+
+    if (breakAt > lineStart + 1 && breakAt < words.size() &&
+        VerticalTextUtils::isKinsokuHead(firstCodepoint(words[breakAt]))) {
+      --breakAt;
+      keepContinuationTogether();
+      adjusted = true;
+    }
+
+    if (breakAt > lineStart + 1 &&
+        VerticalTextUtils::isKinsokuTail(lastCodepoint(words[breakAt - 1]))) {
+      --breakAt;
+      keepContinuationTogether();
+      adjusted = true;
+    }
+  } while (adjusted);
+
+  return breakAt;
+}
+
 }  // namespace
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
@@ -540,9 +579,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       break;
     }
 
-    while (currentIndex > lineStart + 1 && currentIndex < wordWidths.size() && continuesVec[currentIndex]) {
-      --currentIndex;
-    }
+    currentIndex = adjustHorizontalKinsokuBreak(words, continuesVec, lineStart, currentIndex);
 
     lineBreakIndices.push_back(currentIndex);
     isFirstLine = false;
@@ -617,9 +654,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
       break;
     }
 
-    while (currentIndex > lineStart + 1 && currentIndex < wordWidths.size() && continuesVec[currentIndex]) {
-      --currentIndex;
-    }
+    currentIndex = adjustHorizontalKinsokuBreak(words, continuesVec, lineStart, currentIndex);
 
     lineBreakIndices.push_back(currentIndex);
     isFirstLine = false;
