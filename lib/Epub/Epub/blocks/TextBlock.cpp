@@ -241,24 +241,15 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        const int viewportRight = viewportLeft + viewportWidth;
         const int rightBaseX = wx + rubyBaseOffset + gap;
-        const int leftBaseX = wx - rubyColumnWidth - gap;
-        int rubyBaseX = rightBaseX;
-        if (viewportWidth > 0) {
-          // Apply the user adjustment to both candidates, then choose the side
-          // with less viewport overflow. Equal candidates keep standard right-side ruby.
-          const int adjustedRightX = rightBaseX + rubyOffsetX;
-          const int adjustedLeftX = leftBaseX + rubyOffsetX;
-          const int rightOverflow = std::max(0, viewportLeft - adjustedRightX) +
-                                    std::max(0, adjustedRightX + rubyColumnWidth - viewportRight);
-          const int leftOverflow =
-              std::max(0, viewportLeft - adjustedLeftX) + std::max(0, adjustedLeftX + rubyColumnWidth - viewportRight);
-          if (leftOverflow < rightOverflow) rubyBaseX = leftBaseX;
-        }
-        const int minRubyX = viewportWidth > 0 ? viewportLeft : 0;
-        const int maxRubyX = viewportWidth > 0 ? std::max(minRubyX, viewportRight - rubyColumnWidth) : INT_MAX;
-        const int rubyX = std::clamp(rubyBaseX + rubyOffsetX, minRubyX, maxRubyX);
+        // Vertical ruby always stays on the standard right side of its base
+        // text. The first column may use the reader's right screen margin.
+        // If the margin is too narrow, clamp at the physical screen edge; the
+        // resulting overlap with the body text is preferable to flipping ruby
+        // to the non-standard left side.
+        const int minRubyX = 0;
+        const int maxRubyX = std::max(minRubyX, renderer.getScreenWidth() - rubyColumnWidth);
+        const int rubyX = std::clamp(rightBaseX + rubyOffsetX, minRubyX, maxRubyX);
 
         const int rubyTextHeight =
             std::max(rubyColumnWidth,
