@@ -1820,6 +1820,15 @@ void ChapterHtmlSlimParser::makePages() {
     pendingFootnotes.clear();
   }
 
+  // In vertical mode, h1/h2 advance through columns right-to-left. Apply their
+  // existing after-block spacing to that axis so the following body column does
+  // not sit immediately beside a chapter heading.
+  const int blockBottomSpacing = std::max(0, static_cast<int>(blockStyle.marginBottom)) +
+                                 std::max(0, static_cast<int>(blockStyle.paddingBottom));
+  if (verticalMode && blockStyle.drawSeparatorBelow && blockBottomSpacing > 0) {
+    currentPageNextX -= blockBottomSpacing;
+  }
+
   // Apply bottom spacing after the paragraph (stored in pixels)
   if (blockStyle.marginBottom > 0) {
     currentPageNextY += blockStyle.marginBottom;

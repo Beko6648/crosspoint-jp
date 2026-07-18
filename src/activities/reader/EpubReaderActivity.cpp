@@ -41,8 +41,15 @@ constexpr unsigned long skipChapterMs = 700;
 // E-paper progress redraws are expensive (~670 ms in the measured run).
 // Quarter-step updates keep useful feedback without dominating cache creation.
 constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
+// Vertical glyph bounds can extend a few pixels past their layout advance.
+// Keep this guard between reader content and a visible status bar.
+constexpr int STATUS_BAR_CONTENT_GUARD = 8;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
+
+int getStatusBarContentReservation(const int statusBarHeight) {
+  return statusBarHeight > 0 ? statusBarHeight + STATUS_BAR_CONTENT_GUARD : 0;
+}
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -90,7 +97,7 @@ void EpubReaderActivity::pregenerateCache() {
   orientedMarginRight += ds.screenMargin;
   orientedMarginLeft += ds.screenMargin;
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  orientedMarginBottom += std::max(ds.screenMargin, statusBarHeight);
+  orientedMarginBottom += std::max(static_cast<int>(ds.screenMargin), getStatusBarContentReservation(statusBarHeight));
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
@@ -854,10 +861,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (automaticPageTurnActive &&
       (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
     orientedMarginBottom +=
-        std::max(ds.screenMargin,
-                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
+        std::max(static_cast<int>(ds.screenMargin),
+                 getStatusBarContentReservation(statusBarHeight) +
+                     UITheme::getInstance().getMetrics().statusBarVerticalMargin);
   } else {
-    orientedMarginBottom += std::max(ds.screenMargin, statusBarHeight);
+    orientedMarginBottom += std::max(static_cast<int>(ds.screenMargin), getStatusBarContentReservation(statusBarHeight));
   }
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;

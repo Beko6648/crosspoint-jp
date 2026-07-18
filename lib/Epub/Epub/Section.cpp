@@ -18,7 +18,8 @@ namespace {
 // Version 45: fast cache generation resolves ruby metrics before column placement.
 // Version 49: book style, rather than the paragraph-alignment selector,
 // determines whether EPUB text-align applies.
-constexpr uint8_t SECTION_FILE_VERSION = 50;
+// Version 51: vertical h1/h2 after-block spacing changes stored column positions.
+constexpr uint8_t SECTION_FILE_VERSION = 51;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

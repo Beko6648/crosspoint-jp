@@ -720,7 +720,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
-  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
+  // Keep every status-bar glyph inside the height reserved by the reader layout.
+  // The former -4 offset placed the title into the last content rows.
+  auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom;
   int progressTextWidth = 0;
 
   if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
