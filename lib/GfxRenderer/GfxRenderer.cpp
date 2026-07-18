@@ -383,12 +383,9 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
 
         // First check built-in CJK UI font (Flash access is fast)
         if (CjkUiFont21::hasCjkUiGlyph(cp)) {
-          uint8_t advanceWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
-          // Match the spacing reduction applied during rendering in drawText
-          if (advanceWidth >= 20) {
-            advanceWidth = 18;
-          }
-          width += advanceWidth;
+          // Use the same advance as renderBuiltinCjkGlyph(). Reducing only the
+          // measured width accumulates error across long Japanese labels.
+          width += CjkUiFont21::getCjkUiGlyphWidth(cp);
           hasChar = true;
         }
 
@@ -490,11 +487,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
         uint8_t actualWidth = CjkUiFont21::getCjkUiGlyphWidth(cp);
 
         if (actualWidth > 0) {
-          // Character is in UI font: use actual proportional width
-          // Match the spacing reduction applied during rendering in drawText
-          if (actualWidth >= 20) {
-            actualWidth = 18;
-          }
+          // Character is in the UI font: match renderBuiltinCjkGlyph().
           width += actualWidth;
         } else if (isCjkCodepoint(cp)) {
           // CJK character not in UI font: try UI external font, then reader
@@ -602,11 +595,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
           const uint8_t height = CjkUiFont21::CJK_UI_FONT_HEIGHT;
           const uint8_t bytesPerRow = CjkUiFont21::CJK_UI_FONT_BYTES_PER_ROW;
           const uint8_t glyphWidth = CjkUiFont21::CJK_UI_FONT_WIDTH;
-
-          // Reduce spacing for CJK characters
-          if (advanceWidth >= 20) {
-            advanceWidth = 18;
-          }
 
           for (uint8_t glyphY = 0; glyphY < height; glyphY++) {
             for (uint8_t glyphX = 0; glyphX < glyphWidth; glyphX++) {

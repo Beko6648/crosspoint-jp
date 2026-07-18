@@ -368,12 +368,19 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
     // Draw name
     int valueWidth = 0;
+    int valueX = 0;
     std::string valueText = "";
     if (rowValue != nullptr) {
       valueText = rowValue(i);
       valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), maxListValueWidth);
-      valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str()) + hPaddingInSelection;
-      rowTextWidth -= valueWidth;
+      if (!valueText.empty()) {
+        valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
+        valueX = rect.x + contentWidth - LyraMetrics::values.contentSidePadding - listValueRightInset -
+                 listValueInkSafety - valueWidth;
+        // Derive the title width from the value's actual start position so
+        // ellipsis and extension can never occupy the same pixels.
+        rowTextWidth = std::max(0, valueX - hPaddingInSelection - textX);
+      }
     }
 
     auto itemName = rowTitle(i);
@@ -414,17 +421,13 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     // Draw value
     if (!valueText.empty()) {
       if (i == selectedIndex && highlightValue) {
-        renderer.fillRoundedRect(
-            contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection - valueWidth -
-                listValueRightInset - listValueInkSafety,
-            itemY,
-            valueWidth + hPaddingInSelection + listValueInkSafety, rowHeight, cornerRadius, Color::Black);
+        renderer.fillRoundedRect(valueX - hPaddingInSelection, itemY,
+                                 valueWidth + hPaddingInSelection + listValueRightInset + listValueInkSafety,
+                                 rowHeight, cornerRadius, Color::Black);
       }
 
-      renderer.drawText(UI_10_FONT_ID,
-                        rect.x + contentWidth - LyraMetrics::values.contentSidePadding - valueWidth -
-                            listValueRightInset - listValueInkSafety,
-                        itemY + 6, valueText.c_str(), !(i == selectedIndex && highlightValue));
+      renderer.drawText(UI_10_FONT_ID, valueX, itemY + 6, valueText.c_str(),
+                        !(i == selectedIndex && highlightValue));
     }
   }
 }

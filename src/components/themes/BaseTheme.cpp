@@ -276,7 +276,23 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   const auto pageStartIndex = selectedIndex / pageItems * pageItems;
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
     const int itemY = rect.y + (i % pageItems) * rowHeight;
-    int textWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2 - (rowValue != nullptr ? 60 : 0);
+    int textWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2;
+
+    // Measure the right-side value first so the title is truncated before it.
+    // A fixed reservation can be too small for some extensions and wastes
+    // title space for directories whose value is empty.
+    constexpr int valueGap = 10;
+    constexpr int maxValueWidth = 200;
+    std::string valueText;
+    int valueTextWidth = 0;
+    if (rowValue != nullptr) {
+      valueText = rowValue(i);
+      if (!valueText.empty()) {
+        valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), maxValueWidth);
+        valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
+        textWidth = std::max(0, textWidth - valueTextWidth - valueGap);
+      }
+    }
 
     // Draw name
     auto itemName = rowTitle(i);
@@ -302,10 +318,8 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                         i != selectedIndex);
     }
 
-    if (rowValue != nullptr) {
+    if (!valueText.empty()) {
       // Draw value
-      std::string valueText = rowValue(i);
-      const auto valueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
       renderer.drawText(UI_10_FONT_ID, rect.x + contentWidth - BaseMetrics::values.contentSidePadding - valueTextWidth,
                         itemY, valueText.c_str(), i != selectedIndex);
     }
