@@ -20,7 +20,8 @@ namespace {
 // determines whether EPUB text-align applies.
 // Version 51: vertical h1/h2 after-block spacing changes stored column positions.
 // Version 52: ruby base-text spans cannot split across vertical columns.
-constexpr uint8_t SECTION_FILE_VERSION = 52;
+// Version 53: vertical ruby no longer adds per-column spacing beyond the common gutter.
+constexpr uint8_t SECTION_FILE_VERSION = 53;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

@@ -1534,25 +1534,23 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
     const int columnWidth = lineHeight;
+    // Preserve the common quarter-width gutter for every column. Ruby
+    // placement is user-adjustable and must not add any further column space.
     const int columnSpacing = columnWidth / 4;
-    // Shift ruby-bearing columns by their excess right-side occupancy. Advancing
-    // the next-column cursor from that shifted position keeps adjacent ranges disjoint.
-    const int rubyRightOverflow =
-        line->hasRuby() ? TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth) : 0;
 
     if (!currentPage) {
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;  // start from right edge
     }
 
-    int columnX = currentPageNextX - rubyRightOverflow;
+    int columnX = currentPageNextX;
     if (columnX < 0) {
       // Page full — emit and start new page
       completePageFn(std::move(currentPage));
       completedPageCount++;
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;
-      columnX = currentPageNextX - rubyRightOverflow;
+      columnX = currentPageNextX;
     }
 
     // Track cumulative words for footnote assignment
