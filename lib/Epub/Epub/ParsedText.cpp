@@ -390,6 +390,16 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         if (breakAt > columnStart + 1 && VerticalTextUtils::isKinsokuTail(firstCodepoint(words[breakAt - 1]))) {
           breakAt--;
         }
+        // A ruby annotation is positioned over its complete base-text span.
+        // Do not separate that span across two vertical columns.
+        size_t rubyStart = breakAt;
+        while (rubyStart > columnStart && rubyStart < rubyTexts.size() &&
+               TextBlock::isRubyContinuation(rubyTexts[rubyStart])) {
+          rubyStart--;
+        }
+        if (rubyStart > columnStart) {
+          breakAt = rubyStart;
+        }
         columnEnds.push_back(breakAt);
         columnStart = breakAt;
         currentY = 0;
