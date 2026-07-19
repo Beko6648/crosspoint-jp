@@ -690,7 +690,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 Storage.remove(cachedImagePath.c_str());
               }
             } else {
-              LOG_ERR("EHP", "Failed to extract image");
+              if (Storage.exists(cachedImagePath.c_str())) {
+                if (Storage.remove(cachedImagePath.c_str())) {
+                  LOG_DBG("EHP", "Removed failed image extraction: %s", cachedImagePath.c_str());
+                } else {
+                  LOG_ERR("EHP", "Failed to remove failed image extraction: %s", cachedImagePath.c_str());
+                }
+              }
+              LOG_ERR("EHP", "Failed to extract image: %s", resolvedPath.c_str());
             }
           }  // isFormatSupported
         }

@@ -90,6 +90,7 @@ struct PngCachePreflightResult {
   int sourceCount = 0;
   int validCacheCount = 0;
   int missingOrInvalidCacheCount = 0;
+  int removedZeroLengthSourceCount = 0;
   bool complete = false;
 };
 
@@ -125,6 +126,7 @@ bool parsePngSourceSection(const std::string_view fileName, const int spineCount
 
 PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int spineCount) {
   PngCachePreflightResult result(spineCount);
+  std::vector<std::string> zeroLengthSourcePaths;
   auto dir = Storage.open(cacheRoot.c_str());
   if (!dir || !dir.isDirectory()) {
     if (dir) dir.close();
@@ -143,6 +145,7 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
       dir.close();
       return result;
     }
+    const size_t sourceSize = file.size();
     file.close();
 
     const std::string_view fileName(name);
@@ -156,8 +159,13 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
       return result;
     }
 
-    result.sourceCount++;
     const std::string sourcePath = cacheRoot + "/" + name;
+    if (sourceSize == 0) {
+      zeroLengthSourcePaths.push_back(sourcePath);
+      continue;
+    }
+
+    result.sourceCount++;
     const std::string pixelCachePath = sourcePath.substr(0, sourcePath.size() - 4) + ".pxc5";
     if (Storage.exists(pixelCachePath.c_str()) &&
         ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0)) {
@@ -169,6 +177,14 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
   }
 
   dir.close();
+  for (const auto& sourcePath : zeroLengthSourcePaths) {
+    if (!Storage.remove(sourcePath.c_str())) {
+      LOG_ERR("GENALL", "Failed to remove zero-length extracted PNG: %s", sourcePath.c_str());
+      return result;
+    }
+    result.removedZeroLengthSourceCount++;
+    LOG_DBG("GENALL", "Removed zero-length extracted PNG: %s", sourcePath.c_str());
+  }
   result.complete = true;
   return result;
 }
@@ -303,9 +319,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const uint32_t pngPreflightMs = millis() - pngPreflightStartedAt;
     pngCacheMs += pngPreflightMs;
     if (pngPreflight.complete) {
-      LOG_DBG("GENALL", "PNG cache preflight: sources=%d, valid=%d, missing/invalid=%d, time=%lu ms",
+      LOG_DBG("GENALL",
+              "PNG cache preflight: sources=%d, valid=%d, missing/invalid=%d, removed-zero-length=%d, time=%lu ms",
               pngPreflight.sourceCount, pngPreflight.validCacheCount, pngPreflight.missingOrInvalidCacheCount,
-              pngPreflightMs);
+              pngPreflight.removedZeroLengthSourceCount, pngPreflightMs);
     } else {
       LOG_DBG("GENALL", "PNG cache preflight incomplete; using cached-page fallback (%lu ms)", pngPreflightMs);
     }
