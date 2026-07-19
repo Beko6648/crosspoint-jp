@@ -19,6 +19,7 @@ class ZipFile {
 
   struct ZipDetails {
     uint32_t centralDirOffset;
+    uint32_t centralDirSize;
     uint16_t totalEntries;
     bool isSet;
   };
@@ -43,7 +44,7 @@ class ZipFile {
  private:
   const std::string& filePath;
   FsFile file;
-  ZipDetails zipDetails = {0, 0, false};
+  ZipDetails zipDetails = {0, 0, 0, false};
   std::unordered_map<std::string, FileStatSlim> fileStatSlimCache;
 
   // Cursor for sequential central-dir scanning optimization
@@ -64,6 +65,9 @@ class ZipFile {
   bool close();
   bool loadAllFileStatSlims();
   bool getInflatedFileSize(const char* filename, size_t* size);
+  // Compute a stable archive fingerprint from the ZIP central directory.
+  // This covers entry names, sizes and CRCs without reading the EPUB payload.
+  bool getArchiveFingerprint(uint64_t* fingerprint);
   // Batch lookup: scan ZIP central dir once and fill sizes for matching targets.
   // targets must be sorted by (hash, len). sizes[target.index] receives uncompressedSize.
   // Returns number of targets matched.

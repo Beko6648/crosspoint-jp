@@ -27,6 +27,8 @@ class Epub {
   std::unique_ptr<BookMetadataCache> bookMetadataCache;
   // CSS parser for styling
   std::unique_ptr<CssParser> cssParser;
+  bool prepareSourceFingerprint(uint64_t fingerprint, bool& markerNeedsWrite);
+  bool saveSourceFingerprint(uint64_t fingerprint) const;
   // CSS files
   std::vector<std::string> cssFiles;
 

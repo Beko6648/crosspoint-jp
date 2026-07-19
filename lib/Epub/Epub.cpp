@@ -12,6 +12,78 @@
 #include "Epub/parsers/TocNavParser.h"
 #include "Epub/parsers/TocNcxParser.h"
 
+namespace {
+constexpr uint8_t SOURCE_FINGERPRINT_VERSION = 1;
+constexpr char sourceFingerprintFile[] = "/source.fingerprint";
+constexpr char sourceFingerprintTmpFile[] = "/source.fingerprint.tmp";
+}  // namespace
+
+bool Epub::prepareSourceFingerprint(const uint64_t fingerprint, bool& markerNeedsWrite) {
+  markerNeedsWrite = false;
+  const std::string markerPath = cachePath + sourceFingerprintFile;
+  if (!Storage.exists(markerPath.c_str())) {
+    // Adopt existing pre-fingerprint caches without a one-time forced rebuild.
+    markerNeedsWrite = true;
+    return true;
+  }
+
+  FsFile marker;
+  if (!Storage.openFileForRead("EBP", markerPath, marker)) {
+    LOG_ERR("EBP", "Could not read EPUB source fingerprint");
+    return false;
+  }
+
+  uint8_t version = 0;
+  uint64_t cachedFingerprint = 0;
+  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) &&
+                     marker.read(&cachedFingerprint, sizeof(cachedFingerprint)) == sizeof(cachedFingerprint) &&
+                     version == SOURCE_FINGERPRINT_VERSION;
+  marker.close();
+
+  if (valid && cachedFingerprint == fingerprint) {
+    return true;
+  }
+
+  LOG_INF("EBP", "EPUB source changed or fingerprint is invalid; rebuilding per-book cache");
+  if (!clearCache()) {
+    return false;
+  }
+  setupCacheDir();
+  markerNeedsWrite = true;
+  return true;
+}
+
+bool Epub::saveSourceFingerprint(const uint64_t fingerprint) const {
+  const std::string markerPath = cachePath + sourceFingerprintFile;
+  const std::string tmpPath = cachePath + sourceFingerprintTmpFile;
+  Storage.remove(tmpPath.c_str());
+
+  FsFile marker;
+  if (!Storage.openFileForWrite("EBP", tmpPath, marker)) {
+    LOG_ERR("EBP", "Could not create EPUB source fingerprint");
+    return false;
+  }
+
+  const uint8_t version = SOURCE_FINGERPRINT_VERSION;
+  const bool written = marker.write(&version, sizeof(version)) == sizeof(version) &&
+                       marker.write(&fingerprint, sizeof(fingerprint)) == sizeof(fingerprint);
+  marker.flush();
+  marker.close();
+  if (!written) {
+    Storage.remove(tmpPath.c_str());
+    LOG_ERR("EBP", "Could not write EPUB source fingerprint");
+    return false;
+  }
+
+  Storage.remove(markerPath.c_str());
+  if (!Storage.rename(tmpPath.c_str(), markerPath.c_str())) {
+    Storage.remove(tmpPath.c_str());
+    LOG_ERR("EBP", "Could not finalize EPUB source fingerprint");
+    return false;
+  }
+  return true;
+}
+
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";
   size_t containerSize;
@@ -313,6 +385,19 @@ void Epub::parseCssFiles() const {
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "Loading ePub: %s", filepath.c_str());
 
+  const uint32_t fingerprintStartedAt = millis();
+  uint64_t sourceFingerprint = 0;
+  ZipFile sourceZip(filepath);
+  if (!sourceZip.getArchiveFingerprint(&sourceFingerprint)) {
+    LOG_ERR("EBP", "Could not fingerprint EPUB source: %s", filepath.c_str());
+    return false;
+  }
+  bool fingerprintNeedsWrite = false;
+  if (!prepareSourceFingerprint(sourceFingerprint, fingerprintNeedsWrite)) {
+    return false;
+  }
+  LOG_DBG("EBP", "EPUB source fingerprint checked in %lu ms", millis() - fingerprintStartedAt);
+
   // Initialize spine/TOC cache
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
   // Always create CssParser - needed for inline style parsing even without CSS files
@@ -351,6 +436,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         cssParser->clear();
         LOG_DBG("EBP", "Validated CSS cache and released loaded rules");
       }
+    }
+    if (fingerprintNeedsWrite && !saveSourceFingerprint(sourceFingerprint)) {
+      LOG_ERR("EBP", "Loaded EPUB but could not persist its source fingerprint");
     }
     LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
     return true;
@@ -454,6 +542,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   if (!bookMetadataCache->load()) {
     LOG_ERR("EBP", "Failed to reload cache after writing");
     return false;
+  }
+  if (fingerprintNeedsWrite && !saveSourceFingerprint(sourceFingerprint)) {
+    LOG_ERR("EBP", "Built EPUB cache but could not persist its source fingerprint");
   }
   LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
   return true;

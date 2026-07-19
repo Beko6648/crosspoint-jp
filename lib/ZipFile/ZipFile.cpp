@@ -272,8 +272,10 @@ bool ZipFile::loadZipDetails() {
   // Now extract the values we need from the EOCD record
   // Relative positions within EOCD:
   // Offset 10: Total number of entries (2 bytes)
+  // Offset 12: Size of central directory (4 bytes)
   // Offset 16: Offset of start of central directory with respect to the starting disk number (4 bytes)
   zipDetails.totalEntries = *reinterpret_cast<uint16_t*>(&buffer[foundOffset + 10]);
+  zipDetails.centralDirSize = *reinterpret_cast<uint32_t*>(&buffer[foundOffset + 12]);
   zipDetails.centralDirOffset = *reinterpret_cast<uint32_t*>(&buffer[foundOffset + 16]);
   zipDetails.isSet = true;
 
@@ -305,6 +307,59 @@ bool ZipFile::getInflatedFileSize(const char* filename, size_t* size) {
   }
 
   *size = static_cast<size_t>(fileStat.uncompressedSize);
+  return true;
+}
+
+bool ZipFile::getArchiveFingerprint(uint64_t* fingerprint) {
+  if (!fingerprint) return false;
+
+  const ScopedOpenClose zip{*this};
+  if (!zip || !loadZipDetails()) return false;
+
+  const size_t archiveSize = file.size();
+  if (zipDetails.centralDirOffset > archiveSize ||
+      zipDetails.centralDirSize > archiveSize - zipDetails.centralDirOffset) {
+    LOG_ERR("ZIP", "Invalid central directory bounds: offset=%lu size=%lu archive=%zu",
+            static_cast<unsigned long>(zipDetails.centralDirOffset),
+            static_cast<unsigned long>(zipDetails.centralDirSize), archiveSize);
+    return false;
+  }
+
+  uint64_t hash = 14695981039346656037ull;
+  const auto hashByte = [&hash](const uint8_t value) {
+    hash ^= value;
+    hash *= 1099511628211ull;
+  };
+  const auto hashValue = [&hashByte](uint64_t value, const size_t byteCount) {
+    for (size_t i = 0; i < byteCount; ++i) {
+      hashByte(static_cast<uint8_t>(value & 0xFF));
+      value >>= 8;
+    }
+  };
+
+  // Include the outer archive size and directory metadata so changes that move
+  // or resize the directory also invalidate the cache.
+  hashValue(archiveSize, sizeof(uint64_t));
+  hashValue(zipDetails.centralDirOffset, sizeof(zipDetails.centralDirOffset));
+  hashValue(zipDetails.centralDirSize, sizeof(zipDetails.centralDirSize));
+  hashValue(zipDetails.totalEntries, sizeof(zipDetails.totalEntries));
+
+  file.seek(zipDetails.centralDirOffset);
+  uint8_t buffer[512];
+  uint32_t remaining = zipDetails.centralDirSize;
+  while (remaining > 0) {
+    const size_t chunkSize = std::min<size_t>(remaining, sizeof(buffer));
+    if (file.read(buffer, chunkSize) != static_cast<int>(chunkSize)) {
+      LOG_ERR("ZIP", "Failed to read central directory for fingerprint");
+      return false;
+    }
+    for (size_t i = 0; i < chunkSize; ++i) {
+      hashByte(buffer[i]);
+    }
+    remaining -= chunkSize;
+  }
+
+  *fingerprint = hash;
   return true;
 }
 
