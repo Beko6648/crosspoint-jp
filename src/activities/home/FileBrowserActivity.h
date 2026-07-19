@@ -10,6 +10,11 @@
 #include "util/ButtonNavigator.h"
 
 class FileBrowserActivity final : public Activity {
+ public:
+  // Books is the normal reader browser. PickFirmware filters the view to .bin
+  // files and returns the selected SD-card path to its caller.
+  enum class Mode { Books, PickFirmware };
+
  private:
   enum class DirectoryLoadResult { Loaded, NotDirectory, OpenFailed };
 
@@ -29,6 +34,8 @@ class FileBrowserActivity final : public Activity {
   size_t selectorIndex = 0;
 
   bool lockLongPressBack = false;
+  bool lockNextConfirmRelease = false;
+  Mode mode = Mode::Books;
 
   // Files state
   std::string basepath = "/";
@@ -45,8 +52,10 @@ class FileBrowserActivity final : public Activity {
   size_t findEntry(const std::string& name) const;
 
  public:
-  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/")
-      : Activity("FileBrowser", renderer, mappedInput), basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
+  explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
+                               Mode mode = Mode::Books)
+      : Activity("FileBrowser", renderer, mappedInput), mode(mode),
+        basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
