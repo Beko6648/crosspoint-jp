@@ -41,6 +41,7 @@ constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;        // 96KB
 // ZIP inflate streaming needs a 32KB sliding window plus a little room for file and temp allocations.
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
+constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(uint8_t) +
                                  sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
                                  sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) + sizeof(uint8_t) +  // charSpacing
@@ -61,6 +62,11 @@ struct SectionHeader {
   bool verticalMode = false;
   uint8_t charSpacing = 0;
 };
+
+template <typename T>
+bool readPodChecked(FsFile& file, T& value) {
+  return file.read(&value, sizeof(value)) == static_cast<int>(sizeof(value));
+}
 
 double msToSeconds(const uint32_t elapsedMs) {
   return static_cast<double>(elapsedMs) / 1000.0;
@@ -91,20 +97,75 @@ size_t requiredHeapForSectionBuild(const uint32_t htmlSize) {
 }
 
 bool readSectionHeader(FsFile& file, SectionHeader& header) {
-  serialization::readPod(file, header.version);
-  serialization::readPod(file, header.fontId);
-  serialization::readPod(file, header.lineCompression);
-  serialization::readPod(file, header.extraParagraphSpacing);
-  serialization::readPod(file, header.paragraphAlignment);
-  serialization::readPod(file, header.viewportWidth);
-  serialization::readPod(file, header.viewportHeight);
-  serialization::readPod(file, header.hyphenationEnabled);
-  serialization::readPod(file, header.firstLineIndent);
-  serialization::readPod(file, header.bookStyle);
-  serialization::readPod(file, header.imageRendering);
-  serialization::readPod(file, header.verticalMode);
-  serialization::readPod(file, header.charSpacing);
-  return true;
+  return readPodChecked(file, header.version) && readPodChecked(file, header.fontId) &&
+         readPodChecked(file, header.lineCompression) && readPodChecked(file, header.extraParagraphSpacing) &&
+         readPodChecked(file, header.paragraphAlignment) && readPodChecked(file, header.viewportWidth) &&
+         readPodChecked(file, header.viewportHeight) && readPodChecked(file, header.hyphenationEnabled) &&
+         readPodChecked(file, header.firstLineIndent) && readPodChecked(file, header.bookStyle) &&
+         readPodChecked(file, header.imageRendering) && readPodChecked(file, header.verticalMode) &&
+         readPodChecked(file, header.charSpacing);
+}
+
+bool skipBoundedString(FsFile& file, const size_t fileSize) {
+  uint32_t length = 0;
+  if (!readPodChecked(file, length) || file.position() > fileSize || length > fileSize - file.position()) {
+    return false;
+  }
+  return file.seek(file.position() + length);
+}
+
+bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCount) {
+  const size_t fileSize = file.size();
+  if (fileSize < HEADER_SIZE + sizeof(uint16_t) || fileSize > UINT32_MAX || !file.seek(0) ||
+      !readSectionHeader(file, header)) {
+    return false;
+  }
+
+  uint32_t lutOffset = 0;
+  uint32_t anchorMapOffset = 0;
+  if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) ||
+      !readPodChecked(file, anchorMapOffset) || file.position() != HEADER_SIZE) {
+    return false;
+  }
+
+  const uint32_t lutSize = static_cast<uint32_t>(pageCount) * sizeof(uint32_t);
+  if (lutOffset < HEADER_SIZE || lutOffset > fileSize || lutSize > fileSize - lutOffset ||
+      anchorMapOffset != lutOffset + lutSize || anchorMapOffset > fileSize - sizeof(uint16_t)) {
+    return false;
+  }
+
+  uint32_t previousPageOffset = 0;
+  uint32_t pageIndex = 0;
+  uint32_t offsets[LUT_VALIDATION_BATCH_SIZE];
+  if (!file.seek(lutOffset)) return false;
+  while (pageIndex < pageCount) {
+    const size_t batchCount = std::min<size_t>(pageCount - pageIndex, LUT_VALIDATION_BATCH_SIZE);
+    if (file.read(offsets, batchCount * sizeof(uint32_t)) != static_cast<int>(batchCount * sizeof(uint32_t))) {
+      return false;
+    }
+    for (size_t i = 0; i < batchCount; ++i, ++pageIndex) {
+      const uint32_t pageOffset = offsets[i];
+      if (pageOffset < HEADER_SIZE || pageOffset >= lutOffset ||
+          (pageIndex == 0 ? pageOffset != HEADER_SIZE : pageOffset <= previousPageOffset)) {
+        return false;
+      }
+      previousPageOffset = pageOffset;
+    }
+  }
+  if (pageCount == 0 && lutOffset != HEADER_SIZE) {
+    return false;
+  }
+
+  if (!file.seek(anchorMapOffset)) return false;
+  uint16_t anchorCount = 0;
+  if (!readPodChecked(file, anchorCount)) return false;
+  for (uint16_t i = 0; i < anchorCount; ++i) {
+    uint16_t page = 0;
+    if (!skipBoundedString(file, fileSize) || !readPodChecked(file, page) || page >= pageCount) {
+      return false;
+    }
+  }
+  return file.position() == fileSize;
 }
 }  // namespace
 
@@ -168,7 +229,13 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
   }
 
   SectionHeader header;
-  readSectionHeader(file, header);
+  uint16_t validatedPageCount = 0;
+  if (!validateSectionCache(file, header, validatedPageCount)) {
+    file.close();
+    LOG_ERR("SCT", "Section cache validation failed");
+    clearCache();
+    return false;
+  }
   if (header.version != SECTION_FILE_VERSION) {
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Unknown version %u", header.version);
@@ -188,7 +255,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     return false;
   }
 
-  serialization::readPod(file, pageCount);
+  pageCount = validatedPageCount;
   file.close();
   LOG_DBG("SCT", "Deserialization succeeded: %d pages", pageCount);
   return true;
@@ -279,10 +346,8 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
 }
 
 bool Section::readSectionOffsets(FsFile& file, uint32_t& lutOffset, uint32_t& anchorMapOffset) const {
-  file.seek(HEADER_SIZE - sizeof(uint32_t) * 2);
-  serialization::readPod(file, lutOffset);
-  serialization::readPod(file, anchorMapOffset);
-  return true;
+  return file.seek(HEADER_SIZE - sizeof(uint32_t) * 2) && readPodChecked(file, lutOffset) &&
+         readPodChecked(file, anchorMapOffset);
 }
 
 bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
@@ -321,6 +386,19 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   if (cssParser) {
     cssParser->clear();
   }
+
+  FsFile validationFile;
+  SectionHeader validatedHeader;
+  uint16_t validatedPageCount = 0;
+  if (!Storage.openFileForRead("SCT", tmpSectionPath, validationFile) ||
+      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) ||
+      validatedPageCount != pageCount) {
+    validationFile.close();
+    LOG_ERR("SCT", "Generated section cache failed validation");
+    Storage.remove(tmpSectionPath.c_str());
+    return false;
+  }
+  validationFile.close();
 
   const uint32_t parseBuildElapsedMs = millis() - parseBuildStart;
   const uint32_t totalElapsedMs = millis() - createSectionStart;

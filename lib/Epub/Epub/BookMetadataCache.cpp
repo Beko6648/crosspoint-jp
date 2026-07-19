@@ -13,8 +13,112 @@
 namespace {
 constexpr uint8_t BOOK_CACHE_VERSION = 7;
 constexpr char bookBinFile[] = "/book.bin";
+constexpr char tmpBookBinFile[] = "/book.bin.tmp";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
+constexpr size_t MAX_METADATA_STRING_SIZE = 16 * 1024;
+constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
+
+template <typename T>
+bool readPodChecked(FsFile& file, T& value) {
+  return file.read(&value, sizeof(value)) == static_cast<int>(sizeof(value));
+}
+
+bool readMetadataString(FsFile& file, std::string& value, const size_t metadataEnd) {
+  uint32_t length = 0;
+  if (!readPodChecked(file, length) || length > MAX_METADATA_STRING_SIZE || file.position() > metadataEnd ||
+      length > metadataEnd - file.position()) {
+    return false;
+  }
+
+  value.resize(length);
+  return length == 0 || file.read(&value[0], length) == static_cast<int>(length);
+}
+
+bool skipCacheString(FsFile& file, const size_t fileSize) {
+  uint32_t length = 0;
+  if (!readPodChecked(file, length) || file.position() > fileSize || length > fileSize - file.position()) {
+    return false;
+  }
+  return file.seek(file.position() + length);
+}
+
+bool validateBookCache(FsFile& file, BookMetadataCache::BookMetadata& metadata, size_t& lutOffset,
+                       uint16_t& spineCount, uint16_t& tocCount) {
+  const size_t fileSize = file.size();
+  constexpr size_t MIN_FILE_SIZE = sizeof(BOOK_CACHE_VERSION) + sizeof(uint32_t) + sizeof(spineCount) +
+                                   sizeof(tocCount) + sizeof(uint32_t) * 5 + sizeof(bool);
+  if (fileSize < MIN_FILE_SIZE || fileSize > UINT32_MAX || !file.seek(0)) {
+    return false;
+  }
+
+  uint8_t version = 0;
+  uint32_t storedLutOffset = 0;
+  if (!readPodChecked(file, version) || version != BOOK_CACHE_VERSION || !readPodChecked(file, storedLutOffset) ||
+      !readPodChecked(file, spineCount) || !readPodChecked(file, tocCount) || storedLutOffset > fileSize) {
+    return false;
+  }
+  lutOffset = storedLutOffset;
+
+  if (!readMetadataString(file, metadata.title, lutOffset) ||
+      !readMetadataString(file, metadata.author, lutOffset) ||
+      !readMetadataString(file, metadata.language, lutOffset) ||
+      !readMetadataString(file, metadata.coverItemHref, lutOffset) ||
+      !readMetadataString(file, metadata.textReferenceHref, lutOffset) ||
+      !readPodChecked(file, metadata.pageProgressionRtl) || file.position() != lutOffset) {
+    return false;
+  }
+
+  const uint32_t entryCount = static_cast<uint32_t>(spineCount) + tocCount;
+  const uint32_t lutSize = entryCount * sizeof(uint32_t);
+  if (lutOffset > fileSize || lutSize > fileSize - lutOffset) {
+    return false;
+  }
+
+  const size_t dataStart = lutOffset + lutSize;
+  size_t lutReadPos = lutOffset;
+  size_t dataPos = dataStart;
+  uint32_t entryIndex = 0;
+  uint32_t offsets[LUT_VALIDATION_BATCH_SIZE];
+
+  while (entryIndex < entryCount) {
+    const size_t batchCount = std::min<size_t>(entryCount - entryIndex, LUT_VALIDATION_BATCH_SIZE);
+    if (!file.seek(lutReadPos) ||
+        file.read(offsets, batchCount * sizeof(uint32_t)) != static_cast<int>(batchCount * sizeof(uint32_t)) ||
+        !file.seek(dataPos)) {
+      return false;
+    }
+
+    for (size_t i = 0; i < batchCount; ++i, ++entryIndex) {
+      if (offsets[i] != file.position() || offsets[i] < dataStart || offsets[i] >= fileSize) {
+        return false;
+      }
+
+      if (entryIndex < spineCount) {
+        uint32_t cumulativeSize = 0;
+        int16_t tocIndex = -1;
+        if (!skipCacheString(file, fileSize) || !readPodChecked(file, cumulativeSize) ||
+            !readPodChecked(file, tocIndex) || tocIndex < -1 ||
+            (tocIndex >= 0 && static_cast<uint16_t>(tocIndex) >= tocCount)) {
+          return false;
+        }
+      } else {
+        uint8_t level = 0;
+        int16_t spineIndex = -1;
+        if (!skipCacheString(file, fileSize) || !skipCacheString(file, fileSize) ||
+            !skipCacheString(file, fileSize) || !readPodChecked(file, level) || !readPodChecked(file, spineIndex) ||
+            spineIndex < -1 || (spineIndex >= 0 && static_cast<uint16_t>(spineIndex) >= spineCount)) {
+          return false;
+        }
+      }
+    }
+
+    dataPos = file.position();
+    lutReadPos += batchCount * sizeof(uint32_t);
+  }
+
+  return dataPos == fileSize;
+}
 
 // FsFile writes are expensive on the SD card when entries are serialized in
 // several small fields. Buffer final book.bin output without changing its byte
@@ -157,21 +261,28 @@ bool BookMetadataCache::endWrite() {
 
 bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata) {
   const uint32_t buildStartedAt = millis();
+  const std::string finalBookPath = cachePath + bookBinFile;
+  const std::string tmpBookPath = cachePath + tmpBookBinFile;
+  Storage.remove(tmpBookPath.c_str());
   // Open all three files, writing to meta, reading from spine and toc
-  if (!Storage.openFileForWrite("BMC", cachePath + bookBinFile, bookFile)) {
+  if (!Storage.openFileForWrite("BMC", tmpBookPath, bookFile)) {
     return false;
   }
 
-  if (!Storage.openFileForRead("BMC", cachePath + tmpSpineBinFile, spineFile)) {
-    // Explicit close() required: member variable persists beyond function scope
+  const auto discardTmpBook = [&]() {
     bookFile.close();
+    spineFile.close();
+    tocFile.close();
+    Storage.remove(tmpBookPath.c_str());
+  };
+
+  if (!Storage.openFileForRead("BMC", cachePath + tmpSpineBinFile, spineFile)) {
+    discardTmpBook();
     return false;
   }
 
   if (!Storage.openFileForRead("BMC", cachePath + tmpTocBinFile, tocFile)) {
-    // Explicit close() required: member variables persist beyond function scope
-    bookFile.close();
-    spineFile.close();
+    discardTmpBook();
     return false;
   }
 
@@ -235,10 +346,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   // Pre-open zip file to speed up size calculations
   if (!zip.open()) {
     LOG_ERR("BMC", "Could not open EPUB zip for size calculations");
-    // Explicit close() required: member variables persist beyond function scope
-    bookFile.close();
-    spineFile.close();
-    tocFile.close();
+    discardTmpBook();
     return false;
   }
   LOG_DBG("BMC", "ZIP open: %lu ms", millis() - zipOpenStartedAt);
@@ -362,6 +470,32 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   spineFile.close();
   tocFile.close();
 
+  FsFile validationFile;
+  BookMetadata validatedMetadata;
+  size_t validatedLutOffset = 0;
+  uint16_t validatedSpineCount = 0;
+  uint16_t validatedTocCount = 0;
+  if (!Storage.openFileForRead("BMC", tmpBookPath, validationFile) ||
+      !validateBookCache(validationFile, validatedMetadata, validatedLutOffset, validatedSpineCount,
+                         validatedTocCount)) {
+    validationFile.close();
+    Storage.remove(tmpBookPath.c_str());
+    LOG_ERR("BMC", "Generated book.bin failed validation");
+    return false;
+  }
+  validationFile.close();
+
+  if (Storage.exists(finalBookPath.c_str()) && !Storage.remove(finalBookPath.c_str())) {
+    Storage.remove(tmpBookPath.c_str());
+    LOG_ERR("BMC", "Could not remove old book.bin before replacement");
+    return false;
+  }
+  if (!Storage.rename(tmpBookPath.c_str(), finalBookPath.c_str())) {
+    Storage.remove(tmpBookPath.c_str());
+    LOG_ERR("BMC", "Could not publish validated book.bin");
+    return false;
+  }
+
   LOG_DBG("BMC", "Successfully built book.bin in %lu ms", millis() - buildStartedAt);
   return true;
 }
@@ -374,6 +508,10 @@ bool BookMetadataCache::cleanupTmpFiles() const {
   const auto tocBinFile = cachePath + tmpTocBinFile;
   if (Storage.exists(tocBinFile.c_str())) {
     Storage.remove(tocBinFile.c_str());
+  }
+  const auto bookBinTmpFile = cachePath + tmpBookBinFile;
+  if (Storage.exists(bookBinTmpFile.c_str())) {
+    Storage.remove(bookBinTmpFile.c_str());
   }
   return true;
 }
@@ -462,26 +600,20 @@ bool BookMetadataCache::load() {
     return false;
   }
 
-  uint8_t version;
-  serialization::readPod(bookFile, version);
-  if (version != BOOK_CACHE_VERSION) {
-    LOG_DBG("BMC", "Cache version mismatch: expected %d, got %d", BOOK_CACHE_VERSION, version);
-    // Explicit close() required: member variable persists beyond function scope
+  BookMetadata metadata;
+  size_t validatedLutOffset = 0;
+  uint16_t validatedSpineCount = 0;
+  uint16_t validatedTocCount = 0;
+  if (!validateBookCache(bookFile, metadata, validatedLutOffset, validatedSpineCount, validatedTocCount)) {
+    LOG_ERR("BMC", "book.bin validation failed; rebuilding cache");
     bookFile.close();
     return false;
   }
 
-  serialization::readPod(bookFile, lutOffset);
-  serialization::readPod(bookFile, spineCount);
-  serialization::readPod(bookFile, tocCount);
-
-  serialization::readString(bookFile, coreMetadata.title);
-  serialization::readString(bookFile, coreMetadata.author);
-  serialization::readString(bookFile, coreMetadata.language);
-  serialization::readString(bookFile, coreMetadata.coverItemHref);
-  serialization::readString(bookFile, coreMetadata.textReferenceHref);
-  serialization::readPod(bookFile, coreMetadata.pageProgressionRtl);
-
+  coreMetadata = std::move(metadata);
+  lutOffset = validatedLutOffset;
+  spineCount = validatedSpineCount;
+  tocCount = validatedTocCount;
   loaded = true;
   LOG_DBG("BMC", "Loaded cache data: %d spine, %d TOC entries", spineCount, tocCount);
   return true;
