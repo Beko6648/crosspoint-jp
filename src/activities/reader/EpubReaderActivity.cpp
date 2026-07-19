@@ -2,14 +2,13 @@
 
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
+#include <Epub/converters/JpegCacheGenerator.h>
 #include <FontCacheManager.h>
 #include <FontManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <Epub/converters/ImageCacheValidation.h>
-#include <JpegToBmpConverter.h>
 #include <Logging.h>
 #include <esp_system.h>
 
@@ -130,6 +129,8 @@ void EpubReaderActivity::pregenerateCache() {
   Rect popupRect = GUI.drawPopup(renderer, tr(STR_GENERATING_CACHE));
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  bool cancelled = false;
+  std::vector<bool> jpegEligibleSections(spineCount, false);
 
   for (int i = 0; i < spineCount; i++) {
     const int adc1 = analogRead(1);
@@ -137,6 +138,7 @@ void EpubReaderActivity::pregenerateCache() {
     constexpr int ADC_NO_BUTTON = 3800;
     if (adc1 < ADC_NO_BUTTON || adc2 < ADC_NO_BUTTON) {
       LOG_DBG("ERS", "Pregenerate cancelled at section %d/%d", i, spineCount);
+      cancelled = true;
       break;
     }
 
@@ -177,51 +179,18 @@ void EpubReaderActivity::pregenerateCache() {
       sectionBuildMs += millis() - sectionStartedAt;
       generatedSections++;
     }
+    jpegEligibleSections[i] = true;
+  }
 
-    const std::string imgPrefix = epub->getCachePath() + "/img_" + std::to_string(i) + "_";
-    for (int j = 0;; j++) {
-      std::string jpgPath = imgPrefix + std::to_string(j) + ".jpg";
-      if (!Storage.exists(jpgPath.c_str())) {
-        jpgPath = imgPrefix + std::to_string(j) + ".jpeg";
-        if (!Storage.exists(jpgPath.c_str())) break;
-      }
-
-      const size_t dotPos = jpgPath.rfind('.');
-      const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc5.bmp";
-      if (Storage.exists(bmpCachePath.c_str())) {
-        if (ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) continue;
-        LOG_DBG("ERS", "Removing invalid JPEG cache: %s", bmpCachePath.c_str());
-        Storage.remove(bmpCachePath.c_str());
-      }
-
-      FsFile jpegFile, bmpFile;
-      if (!Storage.openFileForRead("PRE", jpgPath, jpegFile)) {
-        LOG_ERR("ERS", "Pregenerate: failed to open JPEG: %s", jpgPath.c_str());
-        continue;
-      }
-      if (!Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
-        jpegFile.close();
-        LOG_ERR("ERS", "Pregenerate: failed to create JPEG cache: %s", bmpCachePath.c_str());
-        continue;
-      }
-
-      const uint32_t imageStartedAt = millis();
-      const bool success =
-          JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
-      imageCacheMs += millis() - imageStartedAt;
-      bmpFile.flush();
-      const size_t bmpSize = bmpFile.size();
-      jpegFile.close();
-      bmpFile.close();
-
-      if (success && ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) {
-        generatedImageCaches++;
-      } else {
-        Storage.remove(bmpCachePath.c_str());
-        LOG_ERR("ERS", "Pregenerate: removed failed JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
-                static_cast<unsigned long>(bmpSize));
-      }
-    }
+  if (!cancelled) {
+    const uint32_t imageStartedAt = millis();
+    const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
+        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "ERS", "PRE");
+    imageCacheMs += millis() - imageStartedAt;
+    generatedImageCaches += jpegResult.generatedCacheCount;
+    LOG_DBG("ERS", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
+            jpegResult.sourceCount, jpegResult.validCacheCount, jpegResult.generatedCacheCount,
+            jpegResult.invalidCacheCount, jpegResult.failedCacheCount, jpegResult.scanComplete);
   }
 
   const uint32_t finalDisplayStartedAt = millis();

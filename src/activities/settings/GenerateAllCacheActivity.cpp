@@ -4,12 +4,12 @@
 #include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <Epub/converters/ImageCacheValidation.h>
+#include <Epub/converters/JpegCacheGenerator.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <JpegToBmpConverter.h>
 #include <Logging.h>
 
 #include "CrossPointSettings.h"
@@ -349,6 +349,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const int headingFontIds[6] = {
         SETTINGS.getHeadingFontId(1, isVertical), SETTINGS.getHeadingFontId(2, isVertical), 0, 0, 0, 0};
+    std::vector<bool> jpegEligibleSections(spineCount, false);
 
     for (int i = 0; i < spineCount; i++) {
       Section sec(epub, i, renderer);
@@ -393,53 +394,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
         sectionBuildMs += millis() - sectionStartedAt;
         generatedSections++;
       }
-
-      // Generate image BMP caches
-      const std::string imgPrefix = epub->getCachePath() + "/img_" + std::to_string(i) + "_";
-      for (int j = 0;; j++) {
-        std::string jpgPath = imgPrefix + std::to_string(j) + ".jpg";
-        if (!Storage.exists(jpgPath.c_str())) {
-          jpgPath = imgPrefix + std::to_string(j) + ".jpeg";
-          if (!Storage.exists(jpgPath.c_str())) break;
-        }
-
-        const size_t dotPos = jpgPath.rfind('.');
-        const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc5.bmp";
-        if (Storage.exists(bmpCachePath.c_str())) {
-          if (ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) continue;
-          LOG_DBG("GENALL", "Removing invalid JPEG cache: %s", bmpCachePath.c_str());
-          Storage.remove(bmpCachePath.c_str());
-        }
-
-        FsFile jpegFile, bmpFile;
-        if (!Storage.openFileForRead("GEN", jpgPath, jpegFile)) {
-          LOG_ERR("GENALL", "Failed to open JPEG: %s", jpgPath.c_str());
-          continue;
-        }
-        if (!Storage.openFileForWrite("GEN", bmpCachePath, bmpFile)) {
-          jpegFile.close();
-          LOG_ERR("GENALL", "Failed to create JPEG cache: %s", bmpCachePath.c_str());
-          continue;
-        }
-
-        const uint32_t imageStartedAt = millis();
-        const bool success =
-            JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
-        imageCacheMs += millis() - imageStartedAt;
-        bmpFile.flush();
-        const size_t bmpSize = bmpFile.size();
-        jpegFile.close();
-        bmpFile.close();
-
-        if (success && ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) {
-          generatedImageCaches++;
-        } else {
-          Storage.remove(bmpCachePath.c_str());
-          LOG_ERR("GENALL", "Removed failed JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
-                  static_cast<unsigned long>(bmpSize));
-        }
-      }
+      jpegEligibleSections[i] = true;
     }
+
+    const uint32_t imageStartedAt = millis();
+    const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
+        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "GENALL", "GEN");
+    imageCacheMs += millis() - imageStartedAt;
+    generatedImageCaches += jpegResult.generatedCacheCount;
+    LOG_DBG("GENALL", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
+            jpegResult.sourceCount, jpegResult.validCacheCount, jpegResult.generatedCacheCount,
+            jpegResult.invalidCacheCount, jpegResult.failedCacheCount, jpegResult.scanComplete);
 
     LOG_DBG("GENALL",
             "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images, %d cached pages scanned)",
