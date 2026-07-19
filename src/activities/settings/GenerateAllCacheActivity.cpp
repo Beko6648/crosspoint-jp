@@ -22,6 +22,11 @@ namespace {
 // E-paper progress redraws are expensive (~670 ms in the measured run).
 // Quarter-step updates keep useful feedback without dominating cache creation.
 constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
+constexpr int STATUS_BAR_CONTENT_GUARD = 8;
+
+int getStatusBarContentReservation(const int statusBarHeight) {
+  return statusBarHeight > 0 ? statusBarHeight + STATUS_BAR_CONTENT_GUARD : 0;
+}
 
 // Recursively scan a directory for EPUB files
 void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
@@ -56,19 +61,23 @@ void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
   dir.close();
 }
 
-int pregeneratePngCaches(Section& section, GfxRenderer& renderer) {
+int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
   int generated = 0;
-  for (uint16_t pageIndex = 0; pageIndex < section.pageCount; pageIndex++) {
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageImage) continue;
+    const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
+    if (image.pregeneratePngCache(renderer)) generated++;
+  }
+  return generated;
+}
+
+int pregeneratePngCachesFromCachedSection(Section& section, GfxRenderer& renderer, int& pagesScanned) {
+  int generated = 0;
+  for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
-    if (!page) {
-      LOG_ERR("GENALL", "Failed to load page %u for PNG cache", pageIndex);
-      continue;
-    }
-    for (const auto& element : page->elements) {
-      if (element->getTag() != TAG_PageImage) continue;
-      const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
-      if (image.pregeneratePngCache(renderer)) generated++;
-    }
+    if (!page) continue;
+    ++pagesScanned;
+    if (page->hasImages()) generated += pregeneratePngCaches(*page, renderer);
   }
   return generated;
 }
@@ -168,6 +177,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     int generatedSections = 0;
     int generatedImageCaches = 0;
     int generatedPngCaches = 0;
+    int cachedPngPagesScanned = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     // Update progress
@@ -229,7 +239,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const int bmTop = baseMarginTop + ds.screenMargin;
     const int bmRight = baseMarginRight + ds.screenMargin;
     const int bmLeft = baseMarginLeft + ds.screenMargin;
-    const int bmBottom = baseMarginBottom + std::max(ds.screenMargin, statusBarHeight);
+    const int bmBottom =
+        baseMarginBottom + std::max(static_cast<int>(ds.screenMargin), getStatusBarContentReservation(statusBarHeight));
     const uint16_t viewportWidth = screenWidth - bmLeft - bmRight;
     const uint16_t viewportHeight = screenHeight - bmTop - bmBottom;
 
@@ -244,6 +255,15 @@ void GenerateAllCacheActivity::generateAllCaches() {
           SETTINGS.imageRendering, isVertical, ds.charSpacing);
       if (sectionCached) {
         sectionCacheHits++;
+        // JPEG caches are discovered directly from extracted image files below.
+        // PNG cache dimensions live in serialized ImageBlock entries, so only
+        // sections that actually contain extracted PNGs need their pages read.
+        const std::string pngProbePath = epub->getCachePath() + "/img_" + std::to_string(i) + "_0.png";
+        if (Storage.exists(pngProbePath.c_str())) {
+          const uint32_t pngStartedAt = millis();
+          generatedPngCaches += pregeneratePngCachesFromCachedSection(sec, renderer, cachedPngPagesScanned);
+          pngCacheMs += millis() - pngStartedAt;
+        }
       } else {
         const uint32_t sectionStartedAt = millis();
         const int cssBodyFontIds[4] = {SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::SMALL),
@@ -254,7 +274,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                    ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
                                    ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
-                                   cssBodyFontIds)) {
+                                   cssBodyFontIds, nullptr,
+                                   [this, &generatedPngCaches, &pngCacheMs](const Page& page) {
+                                     const uint32_t pngStartedAt = millis();
+                                     generatedPngCaches += pregeneratePngCaches(page, renderer);
+                                     pngCacheMs += millis() - pngStartedAt;
+                                   })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           continue;
         }
@@ -313,16 +338,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
                   static_cast<unsigned long>(bmpSize));
         }
       }
-
-      const uint32_t pngStartedAt = millis();
-      generatedPngCaches += pregeneratePngCaches(sec, renderer);
-      pngCacheMs += millis() - pngStartedAt;
     }
 
     LOG_DBG("GENALL",
-            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images)",
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images, %d cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
-            generatedImageCaches, pngCacheMs, generatedPngCaches);
+            generatedImageCaches, pngCacheMs, generatedPngCaches, cachedPngPagesScanned);
     processedCount++;
   }
 

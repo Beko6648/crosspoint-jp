@@ -351,7 +351,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const bool verticalMode, const uint8_t charSpacing,
                                 const std::function<void()>& popupFn, const int* headingFontIds,
                                 const int tableFontId, const int* cssBodyFontIds,
-                                const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn) {
+                                const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
+                                const std::function<void(const Page&)>& pageReadyFn) {
   const uint32_t createSectionStart = millis();
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
@@ -393,6 +394,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                          viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering,
                          verticalMode, charSpacing);
   std::vector<uint32_t> lut = {};
+  std::vector<uint16_t> imagePages = {};
 
   CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize);
 
@@ -426,7 +428,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   ChapterHtmlSlimParser visitor(
       epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
       viewportHeight, hyphenationEnabled, firstLineIndent,
-      [this, &lut, &progressFn, estimatedPages](std::unique_ptr<Page> page) {
+      [this, &lut, &imagePages, &progressFn, &pageReadyFn, estimatedPages](std::unique_ptr<Page> page) {
+        if (pageReadyFn && page->hasImages()) imagePages.push_back(pageCount);
         lut.emplace_back(this->onPageComplete(std::move(page)));
         if (progressFn) {
           progressFn(pageCount, estimatedPages);
@@ -449,7 +452,20 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
 
   const auto& anchors = visitor.getAnchors();
-  return finalizeSectionFile(lut, anchors, tmpSectionPath, cssParser, createSectionStart, parseBuildStart);
+  if (!finalizeSectionFile(lut, anchors, tmpSectionPath, cssParser, createSectionStart, parseBuildStart)) {
+    return false;
+  }
+
+  // CSS and parser allocations are now released. Reload only pages that contain
+  // images so optional cache work has enough contiguous heap without making
+  // text-only books scan every persisted page.
+  if (pageReadyFn) {
+    for (const auto pageIndex : imagePages) {
+      auto page = loadPageFromSectionFile(pageIndex);
+      if (page) pageReadyFn(*page);
+    }
+  }
+  return true;
 }
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile() {

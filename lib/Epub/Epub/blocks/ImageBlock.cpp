@@ -147,6 +147,11 @@ bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer) const {
   const std::string cachePath = getCachePath(imagePath);
   if (Storage.exists(cachePath.c_str())) return false;
 
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->clearCache();
+    fcm->freeKernLigatureData();
+  }
+
   auto* decoder = ImageDecoderFactory::getDecoder(imagePath);
   if (!decoder) {
     LOG_ERR("IMG", "No decoder found while pregenerating: %s", imagePath.c_str());

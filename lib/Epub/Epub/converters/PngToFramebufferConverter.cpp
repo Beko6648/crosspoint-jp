@@ -300,16 +300,26 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
   LOG_INF("IMGQ", "PNG illustration: Bayer tone v5");
 
-  size_t freeHeap = ESP.getFreeHeap();
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t maxAllocHeap = ESP.getMaxAllocHeap();
+  const size_t decoderSize = sizeof(PNG);
   if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
     LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
     return false;
   }
 
-  // Heap-allocate PNG decoder (~42 KB) - freed at end of function
+  if (maxAllocHeap < decoderSize) {
+    LOG_ERR("PNG", "PNG decoder needs %u contiguous bytes, only %u available (%u free)", decoderSize, maxAllocHeap,
+            freeHeap);
+    return false;
+  }
+
+  // Heap-allocate the decoder only for the duration of this decode.  Its fixed
+  // zlib and scanline buffers require one contiguous allocation.
   std::unique_ptr<PNG> png(new (std::nothrow) PNG());
   if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder");
+    LOG_ERR("PNG", "Failed to allocate PNG decoder (%u bytes, maxAlloc=%u, free=%u)", decoderSize, maxAllocHeap,
+            freeHeap);
     return false;
   }
 

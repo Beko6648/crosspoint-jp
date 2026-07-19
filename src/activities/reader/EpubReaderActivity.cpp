@@ -61,19 +61,12 @@ int clampPercent(int percent) {
   return percent;
 }
 
-int pregeneratePngCaches(Section& section, GfxRenderer& renderer) {
+int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
   int generated = 0;
-  for (uint16_t pageIndex = 0; pageIndex < section.pageCount; pageIndex++) {
-    auto page = section.loadPageFromSectionFile(pageIndex);
-    if (!page) {
-      LOG_ERR("ERS", "Pregenerate: failed to load page %u for PNG cache", pageIndex);
-      continue;
-    }
-    for (const auto& element : page->elements) {
-      if (element->getTag() != TAG_PageImage) continue;
-      const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
-      if (image.pregeneratePngCache(renderer)) generated++;
-    }
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageImage) continue;
+    const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
+    if (image.pregeneratePngCache(renderer)) generated++;
   }
   return generated;
 }
@@ -171,7 +164,12 @@ void EpubReaderActivity::pregenerateCache() {
                                  ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
                                  ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
                                  ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
-                                 cssBodyFontIds)) {
+                                 cssBodyFontIds, nullptr,
+                                 [this, &generatedPngCaches, &pngCacheMs](const Page& page) {
+                                   const uint32_t pngStartedAt = millis();
+                                   generatedPngCaches += pregeneratePngCaches(page, renderer);
+                                   pngCacheMs += millis() - pngStartedAt;
+                                 })) {
         LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
         continue;
       }
@@ -229,10 +227,6 @@ void EpubReaderActivity::pregenerateCache() {
                 static_cast<unsigned long>(bmpSize));
       }
     }
-
-    const uint32_t pngStartedAt = millis();
-    generatedPngCaches += pregeneratePngCaches(sec, renderer);
-    pngCacheMs += millis() - pngStartedAt;
   }
 
   const uint32_t finalDisplayStartedAt = millis();
