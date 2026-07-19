@@ -31,9 +31,9 @@ std::string getCachePath(const std::string& imagePath) {
   // Version the cache whenever illustration tone/quantization changes.
   size_t dotPos = imagePath.rfind('.');
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc4";
+    return imagePath.substr(0, dotPos) + ".pxc5";
   }
-  return imagePath + ".pxc4";
+  return imagePath + ".pxc5";
 }
 
 // RAII guard: conditionally set skipDarkModeForImages so drawPixel skips
@@ -191,6 +191,17 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   if (fileSize == 0) {
     LOG_ERR("IMG", "Image file is empty: %s", imagePath.c_str());
     return;
+  }
+
+  // Page text prewarming can leave too little contiguous heap for the PNG
+  // decoder on image-heavy chapters. These font caches are reproducible and
+  // will reload on demand for any text after the image, while the generated
+  // pixel cache lets the later grayscale passes avoid decoding altogether.
+  if (fcm) {
+    fcm->clearCache();
+    fcm->freeKernLigatureData();
+    LOG_DBG("IMG", "Released font caches before decode: free=%u maxAlloc=%u", ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
   }
 
   LOG_DBG("IMG", "Decoding and caching: %s", imagePath.c_str());

@@ -505,7 +505,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
                                                      bool oneBit, bool crop, bool useIllustrationRendering) {
   const uint32_t conversionStartedAt = millis();
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
-  if (useIllustrationRendering) LOG_INF("IMGQ", "JPEG illustration: full-res + PNG Bayer tone v4");
+  if (useIllustrationRendering) LOG_INF("IMGQ", "JPEG illustration: full-res + PNG Bayer tone v5");
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);

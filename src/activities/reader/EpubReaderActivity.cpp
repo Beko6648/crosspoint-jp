@@ -169,7 +169,7 @@ void EpubReaderActivity::pregenerateCache() {
       }
 
       const size_t dotPos = jpgPath.rfind('.');
-      const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc4.bmp";
+      const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc5.bmp";
       if (Storage.exists(bmpCachePath.c_str())) {
         FsFile existingBmp;
         if (Storage.openFileForRead("PRE", bmpCachePath, existingBmp)) {
@@ -1196,9 +1196,52 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   const auto tDisplay = millis();
 
+  // Illustration caches store four real pixel levels, but the normal BW pass
+  // intentionally draws every non-white level as black. Re-render only images
+  // into the two grayscale bit planes so text stays crisp and the panel can
+  // display the cached dark/light gray values instead of Bayer dots alone.
+  const bool hasImages = page->hasImages();
+  bool bwStored = false;
+  auto tGrayLsb = tDisplay;
+  auto tGrayMsb = tDisplay;
+  auto tGrayDisplay = tDisplay;
+  auto tBwRestore = tDisplay;
+  if (hasImages) {
+    bwStored = renderer.storeBwBuffer();
+    if (bwStored) {
+      renderer.clearScreen(0x00);
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      renderer.copyGrayscaleLsbBuffers();
+      tGrayLsb = millis();
+
+      renderer.clearScreen(0x00);
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+      page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      renderer.copyGrayscaleMsbBuffers();
+      tGrayMsb = millis();
+
+      renderer.displayGrayBuffer();
+      tGrayDisplay = millis();
+      renderer.setRenderMode(GfxRenderer::BW);
+      renderer.restoreBwBuffer();
+      tBwRestore = millis();
+    } else {
+      LOG_ERR("ERS", "Failed to store BW buffer for illustration grayscale");
+    }
+  }
+
   const auto tEnd = millis();
-  LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
-          tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
+  if (hasImages && bwStored) {
+    LOG_DBG("ERS",
+            "Page render: prewarm=%lums bw_render=%lums display=%lums gray_lsb=%lums "
+            "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
+            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay,
+            tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
+  } else {
+    LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
+            tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
+  }
 }
 
 void EpubReaderActivity::renderStatusBar() const {

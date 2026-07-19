@@ -8,6 +8,7 @@
 #include <PNGdec.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <new>
 
@@ -249,28 +250,46 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  // Width and height are fixed fields in the PNG IHDR chunk. Reading them
+  // directly avoids allocating the ~44KB PNG decoder while section pages and
+  // font metrics are already resident in the constrained ESP32-C3 heap.
+  FsFile file;
+  if (!Storage.openFileForRead("PNG", imagePath, file)) {
+    LOG_ERR("PNG", "Failed to open PNG header: %s", imagePath.c_str());
     return false;
   }
 
-  std::unique_ptr<PNG> png(new (std::nothrow) PNG());
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder for dimensions");
+  uint8_t header[24];
+  const int bytesRead = file.read(header, sizeof(header));
+  file.close();
+  if (bytesRead != static_cast<int>(sizeof(header))) {
+    LOG_ERR("PNG", "Truncated PNG header: %s", imagePath.c_str());
     return false;
   }
 
-  int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
-                     nullptr);
-
-  if (rc != 0) {
-    LOG_ERR("PNG", "Failed to open PNG for dimensions: %d", rc);
+  constexpr uint8_t pngSignature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+  const bool validIhdrLength = header[8] == 0 && header[9] == 0 && header[10] == 0 && header[11] == 13;
+  if (memcmp(header, pngSignature, sizeof(pngSignature)) != 0 || !validIhdrLength ||
+      memcmp(header + 12, "IHDR", 4) != 0) {
+    LOG_ERR("PNG", "Invalid PNG signature or IHDR: %s", imagePath.c_str());
     return false;
   }
 
-  out.width = png->getWidth();
-  out.height = png->getHeight();
+  const uint32_t width = (static_cast<uint32_t>(header[16]) << 24) | (static_cast<uint32_t>(header[17]) << 16) |
+                         (static_cast<uint32_t>(header[18]) << 8) | header[19];
+  const uint32_t height = (static_cast<uint32_t>(header[20]) << 24) | (static_cast<uint32_t>(header[21]) << 16) |
+                          (static_cast<uint32_t>(header[22]) << 8) | header[23];
+  constexpr uint32_t maxDimension = 32767;
+  constexpr uint64_t maxPixels = 25000000;
+  if (width == 0 || height == 0 || width > maxDimension || height > maxDimension ||
+      static_cast<uint64_t>(width) * height > maxPixels) {
+    LOG_ERR("PNG", "Invalid PNG dimensions: %lux%lu", static_cast<unsigned long>(width),
+            static_cast<unsigned long>(height));
+    return false;
+  }
+
+  out.width = static_cast<int16_t>(width);
+  out.height = static_cast<int16_t>(height);
 
   return true;
 }
@@ -278,7 +297,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
-  LOG_INF("IMGQ", "PNG illustration: Bayer tone v4");
+  LOG_INF("IMGQ", "PNG illustration: Bayer tone v5");
 
   size_t freeHeap = ESP.getFreeHeap();
   if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {

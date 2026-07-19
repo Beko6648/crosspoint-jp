@@ -19,7 +19,7 @@ inline uint8_t applyIllustrationToneCurve(uint8_t gray) {
     uint8_t output;
   };
   constexpr TonePoint curve[] = {
-      {0, 0}, {16, 24}, {32, 56}, {64, 98}, {128, 160}, {192, 212}, {255, 255},
+      {0, 0}, {16, 20}, {32, 48}, {64, 90}, {128, 158}, {192, 212}, {255, 255},
   };
 
   for (size_t i = 1; i < sizeof(curve) / sizeof(curve[0]); i++) {

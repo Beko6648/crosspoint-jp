@@ -22,7 +22,8 @@ namespace {
 // Version 52: ruby base-text spans cannot split across vertical columns.
 // Version 53: vertical ruby no longer adds per-column spacing beyond the common gutter.
 // Version 54: horizontal line breaks apply Japanese head and tail kinsoku rules.
-constexpr uint8_t SECTION_FILE_VERSION = 54;
+// Version 55: PNG dimensions no longer fail under low heap and omit images from persisted pages.
+constexpr uint8_t SECTION_FILE_VERSION = 55;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -219,8 +220,10 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
     return nullptr;
   }
 
-  if (!cssParser->loadFromCache()) {
-    LOG_ERR("SCT", "Failed to load CSS from cache");
+  const size_t minFreeHeap =
+      std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
+  if (!cssParser->loadFromCache(minFreeHeap)) {
+    LOG_INF("SCT", "CSS cache unavailable or skipped; continuing without external rules");
     return nullptr;
   }
 
@@ -233,8 +236,6 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
     return nullptr;
   }
 
-  const size_t minFreeHeap =
-      std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
   if (ESP.getFreeHeap() < minFreeHeap) {
     LOG_INF("SCT", "Skipping external CSS for section build (rules=%zu, free=%u, need>=%zu, html=%lu)",
             cssParser->ruleCount(), ESP.getFreeHeap(), minFreeHeap, static_cast<unsigned long>(fileSize));

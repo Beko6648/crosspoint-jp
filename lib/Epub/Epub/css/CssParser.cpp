@@ -45,6 +45,11 @@ constexpr size_t MAX_RULES = 1500;
 // If below this threshold, we skip CSS to avoid display artifacts.
 constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
 
+// unordered_map node, selector string, bucket growth, and allocator overhead.
+// Measured caches use about 180 bytes per rule; keep a conservative margin so
+// a fragmented heap never reaches throwing new while restoring cached rules.
+constexpr size_t CSS_CACHE_HEAP_BYTES_PER_RULE = 192;
+
 // Maximum length for a single selector string
 // Prevents parsing of extremely long or malformed selectors
 constexpr size_t MAX_SELECTOR_LENGTH = 256;
@@ -790,7 +795,7 @@ bool CssParser::saveToCache() const {
   return true;
 }
 
-bool CssParser::loadFromCache() {
+bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
   if (cachePath.empty()) {
     return false;
   }
@@ -824,6 +829,16 @@ bool CssParser::loadFromCache() {
     LOG_DBG("CSS", "Invalid cache rule count (%u > %zu)", ruleCount, MAX_RULES);
     rulesBySelector_.clear();
     return false;
+  }
+
+  if (minFreeHeapAfterLoad > 0) {
+    const size_t estimatedRuleHeap = static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
+    const size_t requiredFreeHeap = minFreeHeapAfterLoad + estimatedRuleHeap;
+    if (ESP.getFreeHeap() < requiredFreeHeap) {
+      LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu (rules=%zu reserve=%zu)", ruleCount,
+              ESP.getFreeHeap(), requiredFreeHeap, estimatedRuleHeap, minFreeHeapAfterLoad);
+      return false;
+    }
   }
 
   auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
@@ -967,7 +982,7 @@ bool CssParser::loadFromCache() {
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
     style.defined.display = (definedBits & 1 << 15) != 0;
 
-    rulesBySelector_[selector] = style;
+    rulesBySelector_.emplace(std::move(selector), style);
   }
 
   LOG_DBG("CSS", "Loaded %u rules from cache", ruleCount);

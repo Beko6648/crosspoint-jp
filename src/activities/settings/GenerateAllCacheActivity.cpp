@@ -252,7 +252,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
 
         const size_t dotPos = jpgPath.rfind('.');
-        const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc4.bmp";
+        const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc5.bmp";
         if (Storage.exists(bmpCachePath.c_str())) {
           FsFile existingBmp;
           if (Storage.openFileForRead("GEN", bmpCachePath, existingBmp)) {

@@ -101,7 +101,7 @@ class CssParser {
    * Clears any existing rules before loading.
    * @return true if cache was loaded successfully
    */
-  bool loadFromCache();
+  bool loadFromCache(size_t minFreeHeapAfterLoad = 0);
 
  private:
   // Storage: maps normalized selector -> style properties
