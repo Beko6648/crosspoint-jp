@@ -196,6 +196,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   int screenWidth = ctx->screenWidth;
   bool useDithering = ctx->config->useDithering;
   bool caching = ctx->caching;
+  bool writeToFramebuffer = ctx->config->writeToFramebuffer;
 
   // Pre-compute orientation and render-mode state once per row
   DirectPixelWriter pw;
@@ -232,7 +233,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
         ditheredGray = gray / 85;
         if (ditheredGray > 3) ditheredGray = 3;
       }
-      pw.writePixel(outX, ditheredGray);
+      if (writeToFramebuffer) pw.writePixel(outX, ditheredGray);
       if (caching) cw.writePixel(outX, ditheredGray);
     }
 

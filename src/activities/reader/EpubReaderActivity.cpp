@@ -61,15 +61,34 @@ int clampPercent(int percent) {
   return percent;
 }
 
+int pregeneratePngCaches(Section& section, GfxRenderer& renderer) {
+  int generated = 0;
+  for (uint16_t pageIndex = 0; pageIndex < section.pageCount; pageIndex++) {
+    auto page = section.loadPageFromSectionFile(pageIndex);
+    if (!page) {
+      LOG_ERR("ERS", "Pregenerate: failed to load page %u for PNG cache", pageIndex);
+      continue;
+    }
+    for (const auto& element : page->elements) {
+      if (element->getTag() != TAG_PageImage) continue;
+      const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
+      if (image.pregeneratePngCache(renderer)) generated++;
+    }
+  }
+  return generated;
+}
+
 }  // namespace
 
 void EpubReaderActivity::pregenerateCache() {
   const uint32_t generationStartedAt = millis();
   uint32_t sectionBuildMs = 0;
   uint32_t imageCacheMs = 0;
+  uint32_t pngCacheMs = 0;
   int sectionCacheHits = 0;
   int generatedSections = 0;
   int generatedImageCaches = 0;
+  int generatedPngCaches = 0;
   if (!epub) return;
 
   const int spineCount = epub->getSpineItemsCount();
@@ -210,15 +229,19 @@ void EpubReaderActivity::pregenerateCache() {
                 static_cast<unsigned long>(bmpSize));
       }
     }
+
+    const uint32_t pngStartedAt = millis();
+    generatedPngCaches += pregeneratePngCaches(sec, renderer);
+    pngCacheMs += millis() - pngStartedAt;
   }
 
   const uint32_t finalDisplayStartedAt = millis();
   GUI.fillPopupProgress(renderer, popupRect, 100);
   progressDisplayMs += millis() - finalDisplayStartedAt;
   LOG_DBG("ERS",
-          "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), progress=%lu ms",
+          "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images), progress=%lu ms",
           millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
-          generatedImageCaches, progressDisplayMs);
+          generatedImageCaches, pngCacheMs, generatedPngCaches, progressDisplayMs);
 }
 
 void EpubReaderActivity::onEnter() {

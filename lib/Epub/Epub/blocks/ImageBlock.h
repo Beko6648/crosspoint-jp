@@ -6,6 +6,8 @@
 
 #include "Block.h"
 
+class GfxRenderer;
+
 class ImageBlock final : public Block {
  public:
   ImageBlock(const std::string& imagePath, int16_t width, int16_t height);
@@ -16,6 +18,8 @@ class ImageBlock final : public Block {
   int16_t getHeight() const { return height; }
 
   bool imageExists() const;
+  // Build a missing PNG pixel cache without drawing into the current framebuffer.
+  bool pregeneratePngCache(GfxRenderer& renderer) const;
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }

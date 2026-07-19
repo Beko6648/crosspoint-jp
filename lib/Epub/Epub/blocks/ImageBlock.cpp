@@ -21,7 +21,6 @@ ImageBlock::ImageBlock(const std::string& imagePath, int16_t width, int16_t heig
 
 bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str()); }
 
-
 namespace {
 
 unsigned long failedJpegAt = 0;
@@ -141,6 +140,33 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 }
 
 }  // namespace
+
+bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer) const {
+  if (!FsHelpers::hasPngExtension(imagePath)) return false;
+
+  const std::string cachePath = getCachePath(imagePath);
+  if (Storage.exists(cachePath.c_str())) return false;
+
+  auto* decoder = ImageDecoderFactory::getDecoder(imagePath);
+  if (!decoder) {
+    LOG_ERR("IMG", "No decoder found while pregenerating: %s", imagePath.c_str());
+    return false;
+  }
+
+  RenderConfig config;
+  config.x = 0;
+  config.y = 0;
+  config.maxWidth = width;
+  config.maxHeight = height;
+  config.useGrayscale = true;
+  config.useDithering = true;
+  config.useExactDimensions = true;
+  config.writeToFramebuffer = false;
+  config.cachePath = cachePath;
+
+  LOG_DBG("IMG", "Pregenerating PNG cache: %s", imagePath.c_str());
+  return decoder->decodeToFramebuffer(imagePath, renderer, config) && Storage.exists(cachePath.c_str());
+}
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // The font-prewarm scan pass only accumulates glyphs; an image contributes

@@ -1,6 +1,7 @@
 #include "GenerateAllCacheActivity.h"
 
 #include <Epub.h>
+#include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
@@ -53,6 +54,23 @@ void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
     }
   }
   dir.close();
+}
+
+int pregeneratePngCaches(Section& section, GfxRenderer& renderer) {
+  int generated = 0;
+  for (uint16_t pageIndex = 0; pageIndex < section.pageCount; pageIndex++) {
+    auto page = section.loadPageFromSectionFile(pageIndex);
+    if (!page) {
+      LOG_ERR("GENALL", "Failed to load page %u for PNG cache", pageIndex);
+      continue;
+    }
+    for (const auto& element : page->elements) {
+      if (element->getTag() != TAG_PageImage) continue;
+      const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
+      if (image.pregeneratePngCache(renderer)) generated++;
+    }
+  }
+  return generated;
 }
 
 }  // namespace
@@ -145,9 +163,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const uint32_t bookStartedAt = millis();
     uint32_t sectionBuildMs = 0;
     uint32_t imageCacheMs = 0;
+    uint32_t pngCacheMs = 0;
     int sectionCacheHits = 0;
     int generatedSections = 0;
     int generatedImageCaches = 0;
+    int generatedPngCaches = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     // Update progress
@@ -293,12 +313,16 @@ void GenerateAllCacheActivity::generateAllCaches() {
                   static_cast<unsigned long>(bmpSize));
         }
       }
+
+      const uint32_t pngStartedAt = millis();
+      generatedPngCaches += pregeneratePngCaches(sec, renderer);
+      pngCacheMs += millis() - pngStartedAt;
     }
 
     LOG_DBG("GENALL",
-            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images)",
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
-            generatedImageCaches);
+            generatedImageCaches, pngCacheMs, generatedPngCaches);
     processedCount++;
   }
 
