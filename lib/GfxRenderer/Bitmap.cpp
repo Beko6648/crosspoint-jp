@@ -68,6 +68,8 @@ const char* Bitmap::errorToString(BmpReaderError err) {
       return "ImageTooLarge (max 2048x3072)";
     case BmpReaderError::PaletteTooLarge:
       return "PaletteTooLarge";
+    case BmpReaderError::TruncatedPixelData:
+      return "TruncatedPixelData";
 
     case BmpReaderError::SeekPixelDataFailed:
       return "SeekPixelDataFailed";
@@ -130,6 +132,8 @@ BmpReaderError Bitmap::parseHeaders() {
 
   // Pre-calculate Row Bytes to avoid doing this every row
   rowBytes = (width * bpp + 31) / 32 * 4;
+  const uint64_t requiredFileSize = static_cast<uint64_t>(bfOffBits) + static_cast<uint64_t>(rowBytes) * height;
+  if (requiredFileSize > file.size()) return BmpReaderError::TruncatedPixelData;
 
   for (int i = 0; i < 256; i++) paletteLum[i] = static_cast<uint8_t>(i);
   if (colorsUsed > 0) {

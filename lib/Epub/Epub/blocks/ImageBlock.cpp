@@ -9,6 +9,7 @@
 #include <Serialization.h>
 
 #include "../converters/DirectPixelWriter.h"
+#include "../converters/ImageCacheValidation.h"
 #include "../converters/ImageDecoderFactory.h"
 
 // Cache file format:
@@ -58,19 +59,15 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     return false;
   }
 
-  uint16_t cachedWidth, cachedHeight;
-  if (cacheFile.read(&cachedWidth, 2) != 2 || cacheFile.read(&cachedHeight, 2) != 2) {
+  ImageCacheValidation::PixelCacheInfo cacheInfo;
+  if (!ImageCacheValidation::validatePixelCache(cacheFile, expectedWidth, expectedHeight, &cacheInfo)) {
+    cacheFile.close();
+    LOG_ERR("IMG", "Removing invalid pixel cache: %s", cachePath.c_str());
+    Storage.remove(cachePath.c_str());
     return false;
   }
-
-  // Verify dimensions are close (allow 1 pixel tolerance for rounding differences)
-  int widthDiff = abs(cachedWidth - expectedWidth);
-  int heightDiff = abs(cachedHeight - expectedHeight);
-  if (widthDiff > 1 || heightDiff > 1) {
-    LOG_ERR("IMG", "Cache dimension mismatch: %dx%d vs %dx%d", cachedWidth, cachedHeight, expectedWidth,
-            expectedHeight);
-    return false;
-  }
+  const uint16_t cachedWidth = cacheInfo.width;
+  const uint16_t cachedHeight = cacheInfo.height;
 
   // Use cached dimensions for rendering (they're the actual decoded size)
   expectedWidth = cachedWidth;
@@ -145,7 +142,11 @@ bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer) const {
   if (!FsHelpers::hasPngExtension(imagePath)) return false;
 
   const std::string cachePath = getCachePath(imagePath);
-  if (Storage.exists(cachePath.c_str())) return false;
+  if (Storage.exists(cachePath.c_str())) {
+    if (ImageCacheValidation::validatePixelCacheFile(cachePath, width, height)) return false;
+    LOG_ERR("IMG", "Removing invalid PNG cache before pregeneration: %s", cachePath.c_str());
+    Storage.remove(cachePath.c_str());
+  }
 
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->clearCache();
@@ -261,19 +262,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
     const std::string bmpPath = cachePath + ".bmp";
     bool needsBmpCache = true;
     if (Storage.exists(bmpPath.c_str())) {
-      FsFile existingBmp;
-      if (Storage.openFileForRead("IMG", bmpPath, existingBmp)) {
-        const size_t existingSize = existingBmp.size();
-        existingBmp.close();
-
-        // 70 bytes means BMP header only for 2-bit BMP: no pixel rows were written.
-        if (existingSize > 70) {
-          needsBmpCache = false;
-        } else {
-          LOG_DBG("IMG", "Removing incomplete BMP cache: %s (%lu bytes)",
-                  bmpPath.c_str(), static_cast<unsigned long>(existingSize));
-          Storage.remove(bmpPath.c_str());
-        }
+      if (ImageCacheValidation::validateBmpCacheFile(bmpPath)) {
+        needsBmpCache = false;
+      } else {
+        LOG_DBG("IMG", "Removing invalid BMP cache: %s", bmpPath.c_str());
+        Storage.remove(bmpPath.c_str());
       }
     }
     // Convert JPEG to BMP if not cached yet
@@ -300,7 +293,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
       jpegFile.close();
       bmpFile.close();
 
-      if (!success || bmpSizeBeforeClose <= 70) {
+      if (!success || !ImageCacheValidation::validateBmpCacheFile(bmpPath)) {
         Storage.remove(bmpPath.c_str());
 
         failedJpegAt = millis();

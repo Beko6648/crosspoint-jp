@@ -53,6 +53,7 @@ enum class BmpReaderError : uint8_t {
   BadDimensions,
   ImageTooLarge,
   PaletteTooLarge,
+  TruncatedPixelData,
 
   SeekPixelDataFailed,
   BufferTooSmall,

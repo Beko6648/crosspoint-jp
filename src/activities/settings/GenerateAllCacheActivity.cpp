@@ -8,6 +8,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Epub/converters/ImageCacheValidation.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 
@@ -299,15 +300,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
         const size_t dotPos = jpgPath.rfind('.');
         const std::string bmpCachePath = jpgPath.substr(0, dotPos) + ".pxc5.bmp";
         if (Storage.exists(bmpCachePath.c_str())) {
-          FsFile existingBmp;
-          if (Storage.openFileForRead("GEN", bmpCachePath, existingBmp)) {
-            const size_t existingSize = existingBmp.size();
-            existingBmp.close();
-            if (existingSize > 70) continue;
-            LOG_DBG("GENALL", "Removing incomplete JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
-                    static_cast<unsigned long>(existingSize));
-            Storage.remove(bmpCachePath.c_str());
-          }
+          if (ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) continue;
+          LOG_DBG("GENALL", "Removing invalid JPEG cache: %s", bmpCachePath.c_str());
+          Storage.remove(bmpCachePath.c_str());
         }
 
         FsFile jpegFile, bmpFile;
@@ -330,7 +325,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         jpegFile.close();
         bmpFile.close();
 
-        if (success && bmpSize > 70) {
+        if (success && ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) {
           generatedImageCaches++;
         } else {
           Storage.remove(bmpCachePath.c_str());
