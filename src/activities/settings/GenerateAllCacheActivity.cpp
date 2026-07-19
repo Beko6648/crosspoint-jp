@@ -266,15 +266,31 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
 
         FsFile jpegFile, bmpFile;
-        if (Storage.openFileForRead("GEN", jpgPath, jpegFile) &&
-            Storage.openFileForWrite("GEN", bmpCachePath, bmpFile)) {
-          const uint32_t imageStartedAt = millis();
-          const bool success =
-              JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
-          imageCacheMs += millis() - imageStartedAt;
+        if (!Storage.openFileForRead("GEN", jpgPath, jpegFile)) {
+          LOG_ERR("GENALL", "Failed to open JPEG: %s", jpgPath.c_str());
+          continue;
+        }
+        if (!Storage.openFileForWrite("GEN", bmpCachePath, bmpFile)) {
           jpegFile.close();
-          bmpFile.close();
-          if (success) generatedImageCaches++;
+          LOG_ERR("GENALL", "Failed to create JPEG cache: %s", bmpCachePath.c_str());
+          continue;
+        }
+
+        const uint32_t imageStartedAt = millis();
+        const bool success =
+            JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+        imageCacheMs += millis() - imageStartedAt;
+        bmpFile.flush();
+        const size_t bmpSize = bmpFile.size();
+        jpegFile.close();
+        bmpFile.close();
+
+        if (success && bmpSize > 70) {
+          generatedImageCaches++;
+        } else {
+          Storage.remove(bmpCachePath.c_str());
+          LOG_ERR("GENALL", "Removed failed JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
+                  static_cast<unsigned long>(bmpSize));
         }
       }
     }

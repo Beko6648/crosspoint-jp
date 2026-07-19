@@ -183,15 +183,31 @@ void EpubReaderActivity::pregenerateCache() {
       }
 
       FsFile jpegFile, bmpFile;
-      if (Storage.openFileForRead("PRE", jpgPath, jpegFile) &&
-          Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
-        const uint32_t imageStartedAt = millis();
-        const bool success =
-            JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
-        imageCacheMs += millis() - imageStartedAt;
+      if (!Storage.openFileForRead("PRE", jpgPath, jpegFile)) {
+        LOG_ERR("ERS", "Pregenerate: failed to open JPEG: %s", jpgPath.c_str());
+        continue;
+      }
+      if (!Storage.openFileForWrite("PRE", bmpCachePath, bmpFile)) {
         jpegFile.close();
-        bmpFile.close();
-        if (success) generatedImageCaches++;
+        LOG_ERR("ERS", "Pregenerate: failed to create JPEG cache: %s", bmpCachePath.c_str());
+        continue;
+      }
+
+      const uint32_t imageStartedAt = millis();
+      const bool success =
+          JpegToBmpConverter::jpegFileToBmpStreamWithSize(jpegFile, bmpFile, viewportWidth, viewportHeight);
+      imageCacheMs += millis() - imageStartedAt;
+      bmpFile.flush();
+      const size_t bmpSize = bmpFile.size();
+      jpegFile.close();
+      bmpFile.close();
+
+      if (success && bmpSize > 70) {
+        generatedImageCaches++;
+      } else {
+        Storage.remove(bmpCachePath.c_str());
+        LOG_ERR("ERS", "Pregenerate: removed failed JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
+                static_cast<unsigned long>(bmpSize));
       }
     }
   }
