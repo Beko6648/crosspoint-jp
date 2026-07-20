@@ -33,10 +33,9 @@ void DirectionSettingsActivity::buildItems() {
                    {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE},
                    {}});
 
-  // Line Spacing (slider)
-  // Each reading-layout control uses the same five reader-facing presets.
+  // Line Spacing opens its own detailed adjustment screen.
   items.push_back({StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {},
-                   {80, 120, 185, 220, 250}});
+                   {90, 120, 155, 185, 220}});
 
   // Character Spacing (vertical only — horizontal char spacing is not supported by renderer)
   if (isVertical) {
@@ -159,17 +158,33 @@ void DirectionSettingsActivity::loop() {
     return;
   }
 
-  buttonNavigator.onPress({MappedInputManager::Button::Down}, [this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(items.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPress({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(items.size()));
     requestUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (items[selectedIndex].nameId == StrId::STR_LINE_SPACING) {
+      startActivityForResult(
+          std::make_unique<LineSpacingSelectionActivity>(
+              renderer, mappedInput, ds().lineSpacing,
+              [this](const int selectedValue) {
+                ds().lineSpacing = static_cast<uint8_t>(selectedValue);
+                SETTINGS.saveToFile();
+                finish();
+              },
+              [this] { finish(); }),
+          [this](const ActivityResult&) {
+            skipNextButtonCheck = true;
+            requestUpdate();
+          });
+      return;
+    }
     if (currentItemIsEditable()) {
       editingValue = true;
       requestUpdate();
@@ -209,6 +224,11 @@ void DirectionSettingsActivity::render(RenderLock&&) {
       nullptr,
       [this](int i) -> std::string {
         const auto& item = items[i];
+        if (item.nameId == StrId::STR_LINE_SPACING) {
+          char valueBuf[16];
+          snprintf(valueBuf, sizeof(valueBuf), "%.2fx", static_cast<float>(ds().lineSpacing) / 100.0f);
+          return valueBuf;
+        }
         switch (item.type) {
           case Item::Type::TOGGLE:
             return ds().*(item.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
@@ -259,12 +279,9 @@ void DirectionSettingsActivity::render(RenderLock&&) {
 
   // Button hints identify whether the selected item is being edited.
   const char* confirmLabel = tr(STR_SELECT);
-  const char* previousLabel = "";
-  const char* nextLabel = "";
-  if (editingValue) {
-    previousLabel = tr(STR_PREVIOUS);
-    nextLabel = tr(STR_NEXT);
-  } else if (currentItemIsEditable()) {
+  const char* previousLabel = tr(STR_PREVIOUS);
+  const char* nextLabel = tr(STR_NEXT);
+  if (!editingValue && currentItemIsEditable()) {
     confirmLabel = tr(STR_EDIT);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);

@@ -617,7 +617,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::READER_SETTINGS: {
       // Open settings directly on the Reader category and select the submenu
       // that matches this book's current writing mode.
-      const int directionSettingIndex = verticalMode ? 1 : 0;
+      // Index 0 is the Reader tab itself; the direction settings are its
+      // first and second items.
+      const int directionSettingIndex = verticalMode ? 2 : 1;
       startActivityForResult(std::make_unique<SettingsActivity>(
                                  renderer, mappedInput, [this] { finish(); }, 1, directionSettingIndex),
                              [this](const ActivityResult&) {

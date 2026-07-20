@@ -86,23 +86,24 @@ void StatusBarSettingsActivity::loop() {
     return;
   }
 
-  // Side buttons navigate the list; front left/right change the selected value.
-  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
+  // Keep the side buttons out of list navigation.  Front Left/Right move the
+  // selection here, then change the value after Confirm enters edit mode.
+  buttonNavigator.onRelease({MappedInputManager::Button::Right}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Left}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Right}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Left}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
@@ -169,8 +170,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
       editingValue);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT) : tr(STR_EDIT),
-                                            editingValue ? tr(STR_PREVIOUS) : "",
-                                            editingValue ? tr(STR_NEXT) : "");
+                                            tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

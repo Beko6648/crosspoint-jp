@@ -9,7 +9,7 @@ struct DirectionSettings {
   uint8_t fontFamily = 0;  // CrossPointSettings::NOTOSERIF
   char sdFontFamilyName[32] = "";
   uint8_t fontSize = 1;            // CrossPointSettings::MEDIUM
-  uint8_t lineSpacing = 185;       // 80-250 (%)
+  uint8_t lineSpacing = 155;       // 90-220 (%)
   uint8_t charSpacing = 0;         // 0-50 (5刻み)
   uint8_t paragraphAlignment = 0;  // CrossPointSettings::JUSTIFIED
   uint8_t extraParagraphSpacing = 0;
@@ -133,10 +133,10 @@ class CrossPointSettings {
   // Legacy line spacing enum values kept for backward compatibility migration.
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   // Line spacing factor in percent of current font line height.
-  // 100 = 1.0x (default), 80 = 0.8x, 250 = 2.5x.
+  // 100 = 1.0x; detailed line-spacing adjustment spans 80 to 220.
   static constexpr uint8_t LINE_SPACING_MIN = 80;
-  static constexpr uint8_t LINE_SPACING_MAX = 250;
-  static constexpr uint8_t LINE_SPACING_DEFAULT = 100;
+  static constexpr uint8_t LINE_SPACING_MAX = 220;
+  static constexpr uint8_t LINE_SPACING_DEFAULT = 155;
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -208,7 +208,7 @@ class CrossPointSettings {
   uint8_t statusBarBattery = 0;
   // Direction-specific reader settings
   DirectionSettings horizontal;
-  DirectionSettings vertical = {0, "", 1, 185, 15, 0, 0, 0, 10, 1, 1};  // charSpacing=15 for vertical, rubyEnabled=1
+  DirectionSettings vertical = {0, "", 1, 155, 15, 0, 0, 0, 10, 1, 1};  // charSpacing=15 for vertical, rubyEnabled=1
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
   // EPUB reading orientation settings

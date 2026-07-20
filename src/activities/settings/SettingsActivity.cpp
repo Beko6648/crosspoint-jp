@@ -32,10 +32,11 @@ const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
     StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM, StrId::STR_CAT_RTC};
 
 void SettingsActivity::enterCategory(const int categoryIndex) {
+  if (categoryIndex < 0 || categoryIndex >= categoryCount) return;
+
   selectedCategoryIndex = categoryIndex;
-  if (selectedCategoryIndex < 0) selectedCategoryIndex = categoryCount - 1;
-  if (selectedCategoryIndex >= categoryCount) selectedCategoryIndex = 0;
   rebuildSettingsLists();
+  selectedSettingIndex = 0;
 }
 
 bool SettingsActivity::currentSettingIsEditable() const {
@@ -159,6 +160,19 @@ void SettingsActivity::loop() {
     return;
   }
 
+  // Side buttons always switch category tabs.  Keep the ends fixed so an
+  // accidental press cannot wrap from the first tab to the last (or vice versa).
+  if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    enterCategory(selectedCategoryIndex - 1);
+    requestUpdate();
+    return;
+  }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+    enterCategory(selectedCategoryIndex + 1);
+    requestUpdate();
+    return;
+  }
+
   if (editingValue) {
     buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
       changeCurrentSetting(-1);
@@ -208,37 +222,27 @@ void SettingsActivity::loop() {
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
+  // Front directional buttons move between settings.  Once Confirm enters
+  // edit mode, the same Left/Right buttons change the selected value above.
+  buttonNavigator.onRelease({MappedInputManager::Button::Right}, [this] {
     selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Left}, [this] {
     selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Right}, [this] {
     selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Left}, [this] {
     selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
-
-  if (selectedSettingIndex == 0) {
-    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
-      enterCategory(selectedCategoryIndex - 1);
-      requestUpdate();
-    });
-    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
-      enterCategory(selectedCategoryIndex + 1);
-      requestUpdate();
-    });
-  }
 }
 
 void SettingsActivity::changeCurrentSetting(const int delta, const bool activateAction, const bool toggleValue) {
@@ -511,6 +515,7 @@ void SettingsActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
 
   // Always use standard refresh for settings screen
   renderer.displayBuffer();

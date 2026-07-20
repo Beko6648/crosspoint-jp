@@ -63,12 +63,12 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
 uint8_t migrateLegacyLineSpacing(const uint8_t rawValue) {
   switch (rawValue) {
     case CrossPointSettings::TIGHT:
-      return 90;
-    case CrossPointSettings::WIDE:
       return 120;
+    case CrossPointSettings::WIDE:
+      return 185;
     case CrossPointSettings::NORMAL:
     default:
-      return 100;
+      return CrossPointSettings::LINE_SPACING_DEFAULT;
   }
 }
 

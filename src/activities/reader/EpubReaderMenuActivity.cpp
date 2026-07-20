@@ -86,13 +86,14 @@ void EpubReaderMenuActivity::loop() {
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onPress({MappedInputManager::Button::Down}, [this] {
+  // Keep side buttons reserved for reading.  Front Left/Right move through
+  // the menu, then change a value after Confirm enters edit mode.
+  buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPress({MappedInputManager::Button::Up}, [this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
@@ -203,7 +204,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   const auto selectedAction = menuItems[selectedIndex].action;
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT)
                                                                         : (currentValueIsEditable() ? tr(STR_EDIT) : tr(STR_SELECT)),
-                                            editingValue ? tr(STR_PREVIOUS) : "", editingValue ? tr(STR_NEXT) : "");
+                                            tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
@@ -220,16 +221,9 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
       return SETTINGS.invertImages ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_LINE_SPACING: {
       const uint8_t spacing = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
-      constexpr uint8_t presets[] = {80, 120, 185, 220, 250};
-      constexpr StrId labels[] = {StrId::STR_MINIMUM, StrId::STR_TIGHT, StrId::STR_STANDARD, StrId::STR_WIDE,
-                                  StrId::STR_MAXIMUM};
-      int closest = 0;
-      for (int i = 1; i < 5; ++i) {
-        if (std::abs(static_cast<int>(presets[i]) - spacing) < std::abs(static_cast<int>(presets[closest]) - spacing)) {
-          closest = i;
-        }
-      }
-      return std::string(I18N.get(labels[closest]));
+      char valueBuf[16];
+      snprintf(valueBuf, sizeof(valueBuf), "%.2fx", static_cast<float>(spacing) / 100.0f);
+      return valueBuf;
     }
     case MenuAction::STYLE_STATUS_BAR:
       return "";
@@ -242,8 +236,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
 
 bool EpubReaderMenuActivity::currentValueIsEditable() const {
   const auto action = menuItems[selectedIndex].action;
-  return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_LINE_SPACING ||
-         action == MenuAction::STYLE_INVERT_IMAGES || action == MenuAction::ROTATE_SCREEN ||
+  return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_INVERT_IMAGES ||
+         action == MenuAction::ROTATE_SCREEN ||
          action == MenuAction::AUTO_PAGE_TURN || action == MenuAction::TILT_PAGE_TURN;
 }
 
@@ -253,20 +247,6 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
     case MenuAction::STYLE_FIRST_LINE_INDENT: {
       auto& value = SETTINGS.getDirectionSettings(verticalMode).firstLineIndent;
       value = toggleValue ? !value : (delta < 0 ? 0 : 1);
-      SETTINGS.saveToFile();
-      layoutChanged = true;
-      return true;
-    }
-    case MenuAction::STYLE_LINE_SPACING: {
-      auto& value = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
-      constexpr uint8_t presets[] = {80, 120, 185, 220, 250};
-      int closest = 0;
-      for (int i = 1; i < 5; ++i) {
-        if (std::abs(static_cast<int>(presets[i]) - value) < std::abs(static_cast<int>(presets[closest]) - value)) {
-          closest = i;
-        }
-      }
-      value = presets[std::clamp(closest + delta, 0, 4)];
       SETTINGS.saveToFile();
       layoutChanged = true;
       return true;

@@ -1,6 +1,7 @@
 #include "LineSpacingSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <cstdio>
@@ -92,6 +93,13 @@ void LineSpacingSelectionActivity::render(RenderLock&&) {
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // X3 puts logical Up at the first side-hint position; X4 reverses that
+  // physical order. Portrait-inverted swaps it once more.
+  bool upAtFirstHint = gpio.deviceIsX3();
+  if (renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted) {
+    upAtFirstHint = !upAtFirstHint;
+  }
+  GUI.drawSideButtonHints(renderer, upAtFirstHint ? "+10" : "-10", upAtFirstHint ? "-10" : "+10");
 
   renderer.displayBuffer();
 }
