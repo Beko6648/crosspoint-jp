@@ -131,6 +131,11 @@ void EpubReaderActivity::pregenerateCache() {
 
   const uint32_t initialDisplayStartedAt = millis();
   std::string progressDetail = std::string(tr(STR_CACHE_CHAPTER)) + " 0/" + std::to_string(spineCount);
+  renderer.clearScreen();
+  const int screenCenterY = renderer.getScreenHeight() / 2;
+  renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY, tr(STR_GENERATING_CACHE));
+  renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
+  renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
@@ -166,6 +171,7 @@ void EpubReaderActivity::pregenerateCache() {
       sectionCacheHits++;
     } else {
       const uint32_t sectionStartedAt = millis();
+      bool cancelledDuringSection = false;
       const int cssBodyFontIds[4] = {SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::SMALL),
                                      SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::MEDIUM),
                                      SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::LARGE),
@@ -179,7 +185,17 @@ void EpubReaderActivity::pregenerateCache() {
                                    const uint32_t pngStartedAt = millis();
                                    generatedPngCaches += pregeneratePngCaches(page, renderer);
                                    pngCacheMs += millis() - pngStartedAt;
+                                 },
+                                 [&cancelledDuringSection] {
+                                   constexpr int ADC_NO_BUTTON = 3800;
+                                   cancelledDuringSection = analogRead(1) < ADC_NO_BUTTON || analogRead(2) < ADC_NO_BUTTON;
+                                   return cancelledDuringSection;
                                  })) {
+        if (cancelledDuringSection) {
+          LOG_DBG("ERS", "Pregenerate cancelled while building section %d/%d", i, spineCount);
+          cancelled = true;
+          break;
+        }
         LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
         continue;
       }

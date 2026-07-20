@@ -219,6 +219,8 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 
   if (state == GENERATING) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_GENERATING_ALL_CACHE));
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
     renderer.displayBuffer();
     return;
   }

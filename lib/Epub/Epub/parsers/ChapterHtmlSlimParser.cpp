@@ -1462,6 +1462,16 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   // Compute the time taken to parse and build pages
   const uint32_t chapterStartTime = millis();
   do {
+    if (cancelFn && cancelFn()) {
+      LOG_DBG("EHP", "Parsing cancelled by user");
+      XML_StopParser(parser, XML_FALSE);
+      XML_SetElementHandler(parser, nullptr, nullptr);
+      XML_SetCharacterDataHandler(parser, nullptr);
+      XML_ParserFree(parser);
+      file.close();
+      return false;
+    }
+
     void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buf) {
       LOG_ERR("EHP", "Couldn't allocate memory for buffer");

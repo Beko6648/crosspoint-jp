@@ -53,7 +53,8 @@ class Section {
                          const std::function<void()>& popupFn = nullptr, const int* headingFontIds = nullptr,
                          int tableFontId = 0, const int* cssBodyFontIds = nullptr,
                          const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn = nullptr,
-                         const std::function<void(const Page&)>& pageReadyFn = nullptr);
+                         const std::function<void(const Page&)>& pageReadyFn = nullptr,
+                         const std::function<bool()>& cancelFn = nullptr);
   std::unique_ptr<Page> loadPageFromSectionFile();
   std::unique_ptr<Page> loadPageFromSectionFile(uint16_t pageNumber);
 
