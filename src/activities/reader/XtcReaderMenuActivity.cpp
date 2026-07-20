@@ -94,7 +94,8 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
   const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+  constexpr int landscapeHintGutterWidth = 100;
+  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
   const int contentX = isLandscapeCw ? hintGutterWidth : 0;
   const int contentWidth = pageWidth - hintGutterWidth;
   const int hintGutterHeight = isPortraitInverted ? 50 : 0;

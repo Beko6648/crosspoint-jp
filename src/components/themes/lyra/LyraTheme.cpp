@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -434,7 +435,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
 void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
+  const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
+  const auto orientation = renderer.getOrientation();
   const bool placeAtTop = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const bool roundTop = !placeAtTop;
   const bool roundBottom = placeAtTop;
@@ -448,6 +451,27 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int x3ButtonPositions[] = {65, 157, 291, 383};
   const int* buttonPositions = gpio.deviceIsX3() ? x3ButtonPositions : x4ButtonPositions;
   const char* labels[] = {btn1, btn2, btn3, btn4};
+
+  const bool isLandscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                           orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  if (isLandscape) {
+    const int buttonLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise ? 0 : pageWidth - buttonWidth;
+    if (orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+      std::swap(labels[0], labels[3]);
+      std::swap(labels[1], labels[2]);
+    }
+    for (int i = 0; i < 4; ++i) {
+      const int y = buttonPositions[i];
+      if (labels[i] != nullptr && labels[i][0] != '\0') {
+        renderer.fillRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, cornerRadius, Color::White);
+        renderer.drawRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, 1, cornerRadius, true, true, true, true,
+                                 true);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+        renderer.drawText(SMALL_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, labels[i]);
+      }
+    }
+    return;
+  }
   const int buttonTop = placeAtTop ? 0 : pageHeight - buttonY;
   const int smallButtonTop = placeAtTop ? 0 : pageHeight - smallButtonHeight;
 
@@ -472,9 +496,33 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
 
 void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {
   const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
   constexpr int buttonWidth = LyraMetrics::values.sideButtonHintsWidth;  // Width on screen (height when rotated)
   constexpr int buttonHeight = 78;                                       // Height on screen (width when rotated)
   constexpr int buttonMargin = 0;
+
+  const auto orientation = renderer.getOrientation();
+  if (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+      orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    const bool frontHintsOnLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    // Keep short Japanese labels horizontal and fully visible in landscape.
+    constexpr int landscapeButtonWidth = 54;
+    const int x = frontHintsOnLeft ? screenWidth - landscapeButtonWidth : buttonMargin;
+    const int y = (screenHeight - buttonHeight * 2) / 2;
+    const char* labels[] = {topBtn, bottomBtn};
+    for (int i = 0; i < 2; ++i) {
+      if (labels[i] != nullptr && labels[i][0] != '\0') {
+        const int buttonY = y + i * buttonHeight;
+        renderer.drawRoundedRect(x, buttonY, landscapeButtonWidth, buttonHeight, 1, cornerRadius, true, true, true, true,
+                                 true);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+        const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
+        renderer.drawText(SMALL_FONT_ID, x + (landscapeButtonWidth - textWidth) / 2,
+                          buttonY + (buttonHeight - textHeight) / 2, labels[i]);
+      }
+    }
+    return;
+  }
 
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher

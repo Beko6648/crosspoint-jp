@@ -417,6 +417,10 @@ void EpubReaderActivity::loop() {
                              const auto& menu = std::get<MenuResult>(result.data);
                              applyOrientation(menu.orientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
+                             if (menu.layoutChanged) {
+                               invalidateSectionPreservingPosition();
+                               requestUpdate();
+                             }
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
                              }
@@ -440,7 +444,11 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  const auto orientation = renderer.getOrientation();
+  const bool reverseSideButtons = verticalMode &&
+                                  (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                                   orientation == GfxRenderer::Orientation::LandscapeCounterClockwise);
+  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseSideButtons);
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -1314,25 +1322,49 @@ void EpubReaderActivity::renderRubyAdjustOverlay() const {
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
   const int footerHeight = metrics.buttonHintsHeight;
-  const bool frontHintsAtTop = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const auto orientation = renderer.getOrientation();
+  const bool isLandscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                           orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  const bool frontHintsAtTop = orientation == GfxRenderer::Orientation::PortraitInverted;
   const int footerY = frontHintsAtTop ? 0 : screenHeight - footerHeight;
   const int valueBandHeight = 26;
   const int valueY = frontHintsAtTop ? screenHeight - footerHeight - valueBandHeight + 5 : 5;
 
   // Keep the temporary controls legible over dense book text. The final ruby
   // position remains visible after Done removes this overlay.
-  renderer.fillRect(0, footerY, screenWidth, footerHeight, false);
-  renderer.fillRect(screenWidth - metrics.sideButtonHintsWidth, 0, metrics.sideButtonHintsWidth, screenHeight, false);
-  renderer.fillRect(0, valueY - 5, screenWidth, valueBandHeight, false);
+  int valueBandX = 0;
+  int valueBandWidth = screenWidth;
+  int adjustedValueY = valueY;
+  if (isLandscape) {
+    constexpr int frontHintWidth = 100;
+    constexpr int sideHintWidth = 54;
+    const bool frontHintsOnLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    const int frontHintX = frontHintsOnLeft ? 0 : screenWidth - frontHintWidth;
+    const int sideHintX = frontHintsOnLeft ? screenWidth - sideHintWidth : 0;
+    renderer.fillRect(frontHintX, 0, frontHintWidth, screenHeight, false);
+    renderer.fillRect(sideHintX, 0, sideHintWidth, screenHeight, false);
+    valueBandX = frontHintsOnLeft ? frontHintWidth : sideHintWidth;
+    valueBandWidth = screenWidth - frontHintWidth - sideHintWidth;
+    adjustedValueY = 5;
+  } else {
+    renderer.fillRect(0, footerY, screenWidth, footerHeight, false);
+    renderer.fillRect(screenWidth - metrics.sideButtonHintsWidth, 0, metrics.sideButtonHintsWidth, screenHeight, false);
+  }
+  renderer.fillRect(valueBandX, adjustedValueY - 5, valueBandWidth, valueBandHeight, false);
 
   char value[24];
   snprintf(value, sizeof(value), "X:%+d  Y:%+d", static_cast<int>(ds.rubyOffsetX) - 16,
            static_cast<int>(ds.rubyOffsetY) - 16);
-  renderer.drawCenteredText(UI_10_FONT_ID, valueY, value);
+  const int valueWidth = renderer.getTextWidth(UI_10_FONT_ID, value);
+  renderer.drawText(UI_10_FONT_ID, valueBandX + (valueBandWidth - valueWidth) / 2, adjustedValueY, value);
   const auto labels =
       mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), tr(STR_RUBY_X_MINUS), tr(STR_RUBY_X_PLUS));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  GUI.drawSideButtonHints(renderer, tr(STR_RUBY_Y_MINUS), tr(STR_RUBY_Y_PLUS));
+  // With the right side up, the fixed physical side buttons appear in the
+  // opposite screen order. Keep the hint order aligned with their actual Y action.
+  const bool swapRubyYHints = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  GUI.drawSideButtonHints(renderer, swapRubyYHints ? tr(STR_RUBY_Y_PLUS) : tr(STR_RUBY_Y_MINUS),
+                          swapRubyYHints ? tr(STR_RUBY_Y_MINUS) : tr(STR_RUBY_Y_PLUS));
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

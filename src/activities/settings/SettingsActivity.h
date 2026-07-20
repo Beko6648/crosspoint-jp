@@ -163,13 +163,15 @@ class SettingsActivity final : public Activity {
   int initialCategoryIndex = 0;
   int initialSettingIndex = 0;
   bool skipNextButtonCheck = false;
+  bool editingValue = false;
 
   static constexpr int MAX_CATEGORIES = 5;
   static const StrId categoryNames[MAX_CATEGORIES];
   int categoryCount = MAX_CATEGORIES;
 
   void enterCategory(int categoryIndex);
-  void toggleCurrentSetting();
+  bool currentSettingIsEditable() const;
+  void changeCurrentSetting(int delta, bool activateAction = false, bool toggleValue = false);
   void rebuildSettingsLists();
 
  public:

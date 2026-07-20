@@ -100,7 +100,8 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   // Inverted portrait: reserve vertical space for hints at the top.
   const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+  constexpr int landscapeHintGutterWidth = 100;
+  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
   // Landscape CW places hints on the left edge; CCW keeps them on the right.
   const int contentX = isLandscapeCw ? hintGutterWidth : 0;
   const int contentWidth = pageWidth - hintGutterWidth;

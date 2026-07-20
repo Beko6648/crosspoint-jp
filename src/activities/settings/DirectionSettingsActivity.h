@@ -13,10 +13,11 @@ class DirectionSettingsActivity final : public Activity {
   bool isVertical;
   int selectedIndex = 0;
   bool skipNextButtonCheck = true;
+  bool editingValue = false;
 
   struct Item {
     StrId nameId;
-    enum class Type { TOGGLE, ENUM, VALUE, LINE_SPACING, FONT_FAMILY } type;
+    enum class Type { TOGGLE, ENUM, PRESET, FONT_FAMILY } type;
     uint8_t DirectionSettings::* valuePtr = nullptr;
     std::vector<StrId> enumValues;
     struct ValueRange {
@@ -25,11 +26,13 @@ class DirectionSettingsActivity final : public Activity {
       uint8_t step;
     };
     ValueRange valueRange = {};
+    std::vector<uint8_t> presetValues;
   };
 
   std::vector<Item> items;
   void buildItems();
-  void toggleCurrentItem();
+  bool currentItemIsEditable() const;
+  void changeCurrentItem(int delta, bool activateAction = false, bool toggleValue = false);
   DirectionSettings& ds() { return SETTINGS.getDirectionSettings(isVertical); }
   const DirectionSettings& ds() const { return SETTINGS.getDirectionSettings(isVertical); }
 

@@ -21,6 +21,7 @@ class StatusBarSettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   int selectedIndex = 0;
+  bool editingValue = false;
 
-  void handleSelection();
+  void changeCurrentSetting(int delta, bool toggleValue = false);
 };

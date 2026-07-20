@@ -5,6 +5,7 @@
 #include <I18n.h>
 
 #include <cstdio>
+#include <algorithm>
 
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
@@ -33,12 +34,14 @@ void DirectionSettingsActivity::buildItems() {
                    {}});
 
   // Line Spacing (slider)
-  items.push_back(
-      {StrId::STR_LINE_SPACING, Item::Type::LINE_SPACING, &DirectionSettings::lineSpacing, {}, {80, 250, 1}});
+  // Each reading-layout control uses the same five reader-facing presets.
+  items.push_back({StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {},
+                   {80, 120, 185, 220, 250}});
 
   // Character Spacing (vertical only — horizontal char spacing is not supported by renderer)
   if (isVertical) {
-    items.push_back({StrId::STR_CHAR_SPACING, Item::Type::VALUE, &DirectionSettings::charSpacing, {}, {0, 50, 5}});
+    items.push_back({StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {},
+                     {0, 8, 15, 30, 50}});
   }
 
   // Paragraph Alignment
@@ -50,13 +53,15 @@ void DirectionSettingsActivity::buildItems() {
        {}});
 
   // Extra Paragraph Spacing
-  items.push_back({StrId::STR_EXTRA_SPACING, Item::Type::TOGGLE, &DirectionSettings::extraParagraphSpacing, {}, {}});
+  items.push_back({StrId::STR_EXTRA_SPACING, Item::Type::PRESET, &DirectionSettings::extraParagraphSpacing, {}, {},
+                   {0, 1, 2, 3, 4}});
 
   // Hyphenation
   items.push_back({StrId::STR_HYPHENATION, Item::Type::TOGGLE, &DirectionSettings::hyphenationEnabled, {}, {}});
 
   // Screen Margin
-  items.push_back({StrId::STR_SCREEN_MARGIN, Item::Type::VALUE, &DirectionSettings::screenMargin, {}, {5, 40, 5}});
+  items.push_back({StrId::STR_SCREEN_MARGIN, Item::Type::PRESET, &DirectionSettings::screenMargin, {}, {},
+                   {5, 8, 10, 20, 40}});
 
   // First Line Indent
   items.push_back({StrId::STR_FIRST_LINE_INDENT, Item::Type::TOGGLE, &DirectionSettings::firstLineIndent, {}, {}});
@@ -71,19 +76,24 @@ void DirectionSettingsActivity::onEnter() {
   requestUpdate();
 }
 
+bool DirectionSettingsActivity::currentItemIsEditable() const {
+  return selectedIndex >= 0 && selectedIndex < static_cast<int>(items.size()) &&
+         items[selectedIndex].type != Item::Type::FONT_FAMILY;
+}
+
 void DirectionSettingsActivity::onExit() {
   SETTINGS.saveToFile();
   Activity::onExit();
 }
 
-void DirectionSettingsActivity::toggleCurrentItem() {
+void DirectionSettingsActivity::changeCurrentItem(const int delta, const bool activateAction, const bool toggleValue) {
   if (selectedIndex < 0 || selectedIndex >= static_cast<int>(items.size())) return;
 
   const auto& item = items[selectedIndex];
 
   switch (item.type) {
     case Item::Type::TOGGLE: {
-      ds().*(item.valuePtr) = !(ds().*(item.valuePtr));
+      ds().*(item.valuePtr) = toggleValue ? !(ds().*(item.valuePtr)) : (delta < 0 ? 0 : 1);
       SETTINGS.saveToFile();
       break;
     }
@@ -93,37 +103,25 @@ void DirectionSettingsActivity::toggleCurrentItem() {
         return;
       }
       const uint8_t cur = ds().*(item.valuePtr);
-      ds().*(item.valuePtr) = (cur + 1) % static_cast<uint8_t>(item.enumValues.size());
+      const int next = std::clamp(static_cast<int>(cur) + delta, 0, static_cast<int>(item.enumValues.size()) - 1);
+      ds().*(item.valuePtr) = static_cast<uint8_t>(next);
       SETTINGS.saveToFile();
       break;
     }
-    case Item::Type::VALUE: {
-      uint8_t& val = ds().*(item.valuePtr);
-      if (val + item.valueRange.step > item.valueRange.max) {
-        val = item.valueRange.min;
-      } else {
-        val = val + item.valueRange.step;
+    case Item::Type::PRESET: {
+      const uint8_t current = ds().*(item.valuePtr);
+      int closest = 0;
+      for (int i = 1; i < static_cast<int>(item.presetValues.size()); ++i) {
+        if (std::abs(static_cast<int>(item.presetValues[i]) - current) <
+            std::abs(static_cast<int>(item.presetValues[closest]) - current)) closest = i;
       }
+      const int next = std::clamp(closest + delta, 0, static_cast<int>(item.presetValues.size()) - 1);
+      ds().*(item.valuePtr) = item.presetValues[next];
       SETTINGS.saveToFile();
       break;
-    }
-    case Item::Type::LINE_SPACING: {
-      uint8_t& target = ds().*(item.valuePtr);
-      startActivityForResult(std::make_unique<LineSpacingSelectionActivity>(
-                                 renderer, mappedInput, static_cast<int>(target),
-                                 [this, &target](const int selectedValue) {
-                                   target = static_cast<uint8_t>(selectedValue);
-                                   SETTINGS.saveToFile();
-                                   finish();
-                                 },
-                                 [this] { finish(); }),
-                             [this](const ActivityResult&) {
-                               skipNextButtonCheck = true;
-                               requestUpdate();
-                             });
-      return;
     }
     case Item::Type::FONT_FAMILY: {
+      if (!activateAction) return;
       startActivityForResult(
           std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), isVertical),
           [this](const ActivityResult&) {
@@ -150,18 +148,34 @@ void DirectionSettingsActivity::loop() {
     return;
   }
 
-  buttonNavigator.onNext([this] {
+  if (editingValue) {
+    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] { changeCurrentItem(-1); });
+    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] { changeCurrentItem(1); });
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      editingValue = false;
+      requestUpdate();
+    }
+    return;
+  }
+
+  buttonNavigator.onPress({MappedInputManager::Button::Down}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(items.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Up}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(items.size()));
     requestUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    toggleCurrentItem();
+    if (currentItemIsEditable()) {
+      editingValue = true;
+      requestUpdate();
+    } else {
+      changeCurrentItem(1, true, true);
+    }
     return;
   }
 
@@ -207,12 +221,16 @@ void DirectionSettingsActivity::render(RenderLock&&) {
             const uint8_t val = ds().*(item.valuePtr);
             return std::string(I18N.get(item.enumValues[val]));
           }
-          case Item::Type::VALUE:
-            return std::to_string(ds().*(item.valuePtr));
-          case Item::Type::LINE_SPACING: {
-            char buf[16];
-            snprintf(buf, sizeof(buf), "%.2fx", static_cast<float>(ds().*(item.valuePtr)) / 100.0f);
-            return std::string(buf);
+          case Item::Type::PRESET: {
+            const uint8_t value = ds().*(item.valuePtr);
+            int closest = 0;
+            for (int index = 1; index < static_cast<int>(item.presetValues.size()); ++index) {
+              if (std::abs(static_cast<int>(item.presetValues[index]) - value) <
+                  std::abs(static_cast<int>(item.presetValues[closest]) - value)) closest = index;
+            }
+            constexpr StrId labels[] = {StrId::STR_MINIMUM, StrId::STR_TIGHT, StrId::STR_STANDARD,
+                                        StrId::STR_WIDE, StrId::STR_MAXIMUM};
+            return std::string(I18N.get(labels[closest]));
           }
           case Item::Type::FONT_FAMILY: {
             // Show current font name for this direction
@@ -237,10 +255,19 @@ void DirectionSettingsActivity::render(RenderLock&&) {
         }
         return "";
       },
-      true);
+      editingValue);
 
-  // Button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Button hints identify whether the selected item is being edited.
+  const char* confirmLabel = tr(STR_SELECT);
+  const char* previousLabel = "";
+  const char* nextLabel = "";
+  if (editingValue) {
+    previousLabel = tr(STR_PREVIOUS);
+    nextLabel = tr(STR_NEXT);
+  } else if (currentItemIsEditable()) {
+    confirmLabel = tr(STR_EDIT);
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

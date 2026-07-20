@@ -71,19 +71,39 @@ void EpubReaderMenuActivity::loop() {
     return;
   }
 
+  if (editingValue) {
+    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
+      if (changeCurrentValue(-1)) requestUpdate();
+    });
+    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
+      if (changeCurrentValue(1)) requestUpdate();
+    });
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      editingValue = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   // Handle navigation
-  buttonNavigator.onNext([this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Down}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Up}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const auto selectedAction = menuItems[selectedIndex].action;
+    if (currentValueIsEditable()) {
+      editingValue = true;
+      requestUpdate();
+      return;
+    }
     if (selectedAction == MenuAction::ROTATE_SCREEN) {
       // Cycle orientation preview locally; actual rotation happens on menu exit.
       pendingOrientation = (pendingOrientation + 1) % orientationLabels.size();
@@ -91,27 +111,13 @@ void EpubReaderMenuActivity::loop() {
       return;
     }
 
-    if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
-      selectedPageTurnOption = (selectedPageTurnOption + 1) % pageTurnLabels.size();
-      requestUpdate();
-      return;
-    }
-
-    if (selectedAction == MenuAction::TILT_PAGE_TURN) {
-      // Toggle inline so the menu stays open and shows the updated value.
-      SETTINGS.tiltPageTurn = !SETTINGS.tiltPageTurn;
-      SETTINGS.saveToFile();
-      requestUpdate();
-      return;
-    }
-
-    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption});
+    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption, layoutChanged});
     finish();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
     result.isCancelled = true;
-    result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption};
+    result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, layoutChanged};
     setResult(std::move(result));
     finish();
     return;
@@ -129,7 +135,8 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // Inverted portrait: button hints appear near the logical top, so we reserve
   // vertical space to keep the header and list clear.
   const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? 30 : 0;
+  constexpr int landscapeHintGutterWidth = 100;
+  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
   // Landscape CW places hints on the left edge; CCW keeps them on the right.
   const int contentX = isLandscapeCw ? hintGutterWidth : 0;
   const int contentWidth = pageWidth - hintGutterWidth;
@@ -193,7 +200,10 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   }
 
   // Footer / Hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto selectedAction = menuItems[selectedIndex].action;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT)
+                                                                        : (currentValueIsEditable() ? tr(STR_EDIT) : tr(STR_SELECT)),
+                                            editingValue ? tr(STR_PREVIOUS) : "", editingValue ? tr(STR_NEXT) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
@@ -209,10 +219,17 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
     case MenuAction::STYLE_INVERT_IMAGES:
       return SETTINGS.invertImages ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_LINE_SPACING: {
-      char spacingBuf[16];
       const uint8_t spacing = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
-      snprintf(spacingBuf, sizeof(spacingBuf), "%.2fx", static_cast<float>(spacing) / 100.0f);
-      return spacingBuf;
+      constexpr uint8_t presets[] = {80, 120, 185, 220, 250};
+      constexpr StrId labels[] = {StrId::STR_MINIMUM, StrId::STR_TIGHT, StrId::STR_STANDARD, StrId::STR_WIDE,
+                                  StrId::STR_MAXIMUM};
+      int closest = 0;
+      for (int i = 1; i < 5; ++i) {
+        if (std::abs(static_cast<int>(presets[i]) - spacing) < std::abs(static_cast<int>(presets[closest]) - spacing)) {
+          closest = i;
+        }
+      }
+      return std::string(I18N.get(labels[closest]));
     }
     case MenuAction::STYLE_STATUS_BAR:
       return "";
@@ -220,5 +237,57 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
       return SETTINGS.tiltPageTurn ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
     default:
       return "";
+  }
+}
+
+bool EpubReaderMenuActivity::currentValueIsEditable() const {
+  const auto action = menuItems[selectedIndex].action;
+  return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_LINE_SPACING ||
+         action == MenuAction::STYLE_INVERT_IMAGES || action == MenuAction::ROTATE_SCREEN ||
+         action == MenuAction::AUTO_PAGE_TURN || action == MenuAction::TILT_PAGE_TURN;
+}
+
+bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool toggleValue) {
+  const auto action = menuItems[selectedIndex].action;
+  switch (action) {
+    case MenuAction::STYLE_FIRST_LINE_INDENT: {
+      auto& value = SETTINGS.getDirectionSettings(verticalMode).firstLineIndent;
+      value = toggleValue ? !value : (delta < 0 ? 0 : 1);
+      SETTINGS.saveToFile();
+      layoutChanged = true;
+      return true;
+    }
+    case MenuAction::STYLE_LINE_SPACING: {
+      auto& value = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
+      constexpr uint8_t presets[] = {80, 120, 185, 220, 250};
+      int closest = 0;
+      for (int i = 1; i < 5; ++i) {
+        if (std::abs(static_cast<int>(presets[i]) - value) < std::abs(static_cast<int>(presets[closest]) - value)) {
+          closest = i;
+        }
+      }
+      value = presets[std::clamp(closest + delta, 0, 4)];
+      SETTINGS.saveToFile();
+      layoutChanged = true;
+      return true;
+    }
+    case MenuAction::STYLE_INVERT_IMAGES:
+      SETTINGS.invertImages = toggleValue ? !SETTINGS.invertImages : (delta < 0 ? 0 : 1);
+      SETTINGS.saveToFile();
+      return true;
+    case MenuAction::ROTATE_SCREEN:
+      pendingOrientation = static_cast<uint8_t>(std::clamp(static_cast<int>(pendingOrientation) + delta, 0,
+                                                            static_cast<int>(orientationLabels.size()) - 1));
+      return true;
+    case MenuAction::AUTO_PAGE_TURN:
+      selectedPageTurnOption = static_cast<uint8_t>(std::clamp(static_cast<int>(selectedPageTurnOption) + delta, 0,
+                                                                static_cast<int>(pageTurnLabels.size()) - 1));
+      return true;
+    case MenuAction::TILT_PAGE_TURN:
+      SETTINGS.tiltPageTurn = toggleValue ? !SETTINGS.tiltPageTurn : (delta < 0 ? 0 : 1);
+      SETTINGS.saveToFile();
+      return true;
+    default:
+      return false;
   }
 }

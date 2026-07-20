@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include <cstring>
+#include <algorithm>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
@@ -57,59 +58,74 @@ void StatusBarSettingsActivity::onEnter() {
 void StatusBarSettingsActivity::onExit() { Activity::onExit(); }
 
 void StatusBarSettingsActivity::loop() {
+  if (editingValue) {
+    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
+      changeCurrentSetting(-1);
+      requestUpdate();
+    });
+    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
+      changeCurrentSetting(1);
+      requestUpdate();
+    });
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      editingValue = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
     return;
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    handleSelection();
+    editingValue = true;
     requestUpdate();
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onNextRelease([this] {
+  // Side buttons navigate the list; front left/right change the selected value.
+  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this] {
+  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
+
 }
 
-void StatusBarSettingsActivity::handleSelection() {
+void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool toggleValue) {
   if (selectedIndex == 0) {
-    // Chapter Page Count
-    SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
+    SETTINGS.statusBarChapterPageCount = toggleValue ? !SETTINGS.statusBarChapterPageCount : (delta < 0 ? 0 : 1);
   } else if (selectedIndex == 1) {
-    // Book Progress %
-    SETTINGS.statusBarBookProgressPercentage = (SETTINGS.statusBarBookProgressPercentage + 1) % 2;
+    SETTINGS.statusBarBookProgressPercentage =
+        toggleValue ? !SETTINGS.statusBarBookProgressPercentage : (delta < 0 ? 0 : 1);
   } else if (selectedIndex == 2) {
-    // Progress Bar
-    SETTINGS.statusBarProgressBar = (SETTINGS.statusBarProgressBar + 1) % PROGRESS_BAR_ITEMS;
+    SETTINGS.statusBarProgressBar = static_cast<uint8_t>(std::clamp(
+        static_cast<int>(SETTINGS.statusBarProgressBar) + delta, 0, PROGRESS_BAR_ITEMS - 1));
   } else if (selectedIndex == 3) {
-    // Progress Bar Thickness
-    SETTINGS.statusBarProgressBarThickness =
-        (SETTINGS.statusBarProgressBarThickness + 1) % PROGRESS_BAR_THICKNESS_ITEMS;
+    SETTINGS.statusBarProgressBarThickness = static_cast<uint8_t>(std::clamp(
+        static_cast<int>(SETTINGS.statusBarProgressBarThickness) + delta, 0, PROGRESS_BAR_THICKNESS_ITEMS - 1));
   } else if (selectedIndex == 4) {
-    // Chapter Title
-    SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
+    SETTINGS.statusBarTitle =
+        static_cast<uint8_t>(std::clamp(static_cast<int>(SETTINGS.statusBarTitle) + delta, 0, TITLE_ITEMS - 1));
   } else if (selectedIndex == 5) {
-    // Show Battery
-    SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
+    SETTINGS.statusBarBattery = toggleValue ? !SETTINGS.statusBarBattery : (delta < 0 ? 0 : 1);
   }
   SETTINGS.saveToFile();
 }
@@ -150,10 +166,11 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
           return tr(STR_HIDE);
         }
       },
-      true);
+      editingValue);
 
-  // Draw button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT) : tr(STR_EDIT),
+                                            editingValue ? tr(STR_PREVIOUS) : "",
+                                            editingValue ? tr(STR_NEXT) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

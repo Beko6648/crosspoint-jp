@@ -66,6 +66,10 @@ class EpubReaderMenuActivity final : public Activity {
   int bookProgressPercent = 0;
   bool skipNextButtonCheck = true;
   bool verticalMode = false;
+  bool layoutChanged = false;
+  bool editingValue = false;
 
+  bool currentValueIsEditable() const;
+  bool changeCurrentValue(int delta, bool toggleValue = false);
   std::string getMenuItemValue(MenuAction action) const;
 };

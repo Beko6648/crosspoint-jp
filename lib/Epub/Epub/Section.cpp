@@ -23,7 +23,8 @@ namespace {
 // Version 53: vertical ruby no longer adds per-column spacing beyond the common gutter.
 // Version 54: horizontal line breaks apply Japanese head and tail kinsoku rules.
 // Version 55: PNG dimensions no longer fail under low heap and omit images from persisted pages.
-constexpr uint8_t SECTION_FILE_VERSION = 55;
+// Version 56: paragraph spacing stores its five-level preset rather than an on/off flag.
+constexpr uint8_t SECTION_FILE_VERSION = 56;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -42,7 +43,7 @@ constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;        // 96KB
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
-constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(uint8_t) +
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) +
                                  sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
                                  sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) + sizeof(uint8_t) +  // charSpacing
                                  sizeof(uint32_t) + sizeof(uint32_t);
@@ -51,7 +52,7 @@ struct SectionHeader {
   uint8_t version = 0;
   int fontId = 0;
   float lineCompression = 0.0f;
-  bool extraParagraphSpacing = false;
+  uint8_t extraParagraphSpacing = 0;
   uint8_t paragraphAlignment = 0;
   uint16_t viewportWidth = 0;
   uint16_t viewportHeight = 0;
@@ -186,7 +187,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   return position;
 }
 
-void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
+void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
                                      const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                      const uint16_t viewportHeight, const bool hyphenationEnabled,
                                      const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
@@ -219,7 +220,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
 }
 
-bool Section::loadSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
+bool Section::loadSectionFile(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
                               const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, const bool hyphenationEnabled, const bool firstLineIndent,
                               const uint8_t bookStyle, const uint8_t imageRendering, const bool verticalMode,
@@ -422,7 +423,7 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   return true;
 }
 
-bool Section::createSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
+bool Section::createSectionFile(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,

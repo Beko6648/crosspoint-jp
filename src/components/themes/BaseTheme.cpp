@@ -140,7 +140,9 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 
 void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
+  const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
+  const auto orientation = renderer.getOrientation();
   const bool placeAtTop = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   constexpr int buttonWidth = 106;
   constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
@@ -151,6 +153,26 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int x3ButtonPositions[] = {38, 154, 268, 384};
   const int* buttonPositions = gpio.deviceIsX3() ? x3ButtonPositions : x4ButtonPositions;
   const char* labels[] = {btn1, btn2, btn3, btn4};
+
+  const bool isLandscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                           orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  if (isLandscape) {
+    const int buttonLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise ? 0 : pageWidth - buttonWidth;
+    if (orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+      std::swap(labels[0], labels[3]);
+      std::swap(labels[1], labels[2]);
+    }
+    for (int i = 0; i < 4; ++i) {
+      if (labels[i] != nullptr && labels[i][0] != '\0') {
+        const int y = buttonPositions[i];
+        renderer.fillRect(buttonLeft, y, buttonWidth, buttonHeight, false);
+        renderer.drawRect(buttonLeft, y, buttonWidth, buttonHeight);
+        const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+        renderer.drawText(UI_10_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, labels[i]);
+      }
+    }
+    return;
+  }
   const int buttonTop = placeAtTop ? 0 : pageHeight - buttonY;
 
   for (int i = 0; i < 4; i++) {
@@ -168,9 +190,35 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
 
 void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {
   const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
   constexpr int buttonWidth = BaseMetrics::values.sideButtonHintsWidth;  // Width on screen (height when rotated)
   constexpr int buttonHeight = 80;                                       // Height on screen (width when rotated)
   constexpr int buttonMargin = 4;
+
+  const auto orientation = renderer.getOrientation();
+  if (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+      orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    // In landscape the front-button hints occupy one vertical edge.  Keep the
+    // side-button hints on the opposite edge so six ruby-adjust controls never overlap.
+    const bool frontHintsOnLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise;
+    // Japanese labels such as "縦−" need more room than the narrow portrait
+    // side-button strip provides.
+    constexpr int landscapeButtonWidth = 54;
+    const int x = frontHintsOnLeft ? screenWidth - buttonMargin - landscapeButtonWidth : buttonMargin;
+    const int y = (screenHeight - buttonHeight * 2) / 2;
+    const char* labels[] = {topBtn, bottomBtn};
+    for (int i = 0; i < 2; ++i) {
+      if (labels[i] != nullptr && labels[i][0] != '\0') {
+        const int buttonY = y + i * buttonHeight;
+        renderer.drawRect(x, buttonY, landscapeButtonWidth, buttonHeight);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+        const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
+        renderer.drawText(SMALL_FONT_ID, x + (landscapeButtonWidth - textWidth) / 2,
+                          buttonY + (buttonHeight - textHeight) / 2, labels[i]);
+      }
+    }
+    return;
+  }
 
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher

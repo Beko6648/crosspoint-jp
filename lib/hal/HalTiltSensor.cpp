@@ -173,10 +173,12 @@ void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const 
       tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gx : -gx;
       break;
     case CrossPointOrientation::LANDSCAPE_CW:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gy : -gy;
+      // The reader's display transform for the right-side-up landscape setting
+      // uses the panel's counter-clockwise orientation.
+      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gy : gy;
       break;
     case CrossPointOrientation::LANDSCAPE_CCW:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gy : gy;
+      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gy : -gy;
       break;
     default:
       tiltAxis = gx;

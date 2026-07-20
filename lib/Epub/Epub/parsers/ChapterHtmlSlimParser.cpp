@@ -1842,9 +1842,10 @@ void ChapterHtmlSlimParser::makePages() {
     currentPageNextY += blockStyle.paddingBottom;
   }
 
-  // Extra paragraph spacing if enabled (default behavior)
-  // List items get reduced spacing to avoid excessive gaps in TOC pages etc.
-  if (extraParagraphSpacing) {
-    currentPageNextY += blockStyle.isListItem ? (lineHeight / 6) : (lineHeight / 2);
+  // Extra paragraph spacing uses the reader's five-level preset.  List items
+  // get half the normal gap to avoid excessive spacing in tables of contents.
+  if (extraParagraphSpacing != 0) {
+    const int gap = (lineHeight * extraParagraphSpacing) / 6;
+    currentPageNextY += blockStyle.isListItem ? (gap / 2) : gap;
   }
 }

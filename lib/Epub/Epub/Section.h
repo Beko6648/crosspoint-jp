@@ -19,7 +19,7 @@ class Section {
   std::string filePath;
   FsFile file;
 
- void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+ void writeSectionFileHeader(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
                               bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering, bool verticalMode,
                               uint8_t charSpacing);
@@ -43,11 +43,11 @@ class Section {
         renderer(renderer),
         filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
   ~Section() = default;
-  bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+  bool loadSectionFile(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                        uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
                        uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
   bool clearCache() const;
-  bool createSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
+  bool createSectionFile(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
                          uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
                          const std::function<void()>& popupFn = nullptr, const int* headingFontIds = nullptr,

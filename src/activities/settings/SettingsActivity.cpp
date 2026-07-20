@@ -5,6 +5,7 @@
 #include <Logging.h>
 
 #include <cstdio>
+#include <algorithm>
 
 #include "AozoraActivity.h"
 #include "ButtonRemapActivity.h"
@@ -29,6 +30,21 @@
 
 const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
     StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM, StrId::STR_CAT_RTC};
+
+void SettingsActivity::enterCategory(const int categoryIndex) {
+  selectedCategoryIndex = categoryIndex;
+  if (selectedCategoryIndex < 0) selectedCategoryIndex = categoryCount - 1;
+  if (selectedCategoryIndex >= categoryCount) selectedCategoryIndex = 0;
+  rebuildSettingsLists();
+}
+
+bool SettingsActivity::currentSettingIsEditable() const {
+  const int settingIndex = selectedSettingIndex - 1;
+  if (settingIndex < 0 || settingIndex >= settingsCount) return false;
+  const auto& setting = (*currentSettings)[settingIndex];
+  if (setting.type == SettingType::TOGGLE || setting.type == SettingType::VALUE) return true;
+  return setting.type == SettingType::ENUM && setting.nameId != StrId::STR_FONT_FAMILY;
+}
 
 void SettingsActivity::rebuildSettingsLists() {
   displaySettings.clear();
@@ -143,16 +159,35 @@ void SettingsActivity::loop() {
     return;
   }
 
-  bool hasChangedCategory = false;
+  if (editingValue) {
+    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
+      changeCurrentSetting(-1);
+      requestUpdate();
+    });
+    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
+      changeCurrentSetting(1);
+      requestUpdate();
+    });
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      editingValue = false;
+      requestUpdate();
+    }
+    return;
+  }
 
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
     if (selectedSettingIndex == 0) {
-      selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
-      hasChangedCategory = true;
-      requestUpdate();
+      // Category tabs are only changed with Left/Right.  Keeping Confirm inert
+      // here avoids an accidental jump into the first setting.
+      return;
     } else {
-      toggleCurrentSetting();
+      if (currentSettingIsEditable()) {
+        editingValue = true;
+      } else {
+        changeCurrentSetting(1, true, true);
+      }
       requestUpdate();
       return;
     }
@@ -174,52 +209,39 @@ void SettingsActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
     selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
     selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
+  buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
+    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+  buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
+    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
     requestUpdate();
   });
 
-  if (hasChangedCategory) {
-    selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
-    switch (selectedCategoryIndex) {
-      case 0:
-        currentSettings = &displaySettings;
-        break;
-      case 1:
-        currentSettings = &readerSettings;
-        break;
-      case 2:
-        currentSettings = &controlsSettings;
-        break;
-      case 3:
-        currentSettings = &systemSettings;
-        break;
-      case 4:
-        currentSettings = &rtcSettings;
-        break;
-    }
-    settingsCount = static_cast<int>(currentSettings->size());
+  if (selectedSettingIndex == 0) {
+    buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
+      enterCategory(selectedCategoryIndex - 1);
+      requestUpdate();
+    });
+    buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
+      enterCategory(selectedCategoryIndex + 1);
+      requestUpdate();
+    });
   }
 }
 
-void SettingsActivity::toggleCurrentSetting() {
+void SettingsActivity::changeCurrentSetting(const int delta, const bool activateAction, const bool toggleValue) {
   int selectedSetting = selectedSettingIndex - 1;
   if (selectedSetting < 0 || selectedSetting >= settingsCount) {
     return;
@@ -229,8 +251,7 @@ void SettingsActivity::toggleCurrentSetting() {
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
-    const bool currentValue = SETTINGS.*(setting.valuePtr);
-    SETTINGS.*(setting.valuePtr) = !currentValue;
+    SETTINGS.*(setting.valuePtr) = toggleValue ? !(SETTINGS.*(setting.valuePtr)) : (delta < 0 ? 0 : 1);
     // Apply invert images change immediately
     if (setting.nameId == StrId::STR_INVERT_IMAGES) {
       renderer.setInvertImagesInDarkMode(SETTINGS.invertImages);
@@ -254,6 +275,7 @@ void SettingsActivity::toggleCurrentSetting() {
     }
     // Font Family: open FontSelectActivity (combined built-in + external fonts)
     if (setting.nameId == StrId::STR_FONT_FAMILY) {
+      if (!activateAction) return;
       startActivityForResult(std::make_unique<FontSelectActivity>(
                                  renderer, mappedInput, FontSelectActivity::SelectMode::Reader, [this] { finish(); }),
                              [this](const ActivityResult&) {
@@ -263,7 +285,9 @@ void SettingsActivity::toggleCurrentSetting() {
       return;
     }
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
-    SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
+    const int next = std::clamp(static_cast<int>(currentValue) + delta, 0,
+                                static_cast<int>(setting.enumValues.size()) - 1);
+    SETTINGS.*(setting.valuePtr) = static_cast<uint8_t>(next);
 
     // Apply dark mode change immediately (renderer needs explicit notification)
     if (setting.nameId == StrId::STR_COLOR_MODE) {
@@ -271,6 +295,7 @@ void SettingsActivity::toggleCurrentSetting() {
     }
   } else if (setting.type == SettingType::ENUM && setting.valueGetter && setting.valueSetter) {
     if (setting.nameId == StrId::STR_FONT_FAMILY) {
+      if (!activateAction) return;
       // Launch font selection submenu instead of cycling
       startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
                              [this](const ActivityResult&) {
@@ -283,12 +308,14 @@ void SettingsActivity::toggleCurrentSetting() {
                                     ? static_cast<uint8_t>(setting.enumValues.size())
                                     : static_cast<uint8_t>(setting.enumStringValues.size());
     const uint8_t cur = setting.valueGetter();
-    setting.valueSetter((cur + 1) % totalValues);
+    const int next = std::clamp(static_cast<int>(cur) + delta, 0, static_cast<int>(totalValues) - 1);
+    setting.valueSetter(static_cast<uint8_t>(next));
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     // Line spacing uses a slider activity (0.8x-2.5x) for finer control.
     // Note: Line spacing settings have moved to DirectionSettings and are no longer in the
     // main settings list. This code path is retained for backward compatibility.
     if (setting.nameId == StrId::STR_LINE_SPACING_HORIZONTAL || setting.nameId == StrId::STR_LINE_SPACING_VERTICAL) {
+      if (!activateAction) return;
       const bool isVertical = (setting.nameId == StrId::STR_LINE_SPACING_VERTICAL);
       uint8_t& target = SETTINGS.getDirectionSettings(isVertical).lineSpacing;
       startActivityForResult(std::make_unique<LineSpacingSelectionActivity>(
@@ -303,13 +330,12 @@ void SettingsActivity::toggleCurrentSetting() {
       return;
     }
 
-    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
-    if (currentValue + setting.valueRange.step > setting.valueRange.max) {
-      SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
-    } else {
-      SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
-    }
+    const int currentValue = SETTINGS.*(setting.valuePtr);
+    const int next = std::clamp(currentValue + delta * setting.valueRange.step,
+                                static_cast<int>(setting.valueRange.min), static_cast<int>(setting.valueRange.max));
+    SETTINGS.*(setting.valuePtr) = static_cast<uint8_t>(next);
   } else if (setting.type == SettingType::ACTION) {
+    if (!activateAction) return;
     auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };
 
     switch (setting.action) {
@@ -461,13 +487,29 @@ void SettingsActivity::render(RenderLock&&) {
         }
         return valueText;
       },
-      true);
+      editingValue);
 
   // Draw help text
-  const auto confirmLabel = (selectedSettingIndex == 0)
-                                ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-                                : tr(STR_TOGGLE);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const char* confirmLabel = tr(STR_SELECT);
+  const char* previousLabel = "";
+  const char* nextLabel = "";
+  if (editingValue) {
+    confirmLabel = tr(STR_SELECT);
+    previousLabel = tr(STR_PREVIOUS);
+    nextLabel = tr(STR_NEXT);
+  } else if (selectedSettingIndex == 0) {
+    confirmLabel = "";
+    previousLabel = tr(STR_PREVIOUS);
+    nextLabel = tr(STR_NEXT);
+  } else {
+    const auto& setting = settings[selectedSettingIndex - 1];
+    if (currentSettingIsEditable()) {
+      confirmLabel = tr(STR_EDIT);
+    } else {
+      confirmLabel = tr(STR_SELECT);
+    }
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // Always use standard refresh for settings screen

@@ -37,13 +37,15 @@ inline void applyOrientation(GfxRenderer& renderer, MappedInputManager& input, c
     // Reader: use full orientation setting
     switch (readerSetting) {
       case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
-        target = GfxRenderer::Orientation::LandscapeClockwise;
+        // The panel's landscape transform is opposite to the direction a
+        // reader sees when the device's right side is held at the top.
+        target = GfxRenderer::Orientation::LandscapeCounterClockwise;
         break;
       case CrossPointSettings::ORIENTATION::INVERTED:
         target = GfxRenderer::Orientation::PortraitInverted;
         break;
       case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
-        target = GfxRenderer::Orientation::LandscapeCounterClockwise;
+        target = GfxRenderer::Orientation::LandscapeClockwise;
         break;
       case CrossPointSettings::ORIENTATION::PORTRAIT:
       default:
