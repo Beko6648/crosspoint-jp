@@ -193,8 +193,10 @@ void SettingsActivity::loop() {
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
     if (selectedSettingIndex == 0) {
-      // Category tabs are only changed with Left/Right.  Keeping Confirm inert
-      // here avoids an accidental jump into the first setting.
+      // Confirm advances category tabs, wrapping after the final tab. Side
+      // buttons remain the non-wrapping tab controls above.
+      enterCategory(ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount));
+      requestUpdate();
       return;
     } else {
       if (currentSettingIsEditable()) {
@@ -495,8 +497,8 @@ void SettingsActivity::render(RenderLock&&) {
 
   // Draw help text
   const char* confirmLabel = tr(STR_SELECT);
-  const char* previousLabel = "";
-  const char* nextLabel = "";
+  const char* previousLabel = tr(STR_PREVIOUS);
+  const char* nextLabel = tr(STR_NEXT);
   if (editingValue) {
     confirmLabel = tr(STR_SELECT);
     previousLabel = tr(STR_PREVIOUS);
@@ -515,7 +517,9 @@ void SettingsActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
+  if (selectedSettingIndex == 0) {
+    GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
+  }
 
   // Always use standard refresh for settings screen
   renderer.displayBuffer();
