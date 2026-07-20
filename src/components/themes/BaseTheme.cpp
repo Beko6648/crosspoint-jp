@@ -167,8 +167,9 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
         const int y = buttonPositions[i];
         renderer.fillRect(buttonLeft, y, buttonWidth, buttonHeight, false);
         renderer.drawRect(buttonLeft, y, buttonWidth, buttonHeight);
-        const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
-        renderer.drawText(UI_10_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, labels[i]);
+        const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 10);
+        const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
+        renderer.drawText(UI_10_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, label.c_str());
       }
     }
     return;
@@ -181,9 +182,10 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       const int x = buttonPositions[i];
       renderer.fillRect(x, buttonTop, buttonWidth, buttonHeight, false);
       renderer.drawRect(x, buttonTop, buttonWidth, buttonHeight);
-      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+      const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 10);
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, buttonTop + textYOffset, labels[i]);
+      renderer.drawText(UI_10_FONT_ID, textX, buttonTop + textYOffset, label.c_str());
     }
   }
 }

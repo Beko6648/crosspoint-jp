@@ -466,8 +466,9 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
         renderer.fillRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, cornerRadius, Color::White);
         renderer.drawRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, 1, cornerRadius, true, true, true, true,
                                  true);
-        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
-        renderer.drawText(SMALL_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, labels[i]);
+        const auto label = renderer.truncatedText(SMALL_FONT_ID, labels[i], buttonWidth - 10);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
+        renderer.drawText(SMALL_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, label.c_str());
       }
     }
     return;
@@ -482,9 +483,10 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       renderer.fillRoundedRect(x, buttonTop, buttonWidth, buttonHeight, cornerRadius, Color::White);
       renderer.drawRoundedRect(x, buttonTop, buttonWidth, buttonHeight, 1, cornerRadius, roundTop, roundTop,
                                roundBottom, roundBottom, true);
-      const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+      const auto label = renderer.truncatedText(SMALL_FONT_ID, labels[i], buttonWidth - 10);
+      const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
       const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(SMALL_FONT_ID, textX, buttonTop + textYOffset, labels[i]);
+      renderer.drawText(SMALL_FONT_ID, textX, buttonTop + textYOffset, label.c_str());
     } else {
       // Draw the filled background and border for a SMALL-sized button
       renderer.fillRoundedRect(x, smallButtonTop, buttonWidth, smallButtonHeight, cornerRadius, Color::White);
