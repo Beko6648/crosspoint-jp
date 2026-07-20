@@ -16,6 +16,9 @@ namespace {
 constexpr uint8_t SOURCE_FINGERPRINT_VERSION = 1;
 constexpr char sourceFingerprintFile[] = "/source.fingerprint";
 constexpr char sourceFingerprintTmpFile[] = "/source.fingerprint.tmp";
+constexpr uint8_t FULL_CACHE_MARKER_VERSION = 1;
+constexpr char fullCacheMarkerFile[] = "/.full_cache_complete";
+constexpr char fullCacheMarkerTmpFile[] = "/.full_cache_complete.tmp";
 }  // namespace
 
 bool Epub::prepareSourceFingerprint(const uint64_t fingerprint, bool& markerNeedsWrite) {
@@ -79,6 +82,50 @@ bool Epub::saveSourceFingerprint(const uint64_t fingerprint) const {
   if (!Storage.rename(tmpPath.c_str(), markerPath.c_str())) {
     Storage.remove(tmpPath.c_str());
     LOG_ERR("EBP", "Could not finalize EPUB source fingerprint");
+    return false;
+  }
+  return true;
+}
+
+bool Epub::isFullCacheGenerated() const {
+  FsFile marker;
+  if (!Storage.openFileForRead("EBP", cachePath + fullCacheMarkerFile, marker)) {
+    return false;
+  }
+  uint8_t version = 0;
+  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) &&
+                     marker.available() == 0 && version == FULL_CACHE_MARKER_VERSION;
+  marker.close();
+  return valid;
+}
+
+void Epub::clearFullCacheGeneratedMarker() const {
+  Storage.remove((cachePath + fullCacheMarkerTmpFile).c_str());
+  Storage.remove((cachePath + fullCacheMarkerFile).c_str());
+}
+
+bool Epub::markFullCacheGenerated() const {
+  const std::string markerPath = cachePath + fullCacheMarkerFile;
+  const std::string tmpPath = cachePath + fullCacheMarkerTmpFile;
+  Storage.remove(tmpPath.c_str());
+
+  FsFile marker;
+  if (!Storage.openFileForWrite("EBP", tmpPath, marker)) {
+    LOG_ERR("EBP", "Could not create full-cache completion marker");
+    return false;
+  }
+  const uint8_t version = FULL_CACHE_MARKER_VERSION;
+  const bool written = marker.write(&version, sizeof(version)) == sizeof(version);
+  marker.flush();
+  marker.close();
+  if (!written) {
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  Storage.remove(markerPath.c_str());
+  if (!Storage.rename(tmpPath.c_str(), markerPath.c_str())) {
+    Storage.remove(tmpPath.c_str());
+    LOG_ERR("EBP", "Could not publish full-cache completion marker");
     return false;
   }
   return true;
@@ -312,10 +359,17 @@ void Epub::parseCssFiles() const {
   LOG_DBG("EBP", "CSS files to parse: %zu", cssFiles.size());
   LOG_DBG("EBP", "CSS heap before parsing: free=%u, maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
-  // See if we have a cached version of the CSS rules
+  // Validate an existing cache before a book.bin rebuild reuses it.  Presence
+  // alone is not enough: an interrupted write, a changed EPUB, or a truncated
+  // file must fall through to a clean rebuild.
   if (cssParser->hasCache()) {
-    LOG_DBG("EBP", "CSS cache exists, skipping parseCssFiles");
-    return;
+    if (cssParser->loadFromCache()) {
+      cssParser->clear();
+      LOG_DBG("EBP", "CSS cache validated, skipping parseCssFiles");
+      return;
+    }
+    cssParser->deleteCache();
+    LOG_DBG("EBP", "CSS cache invalid, rebuilding");
   }
 
   // No cache yet - parse CSS files
@@ -402,6 +456,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
   // Always create CssParser - needed for inline style parsing even without CSS files
   cssParser.reset(new CssParser(cachePath));
+  cssParser->setCacheSourceFingerprint(sourceFingerprint);
 
   // Try to load existing cache first
   if (bookMetadataCache->load()) {

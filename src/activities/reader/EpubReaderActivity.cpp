@@ -21,6 +21,7 @@
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
+#include "ProgressFile.h"
 #include "MappedInputManager.h"
 #include "OrientationHelper.h"
 #include "QrDisplayActivity.h"
@@ -86,6 +87,9 @@ void EpubReaderActivity::pregenerateCache() {
 
   const int spineCount = epub->getSpineItemsCount();
   if (spineCount <= 0) return;
+  // Drop the completion state before work begins.  A reset/crash then resumes
+  // through validated per-section files instead of treating a partial run as done.
+  epub->clearFullCacheGeneratedMarker();
 
   bool isVertical = false;
   if (SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL) {
@@ -182,6 +186,7 @@ void EpubReaderActivity::pregenerateCache() {
     jpegEligibleSections[i] = true;
   }
 
+  bool imagesComplete = false;
   if (!cancelled) {
     const uint32_t imageStartedAt = millis();
     const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
@@ -191,6 +196,13 @@ void EpubReaderActivity::pregenerateCache() {
     LOG_DBG("ERS", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
             jpegResult.sourceCount, jpegResult.validCacheCount, jpegResult.generatedCacheCount,
             jpegResult.invalidCacheCount, jpegResult.failedCacheCount, jpegResult.scanComplete);
+    imagesComplete = jpegResult.scanComplete && jpegResult.failedCacheCount == 0;
+  }
+
+  if (!cancelled && generatedSections + sectionCacheHits == spineCount && imagesComplete) {
+    if (!epub->markFullCacheGenerated()) LOG_ERR("ERS", "Could not publish full-cache completion marker");
+  } else {
+    LOG_DBG("ERS", "Full cache remains incomplete; next run will resume missing work");
   }
 
   const uint32_t finalDisplayStartedAt = millis();
@@ -246,9 +258,8 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
 
-  const std::string firstSectionPath = epub->getCachePath() + "/sections/0.bin";
   const std::string noCachePromptPath = epub->getCachePath() + "/.no_cache_prompt";
-  if (!Storage.exists(firstSectionPath.c_str()) && !Storage.exists(noCachePromptPath.c_str())) {
+  if (!epub->isFullCacheGenerated() && !Storage.exists(noCachePromptPath.c_str())) {
     auto handler = [this, noCachePromptPath](const ActivityResult& res) {
       if (!res.isCancelled) {
         pregenerateCache();
@@ -1122,18 +1133,15 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 }
 
 void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished) {
-  FsFile f;
-  if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[7];
-    data[0] = currentSpineIndex & 0xFF;
-    data[1] = (currentSpineIndex >> 8) & 0xFF;
+  uint8_t data[7];
+  data[0] = spineIndex & 0xFF;
+  data[1] = (spineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
     data[3] = (currentPage >> 8) & 0xFF;
     data[4] = pageCount & 0xFF;
     data[5] = (pageCount >> 8) & 0xFF;
     data[6] = isFinished ? 1 : 0;
-    f.write(data, 7);
-    f.close();
+  if (ProgressFile::writeAtomic(epub->getCachePath(), data, sizeof(data))) {
     LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d", spineIndex, currentPage, isFinished);
   } else {
     LOG_ERR("ERS", "Could not save progress!");

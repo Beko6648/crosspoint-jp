@@ -707,6 +707,7 @@ CssStyle CssParser::parseInlineStyle(const std::string& styleValue) { return par
 
 // Cache file name (version is CssParser::CSS_CACHE_VERSION)
 constexpr char rulesCache[] = "/css_rules.cache";
+constexpr char rulesCacheTmp[] = "/css_rules.cache.tmp";
 
 bool CssParser::hasCache() const { return Storage.exists((cachePath + rulesCache).c_str()); }
 
@@ -719,13 +720,19 @@ bool CssParser::saveToCache() const {
     return false;
   }
 
+  const std::string finalPath = cachePath + rulesCache;
+  const std::string tmpPath = cachePath + rulesCacheTmp;
+  Storage.remove(tmpPath.c_str());
   FsFile file;
-  if (!Storage.openFileForWrite("CSS", cachePath + rulesCache, file)) {
+  if (!Storage.openFileForWrite("CSS", tmpPath, file)) {
     return false;
   }
 
   // Write version
   file.write(CssParser::CSS_CACHE_VERSION);
+
+  // Tie the rules to the exact EPUB archive, not merely this path-derived cache directory.
+  file.write(reinterpret_cast<const uint8_t*>(&cacheSourceFingerprint_), sizeof(cacheSourceFingerprint_));
 
   // Write rule count
   const auto ruleCount = static_cast<uint16_t>(rulesBySelector_.size());
@@ -791,6 +798,19 @@ bool CssParser::saveToCache() const {
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
   }
 
+  file.flush();
+  file.close();
+  if (file.getWriteError()) {
+    Storage.remove(tmpPath.c_str());
+    LOG_ERR("CSS", "Failed writing CSS cache");
+    return false;
+  }
+  Storage.remove(finalPath.c_str());
+  if (!Storage.rename(tmpPath.c_str(), finalPath.c_str())) {
+    Storage.remove(tmpPath.c_str());
+    LOG_ERR("CSS", "Could not publish CSS cache");
+    return false;
+  }
   LOG_DBG("CSS", "Saved %u rules to cache", ruleCount);
   return true;
 }
@@ -814,6 +834,15 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     LOG_DBG("CSS", "Cache version mismatch (got %u, expected %u), removing stale cache for rebuild", version,
             CssParser::CSS_CACHE_VERSION);
     // Explicitly close() file before calling Storage.remove()
+    file.close();
+    Storage.remove((cachePath + rulesCache).c_str());
+    return false;
+  }
+
+  uint64_t cachedSourceFingerprint = 0;
+  if (file.read(&cachedSourceFingerprint, sizeof(cachedSourceFingerprint)) != sizeof(cachedSourceFingerprint) ||
+      cachedSourceFingerprint != cacheSourceFingerprint_) {
+    LOG_DBG("CSS", "Cache source fingerprint mismatch; removing stale cache for rebuild");
     file.close();
     Storage.remove((cachePath + rulesCache).c_str());
     return false;
@@ -983,6 +1012,14 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     style.defined.display = (definedBits & 1 << 15) != 0;
 
     rulesBySelector_.emplace(std::move(selector), style);
+  }
+
+  if (file.available() != 0) {
+    LOG_DBG("CSS", "CSS cache has trailing data; rebuilding");
+    rulesBySelector_.clear();
+    file.close();
+    Storage.remove((cachePath + rulesCache).c_str());
+    return false;
   }
 
   LOG_DBG("CSS", "Loaded %u rules from cache", ruleCount);

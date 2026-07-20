@@ -31,7 +31,7 @@
 class CssParser {
  public:
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
-  static constexpr uint8_t CSS_CACHE_VERSION = 6;
+  static constexpr uint8_t CSS_CACHE_VERSION = 7;
 
   explicit CssParser(std::string cachePath) : cachePath(std::move(cachePath)) {}
   ~CssParser() = default;
@@ -103,11 +103,15 @@ class CssParser {
    */
   bool loadFromCache(size_t minFreeHeapAfterLoad = 0);
 
+  // The EPUB archive fingerprint binds this serialized cache to its source.
+  void setCacheSourceFingerprint(uint64_t fingerprint) { cacheSourceFingerprint_ = fingerprint; }
+
  private:
   // Storage: maps normalized selector -> style properties
   std::unordered_map<std::string, CssStyle> rulesBySelector_;
 
   std::string cachePath;
+  uint64_t cacheSourceFingerprint_ = 0;
 
   // Internal parsing helpers
   void processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style);

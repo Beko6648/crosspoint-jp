@@ -49,6 +49,11 @@ class Epub {
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
   bool clearCache() const;
   void setupCacheDir() const;
+  // A full-cache marker is published only after every section and image cache
+  // has been generated.  Missing/invalid markers deliberately mean "resume".
+  bool isFullCacheGenerated() const;
+  void clearFullCacheGeneratedMarker() const;
+  bool markFullCacheGenerated() const;
   const std::string& getCachePath() const;
   const std::string& getPath() const;
   const std::string& getTitle() const;

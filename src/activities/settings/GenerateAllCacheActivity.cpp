@@ -313,6 +313,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const int spineCount = epub->getSpineItemsCount();
     if (spineCount <= 0) continue;
+    epub->clearFullCacheGeneratedMarker();
 
     const uint32_t pngPreflightStartedAt = millis();
     const auto pngPreflight = inspectPngCaches(epub->getCachePath(), spineCount);
@@ -367,6 +368,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const int headingFontIds[6] = {
         SETTINGS.getHeadingFontId(1, isVertical), SETTINGS.getHeadingFontId(2, isVertical), 0, 0, 0, 0};
     std::vector<bool> jpegEligibleSections(spineCount, false);
+    bool allSectionsReady = true;
 
     for (int i = 0; i < spineCount; i++) {
       Section sec(epub, i, renderer);
@@ -406,6 +408,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                      pngCacheMs += millis() - pngStartedAt;
                                    })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
+          allSectionsReady = false;
           continue;
         }
         sectionBuildMs += millis() - sectionStartedAt;
@@ -422,6 +425,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
     LOG_DBG("GENALL", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
             jpegResult.sourceCount, jpegResult.validCacheCount, jpegResult.generatedCacheCount,
             jpegResult.invalidCacheCount, jpegResult.failedCacheCount, jpegResult.scanComplete);
+    if (allSectionsReady && jpegResult.scanComplete && jpegResult.failedCacheCount == 0) {
+      if (!epub->markFullCacheGenerated()) LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
+    } else {
+      LOG_DBG("GENALL", "Cache incomplete for %s; a later run will resume it", epubPath.c_str());
+    }
 
     LOG_DBG("GENALL",
             "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images, %d cached pages scanned)",

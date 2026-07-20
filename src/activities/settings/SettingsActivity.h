@@ -17,7 +17,6 @@ enum class SettingAction {
   CustomiseStatusBar,
   Network,
   ClearCache,
-  CheckForUpdates,
   SdFirmwareUpdate,
   Language,
   DownloadFonts,
