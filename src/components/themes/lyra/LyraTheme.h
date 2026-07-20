@@ -75,5 +75,8 @@ class LyraTheme : public BaseTheme {
   void drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const;
   Rect drawPopup(const GfxRenderer& renderer, const char* message) const override;
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const override;
+  Rect drawProgressPopup(const GfxRenderer& renderer, const char* message, const char* detail) const override;
+  void updateProgressPopup(const GfxRenderer& renderer, const Rect& layout, const char* detail,
+                           int progress) const override;
   bool showsFileIcons() const override { return true; }
 };

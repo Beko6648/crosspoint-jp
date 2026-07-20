@@ -14,7 +14,7 @@ class GenerateAllCacheActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum State { CONFIRMING, GENERATING, SUCCESS, FAILED };
+  enum State { CONFIRMING, GENERATING, SUCCESS, INTERRUPTED, FAILED };
 
   State state = CONFIRMING;
   int processedCount = 0;

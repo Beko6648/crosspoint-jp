@@ -727,3 +727,43 @@ void LyraTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
+
+Rect LyraTheme::drawProgressPopup(const GfxRenderer& renderer, const char* message, const char* detail) const {
+  constexpr int y = 115;
+  constexpr int outline = 2;
+  constexpr int barHeight = 4;
+  const int w = renderer.getScreenWidth() * 3 / 4;
+  const int titleHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int detailHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int h = titleHeight + detailHeight + barHeight + popupMarginY * 3;
+  const int x = (renderer.getScreenWidth() - w) / 2;
+  const int titleWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::REGULAR);
+  const int detailWidth = renderer.getTextWidth(UI_10_FONT_ID, detail);
+
+  renderer.fillRoundedRect(x - outline, y - outline, w + outline * 2, h + outline * 2, cornerRadius + outline,
+                           Color::White);
+  renderer.fillRoundedRect(x, y, w, h, cornerRadius, Color::Black);
+  renderer.drawText(UI_12_FONT_ID, x + (w - titleWidth) / 2, y + popupMarginY - 2, message, false,
+                    EpdFontFamily::REGULAR);
+  renderer.drawText(UI_10_FONT_ID, x + (w - detailWidth) / 2, y + popupMarginY + titleHeight + 1, detail, false);
+  renderer.displayBuffer();
+  return Rect{x, y, w, h};
+}
+
+void LyraTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& layout, const char* detail,
+                                    const int progress) const {
+  constexpr int barHeight = 4;
+  const int titleHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int detailY = layout.y + popupMarginY + titleHeight;
+  const int barWidth = layout.width - popupMarginX * 2;
+  const int barX = layout.x + popupMarginX;
+  const int barY = layout.y + layout.height - popupMarginY - barHeight;
+  const int detailWidth = renderer.getTextWidth(UI_10_FONT_ID, detail);
+
+  renderer.fillRect(layout.x + popupMarginX, detailY, layout.width - popupMarginX * 2,
+                    renderer.getLineHeight(UI_10_FONT_ID), true);
+  renderer.drawText(UI_10_FONT_ID, layout.x + (layout.width - detailWidth) / 2, detailY + 1, detail, false);
+  renderer.fillRect(barX, barY, barWidth, barHeight, true);
+  renderer.fillRect(barX, barY, barWidth * std::clamp(progress, 0, 100) / 100, barHeight, false);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}

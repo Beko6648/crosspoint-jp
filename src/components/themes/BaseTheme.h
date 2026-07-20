@@ -171,6 +171,9 @@ class BaseTheme {
                               const std::function<UIIcon(int index)>& rowIcon) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
+  virtual Rect drawProgressPopup(const GfxRenderer& renderer, const char* message, const char* detail) const;
+  virtual void updateProgressPopup(const GfxRenderer& renderer, const Rect& layout, const char* detail,
+                                   int progress) const;
   virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                              const int pageCount, std::string title, const int paddingBottom = 0,
                              const int textYOffset = 0, const bool rtlProgress = false) const;

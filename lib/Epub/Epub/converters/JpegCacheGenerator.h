@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <functional>
 #include <vector>
 
 namespace JpegCacheGenerator {
@@ -17,6 +18,7 @@ struct Result {
 
 Result generateFromExtractedImages(const std::string& cacheRoot, const std::vector<bool>& eligibleSections,
                                    uint16_t viewportWidth, uint16_t viewportHeight, const char* logOrigin,
-                                   const char* storageTag);
+                                   const char* storageTag,
+                                   const std::function<bool(int completed, int total)>& progressFn = nullptr);
 
 }  // namespace JpegCacheGenerator

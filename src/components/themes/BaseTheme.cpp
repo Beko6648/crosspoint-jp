@@ -724,6 +724,44 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
+Rect BaseTheme::drawProgressPopup(const GfxRenderer& renderer, const char* message, const char* detail) const {
+  constexpr int margin = 15;
+  constexpr int barHeight = 4;
+  const int y = static_cast<int>(renderer.getScreenHeight() * 0.075f);
+  const int w = renderer.getScreenWidth() * 3 / 4;
+  const int titleHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int detailHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int h = titleHeight + detailHeight + barHeight + margin * 3;
+  const int x = (renderer.getScreenWidth() - w) / 2;
+  const int titleWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::BOLD);
+  const int detailWidth = renderer.getTextWidth(UI_10_FONT_ID, detail);
+
+  renderer.fillRect(x - 2, y - 2, w + 4, h + 4, true);
+  renderer.fillRect(x, y, w, h, false);
+  renderer.drawText(UI_12_FONT_ID, x + (w - titleWidth) / 2, y + margin - 2, message, true, EpdFontFamily::BOLD);
+  renderer.drawText(UI_10_FONT_ID, x + (w - detailWidth) / 2, y + margin + titleHeight + 1, detail, true);
+  renderer.displayBuffer();
+  return Rect{x, y, w, h};
+}
+
+void BaseTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& layout, const char* detail,
+                                    const int progress) const {
+  constexpr int margin = 15;
+  constexpr int barHeight = 4;
+  const int titleHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int detailY = layout.y + margin + titleHeight;
+  const int barWidth = layout.width - margin * 2;
+  const int barX = layout.x + margin;
+  const int barY = layout.y + layout.height - margin - barHeight;
+  const int detailWidth = renderer.getTextWidth(UI_10_FONT_ID, detail);
+
+  renderer.fillRect(layout.x + margin, detailY, layout.width - margin * 2, renderer.getLineHeight(UI_10_FONT_ID), false);
+  renderer.drawText(UI_10_FONT_ID, layout.x + (layout.width - detailWidth) / 2, detailY + 1, detail, true);
+  renderer.fillRect(barX, barY, barWidth, barHeight, false);
+  renderer.fillRect(barX, barY, barWidth * std::clamp(progress, 0, 100) / 100, barHeight, true);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}
+
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
                               const bool rtlProgress) const {

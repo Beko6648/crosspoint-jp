@@ -47,7 +47,8 @@ bool parseExtractedJpegSection(const std::string_view fileName, const size_t sec
 
 Result generateFromExtractedImages(const std::string& cacheRoot, const std::vector<bool>& eligibleSections,
                                    const uint16_t viewportWidth, const uint16_t viewportHeight,
-                                   const char* logOrigin, const char* storageTag) {
+                                   const char* logOrigin, const char* storageTag,
+                                   const std::function<bool(int completed, int total)>& progressFn) {
   Result result;
   auto dir = Storage.open(cacheRoot.c_str());
   if (!dir || !dir.isDirectory()) {
@@ -56,7 +57,22 @@ Result generateFromExtractedImages(const std::string& cacheRoot, const std::vect
     return result;
   }
 
+  int totalSources = 0;
   char name[256];
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    if (!file.isDirectory() && file.getName(name, sizeof(name)) != 0) {
+      const std::string_view fileName(name);
+      size_t sectionIndex = 0;
+      if (FsHelpers::hasJpgExtension(fileName) && parseExtractedJpegSection(fileName, eligibleSections.size(), sectionIndex) &&
+          eligibleSections[sectionIndex]) {
+        totalSources++;
+      }
+    }
+    file.close();
+  }
+  dir.rewindDirectory();
+
+  int completedSources = 0;
   for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
     if (file.isDirectory()) {
       file.close();
@@ -87,6 +103,8 @@ Result generateFromExtractedImages(const std::string& cacheRoot, const std::vect
     if (Storage.exists(bmpCachePath.c_str())) {
       if (ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) {
         result.validCacheCount++;
+        completedSources++;
+        if (progressFn && !progressFn(completedSources, totalSources)) break;
         continue;
       }
       result.invalidCacheCount++;
@@ -98,12 +116,16 @@ Result generateFromExtractedImages(const std::string& cacheRoot, const std::vect
     if (!Storage.openFileForRead(storageTag, jpegPath, jpegFile)) {
       result.failedCacheCount++;
       LOG_ERR(logOrigin, "Failed to open JPEG: %s", jpegPath.c_str());
+      completedSources++;
+      if (progressFn && !progressFn(completedSources, totalSources)) break;
       continue;
     }
     if (!Storage.openFileForWrite(storageTag, bmpCachePath, bmpFile)) {
       jpegFile.close();
       result.failedCacheCount++;
       LOG_ERR(logOrigin, "Failed to create JPEG cache: %s", bmpCachePath.c_str());
+      completedSources++;
+      if (progressFn && !progressFn(completedSources, totalSources)) break;
       continue;
     }
 
@@ -122,10 +144,12 @@ Result generateFromExtractedImages(const std::string& cacheRoot, const std::vect
       LOG_ERR(logOrigin, "Removed failed JPEG cache: %s (%lu bytes)", bmpCachePath.c_str(),
               static_cast<unsigned long>(bmpSize));
     }
+    completedSources++;
+    if (progressFn && !progressFn(completedSources, totalSources)) break;
   }
 
   dir.close();
-  result.scanComplete = true;
+  result.scanComplete = completedSources == totalSources;
   return result;
 }
 

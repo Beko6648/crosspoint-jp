@@ -233,6 +233,16 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+
+  if (state == INTERRUPTED) {
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_CACHE_INTERRUPTED), true, EpdFontFamily::BOLD);
+    std::string resultText = std::to_string(processedCount) + " " + std::string(tr(STR_BOOKS_PROCESSED));
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, resultText.c_str());
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
@@ -257,9 +267,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
   // Show progress popup
   const uint32_t initialDisplayStartedAt = millis();
-  Rect popupRect = GUI.drawPopup(renderer, tr(STR_GENERATING_ALL_CACHE));
+  std::string progressDetail = std::string(tr(STR_CACHE_BOOK)) + " 0/" + std::to_string(totalCount);
+  Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  bool cancelled = false;
 
   // Calculate viewport dimensions (screenMargin depends on writing direction, resolved per-book below)
   // Use a placeholder margin here; it will be recalculated per book after resolving isVertical.
@@ -287,11 +299,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
     int cachedPngPagesScanned = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
-    // Update progress
     const int progress = (bookIdx * 100) / totalCount;
     if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
+                       std::to_string(totalCount);
       const uint32_t displayStartedAt = millis();
-      GUI.fillPopupProgress(renderer, popupRect, progress);
+      GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
       lastDisplayedProgress = progress;
     }
@@ -301,6 +314,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const int adc2 = analogRead(2);
     if (adc1 < 3800 || adc2 < 3800) {
       LOG_DBG("GENALL", "Cancelled by user at book %d/%d", bookIdx + 1, totalCount);
+      cancelled = true;
       break;
     }
 
@@ -371,6 +385,23 @@ void GenerateAllCacheActivity::generateAllCaches() {
     bool allSectionsReady = true;
 
     for (int i = 0; i < spineCount; i++) {
+      if (analogRead(1) < 3800 || analogRead(2) < 3800) {
+        LOG_DBG("GENALL", "Cancelled at section %d/%d of book %d/%d", i, spineCount, bookIdx + 1, totalCount);
+        cancelled = true;
+        allSectionsReady = false;
+        break;
+      }
+      const int bookProgress = (i * 80) / spineCount;
+      const int overallProgress = (bookIdx * 100 + bookProgress) / totalCount;
+      if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+        progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
+                         std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " +
+                         std::to_string(i + 1) + "/" + std::to_string(spineCount);
+        const uint32_t displayStartedAt = millis();
+        GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
+        progressDisplayMs += millis() - displayStartedAt;
+        lastDisplayedProgress = overallProgress;
+      }
       Section sec(epub, i, renderer);
       const bool sectionCached = sec.loadSectionFile(
           SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
@@ -417,9 +448,27 @@ void GenerateAllCacheActivity::generateAllCaches() {
       jpegEligibleSections[i] = true;
     }
 
+    if (cancelled) break;
+
     const uint32_t imageStartedAt = millis();
     const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
-        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "GENALL", "GEN");
+        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "GENALL", "GEN",
+        [this, &cancelled, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs,
+         bookIdx](const int done, const int total) {
+          const int bookProgress = total > 0 ? 80 + (done * 20) / total : 100;
+          const int overallProgress = (bookIdx * 100 + bookProgress) / this->totalCount;
+          if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT || done == total) {
+            progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
+                             std::to_string(this->totalCount) + "  " + tr(STR_CACHE_IMAGES) + " " +
+                             std::to_string(done) + "/" + std::to_string(total);
+            const uint32_t displayStartedAt = millis();
+            GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
+            progressDisplayMs += millis() - displayStartedAt;
+            lastDisplayedProgress = overallProgress;
+          }
+          cancelled = analogRead(1) < 3800 || analogRead(2) < 3800;
+          return !cancelled;
+        });
     imageCacheMs += millis() - imageStartedAt;
     generatedImageCaches += jpegResult.generatedCacheCount;
     LOG_DBG("GENALL", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
@@ -435,16 +484,20 @@ void GenerateAllCacheActivity::generateAllCaches() {
             "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images, %d cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
             generatedImageCaches, pngCacheMs, generatedPngCaches, cachedPngPagesScanned);
+    if (cancelled) break;
     processedCount++;
   }
 
-  const uint32_t finalDisplayStartedAt = millis();
-  GUI.fillPopupProgress(renderer, popupRect, 100);
-  progressDisplayMs += millis() - finalDisplayStartedAt;
+  if (!cancelled) {
+    const uint32_t finalDisplayStartedAt = millis();
+    progressDetail = std::string(tr(STR_CACHE_COMPLETE));
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
+    progressDisplayMs += millis() - finalDisplayStartedAt;
+  }
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
           millis() - generationStartedAt, progressDisplayMs);
-  state = SUCCESS;
+  state = cancelled ? INTERRUPTED : SUCCESS;
   requestUpdate();
 }
 
@@ -465,7 +518,7 @@ void GenerateAllCacheActivity::loop() {
     return;
   }
 
-  if (state == SUCCESS) {
+  if (state == SUCCESS || state == INTERRUPTED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       goBack();
     }

@@ -130,7 +130,8 @@ void EpubReaderActivity::pregenerateCache() {
       SETTINGS.getHeadingFontId(1, isVertical), SETTINGS.getHeadingFontId(2, isVertical), 0, 0, 0, 0};
 
   const uint32_t initialDisplayStartedAt = millis();
-  Rect popupRect = GUI.drawPopup(renderer, tr(STR_GENERATING_CACHE));
+  std::string progressDetail = std::string(tr(STR_CACHE_CHAPTER)) + " 0/" + std::to_string(spineCount);
+  Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
   bool cancelled = false;
@@ -146,10 +147,12 @@ void EpubReaderActivity::pregenerateCache() {
       break;
     }
 
-    const int progress = (i * 100) / spineCount;
+    const int progress = (i * 80) / spineCount;
     if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      progressDetail = std::string(tr(STR_CACHE_CHAPTER)) + " " + std::to_string(i + 1) + "/" +
+                       std::to_string(spineCount);
       const uint32_t displayStartedAt = millis();
-      GUI.fillPopupProgress(renderer, popupRect, progress);
+      GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
       lastDisplayedProgress = progress;
     }
@@ -190,7 +193,22 @@ void EpubReaderActivity::pregenerateCache() {
   if (!cancelled) {
     const uint32_t imageStartedAt = millis();
     const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
-        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "ERS", "PRE");
+        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "ERS", "PRE",
+        [this, &cancelled, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs](const int done,
+                                                                                                       const int total) {
+          const int progress = total > 0 ? 80 + (done * 20) / total : 100;
+          if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT || done == total) {
+            progressDetail = std::string(tr(STR_CACHE_IMAGES)) + " " + std::to_string(done) + "/" +
+                             std::to_string(total);
+            const uint32_t displayStartedAt = millis();
+            GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
+            progressDisplayMs += millis() - displayStartedAt;
+            lastDisplayedProgress = progress;
+          }
+          constexpr int ADC_NO_BUTTON = 3800;
+          cancelled = analogRead(1) < ADC_NO_BUTTON || analogRead(2) < ADC_NO_BUTTON;
+          return !cancelled;
+        });
     imageCacheMs += millis() - imageStartedAt;
     generatedImageCaches += jpegResult.generatedCacheCount;
     LOG_DBG("ERS", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
@@ -205,9 +223,12 @@ void EpubReaderActivity::pregenerateCache() {
     LOG_DBG("ERS", "Full cache remains incomplete; next run will resume missing work");
   }
 
-  const uint32_t finalDisplayStartedAt = millis();
-  GUI.fillPopupProgress(renderer, popupRect, 100);
-  progressDisplayMs += millis() - finalDisplayStartedAt;
+  if (!cancelled) {
+    const uint32_t finalDisplayStartedAt = millis();
+    progressDetail = std::string(tr(STR_CACHE_IMAGES)) + " " + tr(STR_CACHE_COMPLETE);
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
+    progressDisplayMs += millis() - finalDisplayStartedAt;
+  }
   LOG_DBG("ERS",
           "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images), progress=%lu ms",
           millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
