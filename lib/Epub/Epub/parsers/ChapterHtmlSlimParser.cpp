@@ -25,6 +25,10 @@ constexpr size_t PARSE_BUFFER_SIZE = 1024;
 // Minimum free heap to continue parsing. Below this, stop gracefully
 // to prevent abort() from failed allocations (no C++ exceptions on ESP32).
 constexpr size_t MIN_FREE_HEAP_FOR_PARSING = 20 * 1024;  // 20KB
+// ParsedText reserves 800 word slots. Check before each normal word so one
+// 1KB Expat callback cannot grow a vector past that reservation before its
+// end-of-callback flush runs.
+constexpr size_t TEXT_BLOCK_SAFE_WORD_LIMIT = 700;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -271,6 +275,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   }
 
   // flush the buffer
+  ensureTextBlockCapacityForWord();
   partWordBuffer[partWordBufferIndex] = '\0';
   if (verticalMode) {
     // Classify for vertical: count ASCII digits to determine TateChuYoko vs Sideways
@@ -290,6 +295,34 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   }
   partWordBufferIndex = 0;
   nextWordContinues = false;
+}
+
+void ChapterHtmlSlimParser::flushTextBlockForMemory() {
+  if (!currentTextBlock || currentTextBlock->isEmpty()) return;
+
+  LOG_DBG("EHP", "Text block approaching word capacity, splitting into multiple pages");
+  if (verticalMode) {
+    // Preserve the trailing partial column so the next input chunk continues it.
+    currentTextBlock->layoutVerticalColumns(
+        renderer, fontId, viewportHeight,
+        [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, false);
+  } else {
+    const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
+    const uint16_t effectiveWidth = (horizontalInset < viewportWidth)
+                                        ? static_cast<uint16_t>(viewportWidth - horizontalInset)
+                                        : viewportWidth;
+    currentTextBlock->layoutAndExtractLines(
+        renderer, fontId, effectiveWidth,
+        [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, false);
+  }
+}
+
+void ChapterHtmlSlimParser::ensureTextBlockCapacityForWord() {
+  // A ruby base must remain intact until its <rt> has been applied. The ruby
+  // start tag flushes preceding prose before inRuby becomes true.
+  if (!inRuby && currentTextBlock && currentTextBlock->size() >= TEXT_BLOCK_SAFE_WORD_LIMIT) {
+    flushTextBlockForMemory();
+  }
 }
 
 // start a new text block if needed
@@ -720,6 +753,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Ruby tag handling
   if (strcmp(name, "ruby") == 0) {
     self->flushPartWordBuffer();
+    self->ensureTextBlockCapacityForWord();
     self->inRuby = true;
     self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
     self->rubyTextBuffer.clear();
@@ -1131,6 +1165,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->flushPartWordBuffer();
       }
 
+      self->ensureTextBlockCapacityForWord();
+
       // Add this CJK character as its own "word"
       char cjkWord[5] = {0};  // Max 4 bytes for UTF-8 + null terminator
       for (int j = 0; j < charLen && j < 4; j++) {
@@ -1164,26 +1200,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   const size_t wordCount = self->currentTextBlock->size();
   const bool normalFlush = wordCount > 750;
   const bool earlyFlush = wordCount > 100 && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING * 2;
-  if (normalFlush || earlyFlush) {
-    LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
-    if (self->verticalMode) {
-      // Mid-block flush: keep the trailing partial column so that newly accumulated
-      // text continues into the same column on the next call. Without this, the partial
-      // last column would be emitted prematurely, creating visually short columns at
-      // ruby tag / chunk boundaries (Issue #51).
-      self->currentTextBlock->layoutVerticalColumns(
-          self->renderer, self->fontId, self->viewportHeight,
-          [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
-    } else {
-      const int horizontalInset = self->currentTextBlock->getBlockStyle().totalHorizontalInset();
-      const uint16_t effectiveWidth = (horizontalInset < self->viewportWidth)
-                                          ? static_cast<uint16_t>(self->viewportWidth - horizontalInset)
-                                          : self->viewportWidth;
-      self->currentTextBlock->layoutAndExtractLines(
-          self->renderer, self->fontId, effectiveWidth,
-          [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
-    }
-  }
+  if (normalFlush || earlyFlush) self->flushTextBlockForMemory();
 }
 
 void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const XML_Char* s, const int len) {
