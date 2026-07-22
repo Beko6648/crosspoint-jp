@@ -18,7 +18,9 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "BookCacheClearActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
+#include "EpubReaderDetailsActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "ProgressFile.h"
@@ -427,7 +429,7 @@ void EpubReaderActivity::loop() {
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), menuCurrentPage, menuTotalPages,
-                               bookProgressPercent, SETTINGS.orientation, !currentPageFootnotes.empty(), verticalMode),
+                               bookProgressPercent, SETTINGS.orientation, verticalMode),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -631,6 +633,16 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::READER_SETTINGS: {
+      startActivityForResult(std::make_unique<EpubReaderDetailsActivity>(renderer, mappedInput),
+                             [this](const ActivityResult& result) {
+                               if (!result.isCancelled) {
+                                 const auto& menu = std::get<MenuResult>(result.data);
+                                 onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+                               }
+                             });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::OPEN_GLOBAL_READER_SETTINGS: {
       // Open settings directly on the Reader category and select the submenu
       // that matches this book's current writing mode.
       // Index 0 is the Reader tab itself; the direction settings are its
@@ -717,20 +729,24 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       return;
     }
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
-      {
-        RenderLock lock(*this);
-        if (epub && section) {
-          uint16_t backupSpine = currentSpineIndex;
-          uint16_t backupPage = section->currentPage;
-          uint16_t backupPageCount = section->pageCount;
-          section.reset();
-          epub->clearCache();
-          epub->setupCacheDir();
-          saveProgress(backupSpine, backupPage, backupPageCount);
-        }
-      }
-      onGoHome();
-      return;
+      const bool hasProgress = epub && section;
+      const uint16_t savedSpineIndex = hasProgress ? currentSpineIndex : 0;
+      const uint16_t savedPage = hasProgress ? section->currentPage : 0;
+      const uint16_t savedPageCount = hasProgress ? section->pageCount : 0;
+      startActivityForResult(std::make_unique<BookCacheClearActivity>(renderer, mappedInput, epub),
+                             [this, hasProgress, savedSpineIndex, savedPage, savedPageCount](const ActivityResult& result) {
+                               if (!result.isCancelled) {
+                                 section.reset();
+                                 // progress.bin is deliberately restored after the cache directory is removed.
+                                 // It is the only per-book state retained by this operation.
+                                 if (hasProgress && epub) {
+                                   epub->setupCacheDir();
+                                   saveProgress(savedSpineIndex, savedPage, savedPageCount);
+                                 }
+                                 onGoHome();
+                               }
+                             });
+      break;
     }
     case EpubReaderMenuActivity::MenuAction::SCREENSHOT: {
       {

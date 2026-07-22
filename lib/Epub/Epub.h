@@ -47,6 +47,8 @@ class Epub {
   ~Epub() = default;
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
+  // Shared by per-book and global cache management. This only removes a cache directory.
+  static bool removeCacheDirectory(const std::string& cachePath);
   bool clearCache() const;
   void setupCacheDir() const;
   // A full-cache marker is published only after every section and image cache

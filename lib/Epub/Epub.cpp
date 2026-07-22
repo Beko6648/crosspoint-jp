@@ -1,5 +1,6 @@
 #include "Epub.h"
 
+
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
@@ -605,13 +606,21 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   return true;
 }
 
-bool Epub::clearCache() const {
+bool Epub::removeCacheDirectory(const std::string& cachePath) {
   if (!Storage.exists(cachePath.c_str())) {
-    LOG_DBG("EPB", "Cache does not exist, no action needed");
     return true;
   }
 
   if (!Storage.removeDir(cachePath.c_str())) {
+    LOG_ERR("EPB", "Failed to remove cache directory: %s", cachePath.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+bool Epub::clearCache() const {
+  if (!removeCacheDirectory(cachePath)) {
     LOG_ERR("EPB", "Failed to clear cache");
     return false;
   }

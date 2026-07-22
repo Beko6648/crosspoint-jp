@@ -15,6 +15,7 @@ class EpubReaderMenuActivity final : public Activity {
     SELECT_CHAPTER,
     FOOTNOTES,
     READER_SETTINGS,
+    OPEN_GLOBAL_READER_SETTINGS,
     STYLE_FIRST_LINE_INDENT,
     STYLE_FONT_FAMILY,
     STYLE_LINE_SPACING,
@@ -28,12 +29,12 @@ class EpubReaderMenuActivity final : public Activity {
     DISPLAY_QR,
     GO_HOME,
     DELETE_CACHE,
-    TILT_PAGE_TURN
+    TILT_PAGE_TURN,
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
-                                  const uint8_t currentOrientation, const bool hasFootnotes, const bool verticalMode);
+                                  const uint8_t currentOrientation, const bool verticalMode);
 
   void onEnter() override;
   void onExit() override;
@@ -48,7 +49,7 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes);
+  static std::vector<MenuItem> buildMenuItems();
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;

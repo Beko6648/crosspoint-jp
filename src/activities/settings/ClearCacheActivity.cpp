@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Epub.h>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -102,7 +103,7 @@ void ClearCacheActivity::clearCache() {
 
       file.close();  // Close before attempting to delete
 
-      if (Storage.removeDir(fullPath.c_str())) {
+      if (Epub::removeCacheDirectory(fullPath.c_str())) {
         clearedCount++;
       } else {
         LOG_ERR("CLEAR_CACHE", "Failed to remove: %s", fullPath.c_str());
