@@ -246,6 +246,33 @@ bool validateDownloadedEpub(const char* path) {
 static std::string lastApiError_;
 
 static constexpr int API_MAX_RETRIES = 3;
+static constexpr int EPUB_DOWNLOAD_MAX_RETRIES = 3;
+
+static bool isRetryableEpubDownloadFailure(const HttpDownloader::DownloadError result) {
+  if (result != HttpDownloader::HTTP_ERROR) return false;
+
+  const int httpCode = HttpDownloader::lastHttpCode;
+  return httpCode <= 0 || httpCode == 408 || httpCode == 429 || httpCode >= 500;
+}
+
+static HttpDownloader::DownloadError downloadEpubWithRetry(const std::string& url, const std::string& tmpPath,
+                                                            HttpDownloader::ProgressCallback progress) {
+  HttpDownloader::DownloadError result = HttpDownloader::HTTP_ERROR;
+  for (int attempt = 0; attempt < EPUB_DOWNLOAD_MAX_RETRIES; ++attempt) {
+    if (attempt > 0) {
+      LOG_DBG("AOZORA", "Retrying EPUB download %d/%d", attempt + 1, EPUB_DOWNLOAD_MAX_RETRIES);
+      delay(1000);
+    }
+
+    Storage.remove(tmpPath.c_str());
+    result = HttpDownloader::downloadToFile(url, tmpPath, progress, 30000);
+    if (result == HttpDownloader::OK || !isRetryableEpubDownloadFailure(result)) break;
+
+    LOG_ERR("AOZORA", "EPUB download attempt %d/%d failed: err=%d http=%d", attempt + 1,
+            EPUB_DOWNLOAD_MAX_RETRIES, static_cast<int>(result), HttpDownloader::lastHttpCode);
+  }
+  return result;
+}
 
 static bool fetchApiJson(const char* url, JsonDocument& doc) {
   LOG_DBG("AOZORA", "API call: %s (heap=%d)", url, ESP.getFreeHeap());
@@ -410,15 +437,15 @@ bool AozoraActivity::downloadBook() {
 
   // Never expose an incomplete EPUB as a downloaded book. A stale temporary
   // file can only come from an interrupted prior download and is safe to remove.
-  Storage.remove(tmpPath);
-  auto result = HttpDownloader::downloadToFile(
-      std::string(url), std::string(tmpPath),
+  downloadProgress_ = 0;
+  downloadTotal_ = 0;
+  auto result = downloadEpubWithRetry(
+      url, tmpPath,
       [this](size_t downloaded, size_t total) {
         downloadProgress_ = downloaded;
         downloadTotal_ = total;
         requestUpdate(true);
-      },
-      30000);
+      });
 
   if (result != HttpDownloader::OK) {
     LOG_ERR("AOZORA", "Download failed: err=%d http=%d", static_cast<int>(result), HttpDownloader::lastHttpCode);
@@ -480,17 +507,16 @@ bool AozoraActivity::updateBook() {
   }
 
   // 既存のtmpファイルが残っていたら掃除
-  Storage.remove(tmpPath);
-
+  downloadProgress_ = 0;
+  downloadTotal_ = 0;
   // 一時ファイルにダウンロード（既存ファイルはこの時点では無傷）
-  auto result = HttpDownloader::downloadToFile(
-      std::string(url), std::string(tmpPath),
+  auto result = downloadEpubWithRetry(
+      url, tmpPath,
       [this](size_t downloaded, size_t total) {
         downloadProgress_ = downloaded;
         downloadTotal_ = total;
         requestUpdate(true);
-      },
-      30000);
+      });
 
   if (result != HttpDownloader::OK) {
     LOG_ERR("AOZORA", "Update download failed: err=%d http=%d", static_cast<int>(result), HttpDownloader::lastHttpCode);
