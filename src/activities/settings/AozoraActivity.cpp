@@ -1,6 +1,7 @@
 #include "AozoraActivity.h"
 
 #include <ArduinoJson.h>
+#include <FontCacheManager.h>
 #include <FontManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -255,7 +256,18 @@ static bool isRetryableEpubDownloadFailure(const HttpDownloader::DownloadError r
   return httpCode <= 0 || httpCode == 408 || httpCode == 429 || httpCode >= 500;
 }
 
-static HttpDownloader::DownloadError downloadEpubWithRetry(const std::string& url, const std::string& tmpPath,
+static void releaseTransientFontCachesForTls(GfxRenderer& renderer) {
+  const uint32_t heapBefore = ESP.getFreeHeap();
+  if (FontCacheManager* cacheManager = renderer.getFontCacheManager()) {
+    cacheManager->clearCache();
+    cacheManager->freeKernLigatureData();
+  }
+  LOG_INF("AOZORA", "Freed transient font caches for TLS: heap=%u->%u maxAlloc=%u", heapBefore, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
+}
+
+static HttpDownloader::DownloadError downloadEpubWithRetry(GfxRenderer& renderer, const std::string& url,
+                                                            const std::string& tmpPath,
                                                             HttpDownloader::ProgressCallback progress) {
   HttpDownloader::DownloadError result = HttpDownloader::HTTP_ERROR;
   for (int attempt = 0; attempt < EPUB_DOWNLOAD_MAX_RETRIES; ++attempt) {
@@ -265,6 +277,7 @@ static HttpDownloader::DownloadError downloadEpubWithRetry(const std::string& ur
     }
 
     Storage.remove(tmpPath.c_str());
+    releaseTransientFontCachesForTls(renderer);
     result = HttpDownloader::downloadToFile(url, tmpPath, progress, 30000);
     if (result == HttpDownloader::OK || !isRetryableEpubDownloadFailure(result)) break;
 
@@ -274,7 +287,7 @@ static HttpDownloader::DownloadError downloadEpubWithRetry(const std::string& ur
   return result;
 }
 
-static bool fetchApiJson(const char* url, JsonDocument& doc) {
+static bool fetchApiJson(GfxRenderer& renderer, const char* url, JsonDocument& doc) {
   LOG_DBG("AOZORA", "API call: %s (heap=%d)", url, ESP.getFreeHeap());
 
   HttpDownloader::DownloadError result = HttpDownloader::HTTP_ERROR;
@@ -283,6 +296,7 @@ static bool fetchApiJson(const char* url, JsonDocument& doc) {
       LOG_DBG("AOZORA", "Retry %d/%d", attempt + 1, API_MAX_RETRIES);
       delay(1000);
     }
+    releaseTransientFontCachesForTls(renderer);
     result = HttpDownloader::downloadToFile(url, API_TMP_FILE, nullptr, 30000);
     if (result == HttpDownloader::OK) break;
     LOG_ERR("AOZORA", "API fetch attempt %d failed: err=%d http=%d", attempt + 1, result, HttpDownloader::lastHttpCode);
@@ -331,7 +345,7 @@ bool AozoraActivity::fetchAuthors(const char* kanaPrefix) {
   snprintf(url, sizeof(url), "%s/api/authors?kana_prefix=%s", API_BASE, encoded);
 
   JsonDocument doc;
-  if (!fetchApiJson(url, doc)) {
+  if (!fetchApiJson(renderer, url, doc)) {
     errorMessage_ = lastApiError_;
     return false;
   }
@@ -363,7 +377,7 @@ bool AozoraActivity::fetchWorks(const char* queryParam) {
   }
 
   JsonDocument doc;
-  if (!fetchApiJson(url, doc)) {
+  if (!fetchApiJson(renderer, url, doc)) {
     errorMessage_ = lastApiError_;
     return false;
   }
@@ -440,7 +454,7 @@ bool AozoraActivity::downloadBook() {
   downloadProgress_ = 0;
   downloadTotal_ = 0;
   auto result = downloadEpubWithRetry(
-      url, tmpPath,
+      renderer, url, tmpPath,
       [this](size_t downloaded, size_t total) {
         downloadProgress_ = downloaded;
         downloadTotal_ = total;
@@ -511,7 +525,7 @@ bool AozoraActivity::updateBook() {
   downloadTotal_ = 0;
   // 一時ファイルにダウンロード（既存ファイルはこの時点では無傷）
   auto result = downloadEpubWithRetry(
-      url, tmpPath,
+      renderer, url, tmpPath,
       [this](size_t downloaded, size_t total) {
         downloadProgress_ = downloaded;
         downloadTotal_ = total;
