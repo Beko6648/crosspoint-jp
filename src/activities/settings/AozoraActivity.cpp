@@ -362,9 +362,11 @@ bool AozoraActivity::updateBook() {
 
   std::string relPath = AozoraIndexManager::makeRelativePath(selectedWorkId_, selectedWorkTitle_, selectedWorkAuthor_);
   char destPath[160];
-  char tmpPath[168];
+  char tmpPath[176];
+  char backupPath[180];
   snprintf(destPath, sizeof(destPath), "%s/%s", AozoraIndexManager::AOZORA_DIR, relPath.c_str());
-  snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", destPath);
+  snprintf(tmpPath, sizeof(tmpPath), "%s.update.tmp", destPath);
+  snprintf(backupPath, sizeof(backupPath), "%s%s", destPath, AozoraIndexManager::UPDATE_BACKUP_SUFFIX);
 
   if (!AozoraIndexManager::ensureDirectory() || !AozoraIndexManager::ensureAuthorDirectory(selectedWorkAuthor_)) {
     LOG_ERR("AOZORA", "Failed to create directory");
@@ -394,14 +396,39 @@ bool AozoraActivity::updateBook() {
     return false;
   }
 
-  // Atomic swap: 旧ファイル削除 → .tmp を正式名にrename
-  Storage.remove(destPath);
+  // Preserve the previous book until the new file is in place. If the device
+  // loses power after this rename, loadAndPurge() restores the backup.
+  if (Storage.exists(backupPath)) {
+    if (!Storage.exists(destPath)) {
+      if (!Storage.rename(backupPath, destPath)) {
+        LOG_ERR("AOZORA", "Failed to restore existing update backup: %s", backupPath);
+        Storage.remove(tmpPath);
+        errorMessage_ = "Backup restore failed";
+        return false;
+      }
+    } else {
+      Storage.remove(backupPath);
+    }
+  }
+  if (Storage.exists(destPath) && !Storage.rename(destPath, backupPath)) {
+    LOG_ERR("AOZORA", "Failed to preserve existing book: %s", destPath);
+    Storage.remove(tmpPath);
+    errorMessage_ = "Backup failed";
+    return false;
+  }
+
   if (!Storage.rename(tmpPath, destPath)) {
     LOG_ERR("AOZORA", "Rename failed: %s -> %s", tmpPath, destPath);
     Storage.remove(tmpPath);
-    errorMessage_ = "Rename failed";
+    if (Storage.exists(backupPath) && Storage.rename(backupPath, destPath)) {
+      errorMessage_ = "Update failed; original restored";
+    } else {
+      errorMessage_ = "Update rename failed";
+    }
     return false;
   }
+
+  Storage.remove(backupPath);
 
   LOG_DBG("AOZORA", "Updated: %s", destPath);
   return true;

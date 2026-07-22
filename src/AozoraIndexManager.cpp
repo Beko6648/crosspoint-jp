@@ -34,9 +34,28 @@ bool AozoraIndexManager::loadAndPurge() {
 
     char fullPath[160];
     snprintf(fullPath, sizeof(fullPath), "%s/%s", AOZORA_DIR, entry.filename);
+    char backupPath[176];
+    snprintf(backupPath, sizeof(backupPath), "%s%s", fullPath, UPDATE_BACKUP_SUFFIX);
 
     if (Storage.exists(fullPath)) {
+      // An update completed before its backup cleanup. The new file is already
+      // in place, so the backup is no longer needed.
+      if (Storage.exists(backupPath)) {
+        LOG_DBG("AOZORA", "Removing stale update backup: %s", backupPath);
+        Storage.remove(backupPath);
+      }
       entries_.push_back(entry);
+    } else if (Storage.exists(backupPath)) {
+      // Power may have been lost after moving the old book aside but before
+      // installing the replacement. Restore the known-good copy before the
+      // index purges this entry.
+      if (Storage.rename(backupPath, fullPath)) {
+        LOG_DBG("AOZORA", "Restored interrupted update: %s", entry.filename);
+        entries_.push_back(entry);
+      } else {
+        LOG_ERR("AOZORA", "Failed to restore update backup: %s", backupPath);
+        entries_.push_back(entry);
+      }
     } else {
       LOG_DBG("AOZORA", "Purging missing: %s", entry.filename);
       needsSave = true;

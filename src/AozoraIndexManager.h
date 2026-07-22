@@ -16,6 +16,7 @@ class AozoraIndexManager {
  public:
   static constexpr const char* AOZORA_DIR = "/Aozora";
   static constexpr const char* INDEX_PATH = "/Aozora/.aozora_index.json";
+  static constexpr const char* UPDATE_BACKUP_SUFFIX = ".update.bak";
 
   bool loadAndPurge();
   bool isDownloaded(int workId) const;
