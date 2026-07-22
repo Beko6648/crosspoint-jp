@@ -6,6 +6,10 @@
 bool AozoraIndexManager::loadAndPurge() {
   entries_.clear();
 
+  if (!recoverIndexFiles()) {
+    return false;
+  }
+
   FsFile file;
   if (!Storage.openFileForRead("AOZORA", INDEX_PATH, file)) {
     LOG_DBG("AOZORA", "No index file, starting fresh");
@@ -69,6 +73,28 @@ bool AozoraIndexManager::loadAndPurge() {
   return true;
 }
 
+bool AozoraIndexManager::recoverIndexFiles() {
+  if (Storage.exists(INDEX_BACKUP_PATH)) {
+    if (Storage.exists(INDEX_PATH)) {
+      LOG_DBG("AOZORA", "Removing stale index backup");
+      Storage.remove(INDEX_BACKUP_PATH);
+    } else {
+      LOG_DBG("AOZORA", "Restoring interrupted index save");
+      if (!Storage.rename(INDEX_BACKUP_PATH, INDEX_PATH)) {
+        LOG_ERR("AOZORA", "Failed to restore index backup");
+        return false;
+      }
+    }
+  }
+
+  if (Storage.exists(INDEX_TMP_PATH)) {
+    LOG_DBG("AOZORA", "Removing stale index temporary file");
+    Storage.remove(INDEX_TMP_PATH);
+  }
+
+  return true;
+}
+
 bool AozoraIndexManager::isDownloaded(int workId) const {
   for (const auto& e : entries_) {
     if (e.workId == workId) return true;
@@ -114,14 +140,46 @@ bool AozoraIndexManager::saveIndex() const {
     obj["filename"] = e.filename;
   }
 
+  Storage.remove(INDEX_TMP_PATH);
   FsFile file;
-  if (!Storage.openFileForWrite("AOZORA", INDEX_PATH, file)) {
-    LOG_ERR("AOZORA", "Failed to open index for write");
+  if (!Storage.openFileForWrite("AOZORA", INDEX_TMP_PATH, file)) {
+    LOG_ERR("AOZORA", "Failed to open temporary index for write");
     return false;
   }
 
-  serializeJson(doc, file);
+  const size_t written = serializeJson(doc, file);
+  file.flush();
   file.close();
+
+  if (written == 0) {
+    LOG_ERR("AOZORA", "Failed to write temporary index");
+    Storage.remove(INDEX_TMP_PATH);
+    return false;
+  }
+
+  const bool hadOriginal = Storage.exists(INDEX_PATH);
+  if (hadOriginal) {
+    Storage.remove(INDEX_BACKUP_PATH);
+    if (!Storage.rename(INDEX_PATH, INDEX_BACKUP_PATH)) {
+      LOG_ERR("AOZORA", "Failed to back up index before saving");
+      Storage.remove(INDEX_TMP_PATH);
+      return false;
+    }
+  }
+
+  if (!Storage.rename(INDEX_TMP_PATH, INDEX_PATH)) {
+    LOG_ERR("AOZORA", "Failed to install new index");
+    Storage.remove(INDEX_TMP_PATH);
+    if (hadOriginal && !Storage.rename(INDEX_BACKUP_PATH, INDEX_PATH)) {
+      LOG_ERR("AOZORA", "Failed to restore index after save error");
+    }
+    return false;
+  }
+
+  if (hadOriginal) {
+    Storage.remove(INDEX_BACKUP_PATH);
+  }
+
   return true;
 }
 

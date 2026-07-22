@@ -30,6 +30,10 @@ class AozoraIndexManager {
   static bool ensureAuthorDirectory(const char* author);
 
  private:
+  static constexpr const char* INDEX_TMP_PATH = "/Aozora/.aozora_index.json.tmp";
+  static constexpr const char* INDEX_BACKUP_PATH = "/Aozora/.aozora_index.json.bak";
+
   std::vector<AozoraBookEntry> entries_;
+  bool recoverIndexFiles();
   bool saveIndex() const;
 };
