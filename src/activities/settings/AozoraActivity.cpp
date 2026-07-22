@@ -7,10 +7,14 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <ZipFile.h>
+
+#include <cstring>
 
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
+#include "Epub/parsers/ContainerParser.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 
@@ -143,6 +147,101 @@ static void urlEncodeUtf8(const char* src, char* dest, size_t destSize) {
 // --- API calls (download JSON to SD temp file, then parse) ---
 
 static constexpr const char* API_TMP_FILE = "/aozora_api.tmp";
+
+namespace {
+
+class SpineTagProbe final : public Print {
+  char tagName[16] = {};
+  size_t tagNameLength = 0;
+  bool insideTag = false;
+  bool readingTagName = false;
+
+  void finishTagName() {
+    tagName[tagNameLength] = '\0';
+    if (strcmp(tagName, "spine") == 0 || strcmp(tagName, "opf:spine") == 0) {
+      foundSpine = true;
+    }
+    readingTagName = false;
+  }
+
+ public:
+  bool foundSpine = false;
+
+  size_t write(uint8_t byte) override {
+    const char c = static_cast<char>(byte);
+    if (!insideTag) {
+      if (c == '<') {
+        insideTag = true;
+        readingTagName = true;
+        tagNameLength = 0;
+      }
+      return 1;
+    }
+
+    if (c == '>') {
+      if (readingTagName) finishTagName();
+      insideTag = false;
+      return 1;
+    }
+
+    if (!readingTagName) return 1;
+    if (tagNameLength == 0 && (c == '/' || c == '!' || c == '?')) {
+      readingTagName = false;
+      return 1;
+    }
+    if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '/') {
+      finishTagName();
+      return 1;
+    }
+    if (tagNameLength < sizeof(tagName) - 1) {
+      tagName[tagNameLength++] = c;
+    } else {
+      readingTagName = false;
+    }
+    return 1;
+  }
+};
+
+bool validateDownloadedEpub(const char* path) {
+  const std::string epubPath(path);
+  ZipFile zip(epubPath);
+  if (!zip.open()) {
+    LOG_ERR("AOZORA", "Downloaded file is not a readable ZIP: %s", path);
+    return false;
+  }
+  zip.close();
+
+  constexpr const char* containerPath = "META-INF/container.xml";
+  size_t containerSize = 0;
+  if (!zip.getInflatedFileSize(containerPath, &containerSize) || containerSize == 0) {
+    LOG_ERR("AOZORA", "Downloaded EPUB has no container.xml");
+    return false;
+  }
+
+  ContainerParser container(containerSize);
+  if (!container.setup() || !zip.readFileToStream(containerPath, container, 512) || container.fullPath.empty()) {
+    LOG_ERR("AOZORA", "Downloaded EPUB has an invalid container.xml");
+    return false;
+  }
+
+  size_t opfSize = 0;
+  if (!zip.getInflatedFileSize(container.fullPath.c_str(), &opfSize) || opfSize == 0) {
+    LOG_ERR("AOZORA", "Downloaded EPUB has no package document: %s", container.fullPath.c_str());
+    return false;
+  }
+
+  SpineTagProbe spineProbe;
+  if (!zip.readFileToStream(container.fullPath.c_str(), spineProbe, 512) || !spineProbe.foundSpine) {
+    LOG_ERR("AOZORA", "Downloaded EPUB package has no spine");
+    return false;
+  }
+
+  LOG_DBG("AOZORA", "Validated downloaded EPUB: container=%uB opf=%uB", static_cast<unsigned>(containerSize),
+          static_cast<unsigned>(opfSize));
+  return true;
+}
+
+}  // namespace
 
 static std::string lastApiError_;
 
@@ -330,6 +429,12 @@ bool AozoraActivity::downloadBook() {
     return false;
   }
 
+  if (!validateDownloadedEpub(tmpPath)) {
+    Storage.remove(tmpPath);
+    errorMessage_ = "Invalid EPUB";
+    return false;
+  }
+
   // A pre-existing file belongs to a completed download. Preserve it rather
   // than replacing it from this new-download path.
   if (Storage.exists(destPath)) {
@@ -393,6 +498,12 @@ bool AozoraActivity::updateBook() {
     char buf[80];
     snprintf(buf, sizeof(buf), "err=%d http=%d", static_cast<int>(result), HttpDownloader::lastHttpCode);
     errorMessage_ = buf;
+    return false;
+  }
+
+  if (!validateDownloadedEpub(tmpPath)) {
+    Storage.remove(tmpPath);
+    errorMessage_ = "Invalid EPUB";
     return false;
   }
 
