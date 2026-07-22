@@ -299,7 +299,9 @@ bool AozoraActivity::downloadBook() {
 
   std::string relPath = AozoraIndexManager::makeRelativePath(selectedWorkId_, selectedWorkTitle_, selectedWorkAuthor_);
   char destPath[160];
+  char tmpPath[176];
   snprintf(destPath, sizeof(destPath), "%s/%s", AozoraIndexManager::AOZORA_DIR, relPath.c_str());
+  snprintf(tmpPath, sizeof(tmpPath), "%s.download.tmp", destPath);
 
   if (!AozoraIndexManager::ensureDirectory() || !AozoraIndexManager::ensureAuthorDirectory(selectedWorkAuthor_)) {
     LOG_ERR("AOZORA", "Failed to create directory");
@@ -307,8 +309,11 @@ bool AozoraActivity::downloadBook() {
     return false;
   }
 
+  // Never expose an incomplete EPUB as a downloaded book. A stale temporary
+  // file can only come from an interrupted prior download and is safe to remove.
+  Storage.remove(tmpPath);
   auto result = HttpDownloader::downloadToFile(
-      std::string(url), std::string(destPath),
+      std::string(url), std::string(tmpPath),
       [this](size_t downloaded, size_t total) {
         downloadProgress_ = downloaded;
         downloadTotal_ = total;
@@ -318,11 +323,26 @@ bool AozoraActivity::downloadBook() {
 
   if (result != HttpDownloader::OK) {
     LOG_ERR("AOZORA", "Download failed: err=%d http=%d", static_cast<int>(result), HttpDownloader::lastHttpCode);
-    // Remove incomplete file
-    Storage.remove(destPath);
+    Storage.remove(tmpPath);
     char buf[80];
     snprintf(buf, sizeof(buf), "err=%d http=%d", static_cast<int>(result), HttpDownloader::lastHttpCode);
     errorMessage_ = buf;
+    return false;
+  }
+
+  // A pre-existing file belongs to a completed download. Preserve it rather
+  // than replacing it from this new-download path.
+  if (Storage.exists(destPath)) {
+    LOG_ERR("AOZORA", "Download destination already exists: %s", destPath);
+    Storage.remove(tmpPath);
+    errorMessage_ = "File already exists";
+    return false;
+  }
+
+  if (!Storage.rename(tmpPath, destPath)) {
+    LOG_ERR("AOZORA", "Rename failed: %s -> %s", tmpPath, destPath);
+    Storage.remove(tmpPath);
+    errorMessage_ = "Rename failed";
     return false;
   }
 
