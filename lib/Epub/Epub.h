@@ -43,6 +43,8 @@ class Epub {
   void parseCssFiles() const;
 
  public:
+  enum class CacheGenerationStatus { NotGenerated, Resumable, Complete };
+
   explicit Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
     // create a cache key based on the filepath
     cachePath = cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(this->filepath));
@@ -57,6 +59,9 @@ class Epub {
   // A full-cache marker is published only after every section and image cache
   // has been generated.  Missing/invalid markers deliberately mean "resume".
   bool isFullCacheGenerated() const;
+  // Read-only view of the full-cache contract. A missing directory means no
+  // generation has started; a missing completion marker means resumable.
+  CacheGenerationStatus getCacheGenerationStatus() const;
   void clearFullCacheGeneratedMarker() const;
   bool markFullCacheGenerated() const;
   const std::string& getCachePath() const;

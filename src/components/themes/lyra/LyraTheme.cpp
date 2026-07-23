@@ -1,5 +1,7 @@
 #include "LyraTheme.h"
 
+#include <Epub.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
@@ -13,6 +15,7 @@
 
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
+#include "components/CacheStatusIcon.h"
 #include "components/icons/book.h"
 #include "components/icons/book24.h"
 #include "components/icons/book_finished24.h"
@@ -663,8 +666,12 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     constexpr int readingStatusIconTopMargin = 8;
     const bool hasReadingStatusIcon = !bookStatuses.empty() && (bookStatuses[0] == ReadingStatus::Reading ||
                                                             bookStatuses[0] == ReadingStatus::Finished);
-    const int readingStatusBlockHeight =
-    hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+    const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(book.path);
+    const Epub::CacheGenerationStatus cacheStatus =
+        hasCacheStatusIcon ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
+                           : Epub::CacheGenerationStatus::NotGenerated;
+    const bool hasStatusIcons = hasReadingStatusIcon || hasCacheStatusIcon;
+    const int readingStatusBlockHeight = hasStatusIcons ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
 
     const int authorHeight = book.author.empty() ? 0 : (authorLineHeight * 3 / 2);
 
@@ -686,10 +693,19 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       renderer.drawText(UI_10_FONT_ID, textX, titleY, author.c_str(), true);
       titleY += authorLineHeight;
     }
-    if (hasReadingStatusIcon) {
+    if (hasStatusIcons) {
       titleY += readingStatusIconTopMargin;
-      const uint8_t* iconBitmap = (bookStatuses[0] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
-      renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
+      if (hasReadingStatusIcon) {
+        const uint8_t* iconBitmap =
+            (bookStatuses[0] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
+        renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
+      }
+      if (hasCacheStatusIcon) {
+        constexpr int cacheStatusIconRadius = 7;
+        const int cacheCenterX = textX + (hasReadingStatusIcon ? readingStatusIconSize + 11 : cacheStatusIconRadius);
+        CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, cacheCenterX,
+                              titleY + readingStatusIconSize / 2);
+      }
     }
   } else {
     drawEmptyRecents(renderer, rect);

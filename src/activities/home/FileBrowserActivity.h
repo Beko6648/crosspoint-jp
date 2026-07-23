@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <Epub.h>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,7 @@ class FileBrowserActivity final : public Activity {
     std::string path;
     std::vector<std::string> files;
     std::vector<ReadingStatus> statuses;
+    std::vector<Epub::CacheGenerationStatus> cacheStatuses;
   };
 
   static constexpr size_t DIRECTORY_CACHE_SIZE = 4;
@@ -42,6 +44,7 @@ class FileBrowserActivity final : public Activity {
   std::string loadedPath;
   std::vector<std::string> files;
   std::vector<ReadingStatus> fileStatuses;
+  std::vector<Epub::CacheGenerationStatus> fileCacheStatuses;
   std::vector<DirectoryCacheEntry> directoryCache;
 
   // Data loading

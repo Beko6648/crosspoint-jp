@@ -211,6 +211,31 @@ void GenerateAllCacheActivity::onEnter() {
 
 void GenerateAllCacheActivity::onExit() { Activity::onExit(); }
 
+void GenerateAllCacheActivity::summarizeCacheStatuses(const std::vector<std::string>& epubFiles) {
+  completeCount = 0;
+  resumableCount = 0;
+  notGeneratedCount = 0;
+  for (const auto& epubPath : epubFiles) {
+    switch (Epub(epubPath, "/.crosspoint").getCacheGenerationStatus()) {
+      case Epub::CacheGenerationStatus::Complete:
+        ++completeCount;
+        break;
+      case Epub::CacheGenerationStatus::Resumable:
+        ++resumableCount;
+        break;
+      case Epub::CacheGenerationStatus::NotGenerated:
+        ++notGeneratedCount;
+        break;
+    }
+  }
+}
+
+std::string GenerateAllCacheActivity::cacheGenerationResultText() const {
+  return std::string(tr(STR_CACHE_SUMMARY_COMPLETE)) + ": " + std::to_string(completeCount) + "  " +
+         tr(STR_CACHE_SUMMARY_RESUMABLE) + ": " + std::to_string(resumableCount) + "  " +
+         tr(STR_CACHE_SUMMARY_NOT_GENERATED) + ": " + std::to_string(notGeneratedCount);
+}
+
 void GenerateAllCacheActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
@@ -239,7 +264,7 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 
   if (state == SUCCESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_CACHE_GENERATED), true, EpdFontFamily::BOLD);
-    std::string resultText = std::to_string(processedCount) + " " + std::string(tr(STR_BOOKS_PROCESSED));
+    std::string resultText = cacheGenerationResultText();
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, resultText.c_str());
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
@@ -250,7 +275,7 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 
   if (state == INTERRUPTED) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_CACHE_INTERRUPTED), true, EpdFontFamily::BOLD);
-    std::string resultText = std::to_string(processedCount) + " " + std::string(tr(STR_BOOKS_PROCESSED));
+    std::string resultText = cacheGenerationResultText();
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, resultText.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -271,12 +296,14 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
   if (!scanCompleted) {
     LOG_DBG("GENALL", "Cancelled while scanning for EPUB files");
+    totalCount = epubFiles.size();
+    summarizeCacheStatuses(epubFiles);
     state = INTERRUPTED;
     requestUpdate();
     return;
   }
+
   totalCount = epubFiles.size();
-  processedCount = 0;
 
   LOG_DBG("GENALL", "Found %d EPUB files", totalCount);
 
@@ -504,7 +531,6 @@ void GenerateAllCacheActivity::generateAllCaches() {
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
             generatedImageCaches, pngCacheMs, generatedPngCaches, cachedPngPagesScanned);
     if (cancelled) break;
-    processedCount++;
   }
 
   if (!cancelled) {
@@ -513,6 +539,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
+
+  summarizeCacheStatuses(epubFiles);
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
           millis() - generationStartedAt, progressDisplayMs);

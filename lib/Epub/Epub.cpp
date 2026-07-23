@@ -120,6 +120,11 @@ bool Epub::isFullCacheGenerated() const {
   return valid;
 }
 
+Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
+  if (!Storage.exists(cachePath.c_str())) return CacheGenerationStatus::NotGenerated;
+  return isFullCacheGenerated() ? CacheGenerationStatus::Complete : CacheGenerationStatus::Resumable;
+}
+
 void Epub::clearFullCacheGeneratedMarker() const {
   Storage.remove((cachePath + fullCacheMarkerTmpFile).c_str());
   Storage.remove((cachePath + fullCacheMarkerFile).c_str());

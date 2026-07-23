@@ -18,10 +18,13 @@
 #include "MappedInputManager.h"
 #include "ReadingStatusHelper.h"
 #include "components/UITheme.h"
+#include "components/CacheStatusIcon.h"
 #include "fontIds.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
+constexpr int CACHE_STATUS_ICON_RADIUS = 7;
+constexpr char CACHE_STATUS_VALUE_SPACER[] = "    ";
 
 }  // namespace
 
@@ -87,7 +90,8 @@ void FileBrowserActivity::cacheCurrentDirectory() {
   if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
     directoryCache.erase(directoryCache.begin());
   }
-  directoryCache.push_back({std::move(loadedPath), std::move(files), std::move(fileStatuses)});
+  directoryCache.push_back(
+      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(fileCacheStatuses)});
   loadedPath.clear();
 }
 
@@ -99,6 +103,7 @@ bool FileBrowserActivity::restoreCachedDirectory() {
   loadedPath = std::move(cached->path);
   files = std::move(cached->files);
   fileStatuses = std::move(cached->statuses);
+  fileCacheStatuses = std::move(cached->cacheStatuses);
   directoryCache.erase(cached);
   return true;
 }
@@ -118,6 +123,7 @@ void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
     loadedPath.clear();
     files.clear();
     fileStatuses.clear();
+    fileCacheStatuses.clear();
   }
 }
 
@@ -140,6 +146,7 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   files.clear();
   fileStatuses.clear();
+  fileCacheStatuses.clear();
 
   uint32_t scannedEntries = 0;
   uint32_t getNameCalls = 0;
@@ -201,6 +208,17 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   const unsigned long statusStartedAt = millis();
   getReadingStatuses(basepath, files, "/.crosspoint", fileStatuses);
+  fileCacheStatuses.reserve(files.size());
+  for (const auto& file : files) {
+    if (FsHelpers::hasEpubExtension(file)) {
+      std::string fullPath = basepath;
+      if (fullPath.back() != '/') fullPath += '/';
+      fullPath += file;
+      fileCacheStatuses.push_back(Epub(fullPath, "/.crosspoint").getCacheGenerationStatus());
+    } else {
+      fileCacheStatuses.push_back(Epub::CacheGenerationStatus::NotGenerated);
+    }
+  }
   const unsigned long statusMs = millis() - statusStartedAt;
 
   loadedPath = basepath;
@@ -242,6 +260,7 @@ void FileBrowserActivity::onEnter() {
 void FileBrowserActivity::onExit() {
   Activity::onExit();
   files.clear();
+  fileCacheStatuses.clear();
 }
 
 void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
@@ -470,6 +489,7 @@ void FileBrowserActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+  const bool showCacheStatusIcons = mode == Mode::Books && UITheme::getInstance().getTheme().showsFileIcons();
   if (files.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20,
                       mode == Mode::PickFirmware ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND));
@@ -481,7 +501,31 @@ void FileBrowserActivity::render(RenderLock&&) {
           return mode == Mode::PickFirmware ? UITheme::getFileIcon(files[index])
                                             : UITheme::getFileIcon(files[index], fileStatuses[index]);
         },
-        [this](int index) { return getFileExtension(files[index]); }, false);
+        [this, showCacheStatusIcons](int index) {
+          if (mode == Mode::Books && FsHelpers::hasEpubExtension(files[index])) {
+            // Reserve the rightmost space for the cache-status icon while
+            // keeping the EPUB extension visible immediately to its left.
+            if (showCacheStatusIcons) return getFileExtension(files[index]) + CACHE_STATUS_VALUE_SPACER;
+          }
+          return getFileExtension(files[index]);
+        },
+        false);
+
+    if (showCacheStatusIcons) {
+      const int rowHeight = metrics.listRowHeight;
+      const int pageItems = contentHeight / rowHeight;
+      const int pageStart = (selectorIndex / pageItems) * pageItems;
+      // Keep the circle inside Lyra's rounded selection background and leave
+      // a clear gap after the extension text.
+      const int iconCenterX = pageWidth - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
+      for (int index = pageStart; index < static_cast<int>(files.size()) && index < pageStart + pageItems; ++index) {
+        if (!FsHelpers::hasEpubExtension(files[index])) continue;
+        const int iconCenterY = contentTop + (index - pageStart) * rowHeight + rowHeight / 2;
+        const bool ink = UITheme::getInstance().getTheme().showsFileIcons() || index != selectorIndex;
+        CacheStatusIcon::draw(renderer, fileCacheStatuses[index], CACHE_STATUS_ICON_RADIUS, iconCenterX, iconCenterY,
+                              ink);
+      }
+    }
   }
 
   // Full path display

@@ -1,5 +1,7 @@
 #include "Lyra3CoversTheme.h"
 
+#include <Epub.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 
@@ -8,6 +10,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "components/CacheStatusIcon.h"
 #include "components/UITheme.h"
 #include "components/icons/book_finished24.h"
 #include "components/icons/book_reading24.h"
@@ -98,11 +101,16 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       const bool hasReadingStatusIcon =
           i < static_cast<int>(bookStatuses.size()) &&
           (bookStatuses[i] == ReadingStatus::Reading || bookStatuses[i] == ReadingStatus::Finished);
+      const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(recentBooks[i].path);
+      const Epub::CacheGenerationStatus cacheStatus =
+          hasCacheStatusIcon ? Epub(recentBooks[i].path, "/.crosspoint").getCacheGenerationStatus()
+                             : Epub::CacheGenerationStatus::NotGenerated;
+      const bool hasStatusIcons = hasReadingStatusIcon || hasCacheStatusIcon;
 
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
       const int readingStatusBlockHeight =
-          hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+          hasStatusIcons ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
       const int dynamicTitleBoxHeight = dynamicBlockHeight + readingStatusBlockHeight + hPaddingInSelection + 5;
 
@@ -124,12 +132,21 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
         currentY += titleLineHeight;
       }
-      if (hasReadingStatusIcon) {
+      if (hasStatusIcons) {
         currentY += readingStatusIconTopMargin;
-        const uint8_t* iconBitmap =
-            (bookStatuses[i] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
-        renderer.drawIcon(iconBitmap, tileX + hPaddingInSelection, currentY, readingStatusIconSize,
-                          readingStatusIconSize);
+        if (hasReadingStatusIcon) {
+          const uint8_t* iconBitmap =
+              (bookStatuses[i] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
+          renderer.drawIcon(iconBitmap, tileX + hPaddingInSelection, currentY, readingStatusIconSize,
+                            readingStatusIconSize);
+        }
+        if (hasCacheStatusIcon) {
+          constexpr int cacheStatusIconRadius = 7;
+          const int cacheCenterX = tileX + hPaddingInSelection +
+                                   (hasReadingStatusIcon ? readingStatusIconSize + 11 : cacheStatusIconRadius);
+          CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, cacheCenterX,
+                                currentY + readingStatusIconSize / 2);
+        }
       }
     }
   } else {
