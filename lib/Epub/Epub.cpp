@@ -122,7 +122,13 @@ bool Epub::isFullCacheGenerated() const {
 
 Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
   if (!Storage.exists(cachePath.c_str())) return CacheGenerationStatus::NotGenerated;
-  return isFullCacheGenerated() ? CacheGenerationStatus::Complete : CacheGenerationStatus::Resumable;
+  if (isFullCacheGenerated()) return CacheGenerationStatus::Complete;
+
+  // A cache directory can be recreated solely to retain progress.bin after a
+  // per-book cache deletion.  Only section files represent generated reading
+  // cache that a later full-cache run can reuse.
+  return Storage.exists((cachePath + "/sections").c_str()) ? CacheGenerationStatus::Resumable
+                                                            : CacheGenerationStatus::NotGenerated;
 }
 
 void Epub::clearFullCacheGeneratedMarker() const {

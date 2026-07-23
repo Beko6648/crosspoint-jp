@@ -59,8 +59,9 @@ class Epub {
   // A full-cache marker is published only after every section and image cache
   // has been generated.  Missing/invalid markers deliberately mean "resume".
   bool isFullCacheGenerated() const;
-  // Read-only view of the full-cache contract. A missing directory means no
-  // generation has started; a missing completion marker means resumable.
+  // Read-only view of the full-cache contract. A cache directory holding only
+  // reader metadata/progress is not generated cache; generated sections with
+  // no completion marker are resumable.
   CacheGenerationStatus getCacheGenerationStatus() const;
   void clearFullCacheGeneratedMarker() const;
   bool markFullCacheGenerated() const;
