@@ -101,6 +101,13 @@ void XtcReaderActivity::loop() {
                   });
               break;
             }
+            case XtcReaderMenuActivity::MenuAction::FORCE_REFRESH: {
+              // Re-render the current pre-rendered page through the normal
+              // half-refresh path. This preserves position and XTH grayscale.
+              pagesUntilFullRefresh = 1;
+              requestUpdate();
+              break;
+            }
             case XtcReaderMenuActivity::MenuAction::SCREENSHOT: {
               pendingScreenshot = true;
               break;

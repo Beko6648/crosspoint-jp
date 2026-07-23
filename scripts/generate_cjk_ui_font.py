@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import glob
+import re
 import sys
 from pathlib import Path
 
@@ -61,6 +62,23 @@ def extract_chars_from_translations(translations_dir):
     return chars
 
 
+def extract_codepoints_from_file(codepoints_file):
+    """Read hex codepoints, accepting blank lines and # comments."""
+    chars = set()
+    with open(codepoints_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.split('#', 1)[0].strip()
+            if not line:
+                continue
+            try:
+                cp = int(line, 16)
+                if cp >= 0x20:
+                    chars.add(chr(cp))
+            except ValueError:
+                chars.update(c for c in line if c.strip() and ord(c) >= 0x20)
+    return chars
+
+
 # Extract unique characters
 def get_unique_chars(base_text, translations_dir=None, codepoints_file=None):
     chars = set()
@@ -72,25 +90,29 @@ def get_unique_chars(base_text, translations_dir=None, codepoints_file=None):
         chars.update(i18n_chars)
         print(f"  Extracted {len(i18n_chars)} characters from translations")
     if codepoints_file:
-        cp_chars = set()
-        with open(codepoints_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                try:
-                    # 16進コードポイント形式: 8A2D など
-                    cp = int(line, 16)
-                    if cp >= 0x20:
-                        cp_chars.add(chr(cp))
-                except ValueError:
-                    # 文字そのものを貼った形式: 設定本文日本語 など
-                    for c in line:
-                        if c.strip() and ord(c) >= 0x20:
-                            cp_chars.add(c)
+        cp_chars = extract_codepoints_from_file(codepoints_file)
         chars.update(cp_chars)
         print(f"  Added {len(cp_chars)} characters from codepoints file")
     return sorted(chars, key=ord)
+
+
+def load_existing_glyphs(header_path, pixel_size):
+    """Read glyphs from a generated header for lossless extension."""
+    content = Path(header_path).read_text(encoding='utf-8')
+    bytes_per_char = ((pixel_size + 7) // 8) * pixel_size
+    codepoint_match = re.search(r'CJK_UI_CODEPOINTS\[\]\s+PROGMEM\s*=\s*\{(.*?)\};', content, re.S)
+    widths_match = re.search(r'CJK_UI_GLYPH_WIDTHS\[\]\s+PROGMEM\s*=\s*\{(.*?)\};', content, re.S)
+    if not codepoint_match or not widths_match:
+        raise ValueError(f'Could not read glyph tables from {header_path}')
+    codepoints = [int(value, 16) for value in re.findall(r'0x([0-9A-Fa-f]{4})', codepoint_match.group(1))]
+    widths = [int(value) for value in re.findall(r'\b\d+\b', widths_match.group(1))]
+    bitmap_rows = re.findall(r'// U\+([0-9A-Fa-f]{4})\s*\n\s*((?:0x[0-9A-Fa-f]{2},\s*)+)', content)
+    bitmaps = {int(cp, 16): [int(value, 16) for value in re.findall(r'0x([0-9A-Fa-f]{2})', values)] for cp, values in bitmap_rows}
+    if len(codepoints) != len(widths) or set(codepoints) != set(bitmaps):
+        raise ValueError(f'Inconsistent glyph tables in {header_path}')
+    if any(len(bitmaps[cp]) != bytes_per_char for cp in codepoints):
+        raise ValueError(f'Unexpected glyph dimensions in {header_path}')
+    return {cp: (widths[index], bitmaps[cp]) for index, cp in enumerate(codepoints)}
 
 def load_font_fitting_cell(font_path, pixel_size):
     """Load a font and shrink it until ascent fits the cell height.
@@ -112,14 +134,29 @@ def load_font_fitting_cell(font_path, pixel_size):
         pt_size -= 1
     return None, None, None, None
 
-def generate_font_header(font_path, pixel_size, output_path, translations_dir=None, codepoints_file=None):
+def generate_font_header(font_path, pixel_size, output_path, translations_dir=None,
+                         codepoints_file=None, extend_existing_header=False):
     """Generate CJK UI font header file."""
 
     font, pt_size, ascent, descent = load_font_fitting_cell(font_path, pixel_size)
     if font is None:
         return False
 
-    chars = get_unique_chars(BASE_UI_CHARS, translations_dir, codepoints_file)
+    existing_glyphs = {}
+    if extend_existing_header:
+        if not codepoints_file:
+            print('Error: --extend-existing-header requires --codepoints-file')
+            return False
+        if not Path(output_path).exists():
+            print(f'Error: Existing header not found: {output_path}')
+            return False
+        existing_glyphs = load_existing_glyphs(output_path, pixel_size)
+        requested = {ord(char) for char in extract_codepoints_from_file(codepoints_file)}
+        chars = [chr(cp) for cp in sorted(set(existing_glyphs) | requested)]
+        print(f"  Preserving {len(existing_glyphs)} existing glyphs")
+        print(f"  Adding {len(requested - set(existing_glyphs))} glyphs from codepoints file")
+    else:
+        chars = get_unique_chars(BASE_UI_CHARS, translations_dir, codepoints_file)
     print(f"Generating {pixel_size}x{pixel_size} font with {len(chars)} characters...")
 
     # Collect glyph data
@@ -134,6 +171,13 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
 
     for char in chars:
         cp = ord(char)
+
+        if cp in existing_glyphs:
+            width, bitmap = existing_glyphs[cp]
+            codepoints.append(cp)
+            widths.append(width)
+            bitmaps.append(bitmap)
+            continue
 
         # Create image for character
         img = Image.new('1', (pixel_size, pixel_size), 0)
@@ -309,6 +353,8 @@ def main():
                         help='Path to translations directory (default: auto-detect from project root)')
     parser.add_argument('--codepoints-file', type=str,
                         help='Additional codepoints file (hex, one per line) to include in the font')
+    parser.add_argument('--extend-existing-header', action='store_true',
+                        help='Preserve current glyph bitmaps and add only codepoints from --codepoints-file')
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
@@ -331,7 +377,8 @@ def main():
             translations_dir = str(default_dir)
             print(f"Auto-detected translations: {translations_dir}")
 
-    if generate_font_header(args.font, args.size, output_path, translations_dir, args.codepoints_file):
+    if generate_font_header(args.font, args.size, output_path, translations_dir,
+                            args.codepoints_file, args.extend_existing_header):
         print("Success!")
     else:
         print("Failed!")

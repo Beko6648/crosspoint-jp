@@ -22,11 +22,12 @@ XtcReaderMenuActivity::XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputM
 
 std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuItems(bool hasChapters) {
   std::vector<MenuItem> items;
-  items.reserve(6);
+  items.reserve(7);
   if (hasChapters) {
     items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   }
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
+  items.push_back({MenuAction::FORCE_REFRESH, StrId::STR_FORCE_REFRESH});
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   if (gpio.deviceIsX3()) {

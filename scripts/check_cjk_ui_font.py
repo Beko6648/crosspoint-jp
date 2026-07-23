@@ -49,9 +49,21 @@ def extract_codepoints_from_header(header_path):
     return codepoints
 
 
+def extract_codepoints_from_file(codepoints_file):
+    """Read a hex codepoint list, ignoring blank lines and comments."""
+    codepoints = set()
+    with open(codepoints_file, "r", encoding="utf-8") as f:
+        for line in f:
+            value = line.split("#", 1)[0].strip()
+            if value:
+                codepoints.add(int(value, 16))
+    return codepoints
+
+
 def check(project_root):
     translations_dir = project_root / "lib" / "I18n" / "translations"
     header_path = project_root / "lib" / "GfxRenderer" / "cjk_ui_font_21.h"
+    aozora_codepoints_path = project_root / "scripts" / "codepoints" / "aozora_catalog_top_tier.txt"
 
     if not translations_dir.is_dir():
         return True
@@ -59,6 +71,8 @@ def check(project_root):
         return True
 
     translation_chars = extract_cjk_from_translations(translations_dir)
+    if aozora_codepoints_path.exists():
+        translation_chars.update(chr(cp) for cp in extract_codepoints_from_file(aozora_codepoints_path))
     header_codepoints = extract_codepoints_from_header(header_path)
 
     missing = []
@@ -68,7 +82,7 @@ def check(project_root):
 
     if missing:
         print(f"\n*** CJK UI Font Check Failed ***")
-        print(f"{len(missing)} characters used in translations are missing from cjk_ui_font_21.h:\n")
+        print(f"{len(missing)} required UI characters are missing from cjk_ui_font_21.h:\n")
         print("  " + "".join(missing))
         print(f"\nRun the following to regenerate:")
         print(f"  python3 scripts/generate_cjk_ui_font.py --size 21 --font <path-to-font.otf>")
