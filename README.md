@@ -4,7 +4,9 @@ CrossPoint JPは、Xteink X4向けの日本語読書に特化したオープン�
 
 このリポジトリでは、本家CrossPointおよび既存のCrossPoint JPをベースに、日本語EPUBの縦書き表示、ルビ、縦中横、日本語UI、青空文庫からの直接ダウンロードなど、日本語の書籍を読みやすくするための機能追加と改善を行っています。
 
-現在は、ほかのCrossPoint JPと区別するため、必要に応じて「CrossPoint JP（ponto1216版）」と表記しています。正式な名称変更は、今後の大きなバージョン更新に合わせて検討する予定です。
+v0.2.9まではCrossPoint JPとして継続し、v0.3.0からは正式名称を「CrossPoint Yomuka」、画面上の短い表記を「Yomuka」とする予定です。
+
+開発の優先順位と名称移行の方針は、[ロードマップ](docs/roadmap.md)を参照してください。
 
 <p align="center">
   <img src="docs/images/reading-vertical.png" width="280" alt="縦書き読書画面">
