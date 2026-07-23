@@ -76,14 +76,14 @@ void SleepActivity::onEnter() {
              ti.tm_hour, ti.tm_min, ti.tm_sec, g_timeRestoreSource, powerManager.getBatteryPercentage());
     renderer.fillRect(5, 5, 600, 30, false);
     renderer.drawText(UI_10_FONT_ID, 10, 10, dbg, true);
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
   }
 
   // ビットマップパスで消費されなかった場合（BLANK/DARK/LIGHT）はここで描画
   if (calendarPending) {
     calendarPending = false;
     renderCalendarOverlay();
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
   }
 
   renderer.setDarkMode(wasDarkMode);
@@ -182,7 +182,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
@@ -240,7 +240,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   // カレンダーをBWパスに挿入（displayBuffer前）
   drawCalendarIfPending();
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
 
   if (hasGreyscale && !SETTINGS.sleepCalendar) {
     bitmap.rewindToData();
@@ -341,7 +341,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
 }
 
 void SleepActivity::drawCalendarIfPending() const {

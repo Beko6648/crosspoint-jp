@@ -268,27 +268,17 @@ static const uint16_t CJK_UI_CODEPOINTS[] PROGMEM = {{
 ''')
 
         # Write codepoints
-        for i, cp in enumerate(codepoints):
-            if i % 16 == 0:
-                f.write('    ')
-            f.write(f'0x{cp:04X}, ')
-            if (i + 1) % 16 == 0:
-                f.write('\n')
-        if len(codepoints) % 16 != 0:
-            f.write('\n')
+        for start in range(0, len(codepoints), 16):
+            values = ', '.join(f'0x{cp:04X}' for cp in codepoints[start:start + 16])
+            f.write(f'    {values},\n')
         f.write('};\n\n')
 
         # Write widths
         f.write('// Glyph width table (actual advance width for proportional spacing)\n')
         f.write('static const uint8_t CJK_UI_GLYPH_WIDTHS[] PROGMEM = {\n')
-        for i, w in enumerate(widths):
-            if i % 16 == 0:
-                f.write('    ')
-            f.write(f'{w:3}, ')
-            if (i + 1) % 16 == 0:
-                f.write('\n')
-        if len(widths) % 16 != 0:
-            f.write('\n')
+        for start in range(0, len(widths), 16):
+            values = ', '.join(f'{w:3}' for w in widths[start:start + 16])
+            f.write(f'    {values},\n')
         f.write('};\n\n')
 
         # Write bitmap data
@@ -296,11 +286,11 @@ static const uint16_t CJK_UI_CODEPOINTS[] PROGMEM = {{
         f.write('static const uint8_t CJK_UI_GLYPHS[] PROGMEM = {\n')
         for i, bitmap in enumerate(bitmaps):
             f.write(f'    // U+{codepoints[i]:04X}\n    ')
-            for j, b in enumerate(bitmap):
-                f.write(f'0x{b:02X}, ')
-                if (j + 1) % 16 == 0 and j < len(bitmap) - 1:
-                    f.write('\n    ')
-            f.write('\n')
+            for start in range(0, len(bitmap), 16):
+                if start:
+                    f.write('    ')
+                values = ', '.join(f'0x{b:02X}' for b in bitmap[start:start + 16])
+                f.write(f'{values},\n')
         f.write('};\n\n')
 
         # Write lookup functions

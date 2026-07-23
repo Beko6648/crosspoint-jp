@@ -36,6 +36,7 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/CacheGenerationControls.h"
 #include "util/ScreenshotUtil.h"
 
 namespace {
@@ -77,6 +78,7 @@ int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
 }  // namespace
 
 void EpubReaderActivity::pregenerateCache() {
+  CacheGenerationControls controls;
   const uint32_t generationStartedAt = millis();
   uint32_t sectionBuildMs = 0;
   uint32_t imageCacheMs = 0;
@@ -145,10 +147,7 @@ void EpubReaderActivity::pregenerateCache() {
   std::vector<bool> jpegEligibleSections(spineCount, false);
 
   for (int i = 0; i < spineCount; i++) {
-    const int adc1 = analogRead(1);
-    const int adc2 = analogRead(2);
-    constexpr int ADC_NO_BUTTON = 3800;
-    if (adc1 < ADC_NO_BUTTON || adc2 < ADC_NO_BUTTON) {
+    if (controls.shouldCancel(renderer)) {
       LOG_DBG("ERS", "Pregenerate cancelled at section %d/%d", i, spineCount);
       cancelled = true;
       break;
@@ -188,9 +187,8 @@ void EpubReaderActivity::pregenerateCache() {
                                    generatedPngCaches += pregeneratePngCaches(page, renderer);
                                    pngCacheMs += millis() - pngStartedAt;
                                  },
-                                 [&cancelledDuringSection] {
-                                   constexpr int ADC_NO_BUTTON = 3800;
-                                   cancelledDuringSection = analogRead(1) < ADC_NO_BUTTON || analogRead(2) < ADC_NO_BUTTON;
+                                 [&cancelledDuringSection, &controls, this] {
+                                   cancelledDuringSection = controls.shouldCancel(renderer);
                                    return cancelledDuringSection;
                                  })) {
         if (cancelledDuringSection) {
@@ -212,8 +210,8 @@ void EpubReaderActivity::pregenerateCache() {
     const uint32_t imageStartedAt = millis();
     const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
         epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "ERS", "PRE",
-        [this, &cancelled, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs](const int done,
-                                                                                                       const int total) {
+        [this, &cancelled, &controls, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs](
+            const int done, const int total) {
           const int progress = total > 0 ? 80 + (done * 20) / total : 100;
           if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT || done == total) {
             progressDetail = std::string(tr(STR_CACHE_IMAGES)) + " " + std::to_string(done) + "/" +
@@ -223,8 +221,7 @@ void EpubReaderActivity::pregenerateCache() {
             progressDisplayMs += millis() - displayStartedAt;
             lastDisplayedProgress = progress;
           }
-          constexpr int ADC_NO_BUTTON = 3800;
-          cancelled = analogRead(1) < ADC_NO_BUTTON || analogRead(2) < ADC_NO_BUTTON;
+          cancelled = controls.shouldCancel(renderer);
           return !cancelled;
         });
     imageCacheMs += millis() - imageStartedAt;

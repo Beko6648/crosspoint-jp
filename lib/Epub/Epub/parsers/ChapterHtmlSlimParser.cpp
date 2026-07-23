@@ -1074,6 +1074,18 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   int i = 0;
   while (i < len) {
+    // The Aozora download service emits its source paragraph boundaries as a
+    // U+3000 ideographic space inside a single <p>.  Preserve normal EPUB
+    // spaces, but recover those boundaries for its explicitly identified EPUBs.
+    if (self->epub->isAozoraEpub() && static_cast<uint8_t>(s[i]) == 0xE3 && i + 2 < len &&
+        static_cast<uint8_t>(s[i + 1]) == 0x80 && static_cast<uint8_t>(s[i + 2]) == 0x80) {
+      if (self->partWordBufferIndex > 0) self->flushPartWordBuffer();
+      self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+      self->aozoraParagraphBreakPending = false;
+      i += 3;
+      continue;
+    }
+
     // Check for whitespace (ASCII only)
     if (isWhitespace(s[i])) {
       // Flush any buffered content as a word
@@ -1143,6 +1155,17 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     // Decode the codepoint to check if it's CJK or invisible
     const uint32_t cp = decodeUtf8Codepoint(&s[i], charLen);
 
+    // The same Aozora EPUB generator drops the source line boundary before
+    // dialogue, producing both `。 「` (without the space) and `」「`.
+    // The punctuation belongs to the preceding block; begin a new one before
+    // the next opening quote.
+    if (self->epub->isAozoraEpub() && cp == 0x300C && self->aozoraParagraphBreakPending) {
+      self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+    }
+    if (self->epub->isAozoraEpub() && cp != 0x3002 && cp != 0x300D) {
+      self->aozoraParagraphBreakPending = false;
+    }
+
     // Skip invisible/zero-width Unicode characters that fonts can't render
     if (isInvisibleCodepoint(cp)) {
       i += charLen;
@@ -1176,6 +1199,9 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright);
       } else {
         self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR);
+      }
+      if (self->epub->isAozoraEpub() && (cp == 0x3002 || cp == 0x300D)) {
+        self->aozoraParagraphBreakPending = true;
       }
       i += charLen;
       continue;

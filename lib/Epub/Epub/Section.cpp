@@ -24,7 +24,10 @@ namespace {
 // Version 54: horizontal line breaks apply Japanese head and tail kinsoku rules.
 // Version 55: PNG dimensions no longer fail under low heap and omit images from persisted pages.
 // Version 56: paragraph spacing stores its five-level preset rather than an on/off flag.
-constexpr uint8_t SECTION_FILE_VERSION = 56;
+// Version 57: Aozora-download EPUBs turn full-width paragraph markers into blocks.
+// Version 58: adjacent Aozora dialogue quotes begin a new paragraph.
+// Version 59: Aozora dialogue after a sentence begins a new paragraph.
+constexpr uint8_t SECTION_FILE_VERSION = 59;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

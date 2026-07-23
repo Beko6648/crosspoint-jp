@@ -17,6 +17,7 @@
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/CacheGenerationControls.h"
 
 namespace {
 
@@ -30,15 +31,22 @@ int getStatusBarContentReservation(const int statusBarHeight) {
 }
 
 // Recursively scan a directory for EPUB files
-void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
+bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, CacheGenerationControls& controls,
+                   GfxRenderer& renderer) {
+  if (controls.shouldCancel(renderer)) return false;
   auto dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) {
     if (dir) dir.close();
-    return;
+    return true;
   }
 
   char name[256];
   for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    if (controls.shouldCancel(renderer)) {
+      file.close();
+      dir.close();
+      return false;
+    }
     file.getName(name, sizeof(name));
     if (name[0] == '.') {
       file.close();
@@ -51,7 +59,10 @@ void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
 
     if (file.isDirectory()) {
       file.close();
-      findEpubFiles(fullPath.c_str(), results);
+      if (!findEpubFiles(fullPath.c_str(), results, controls, renderer)) {
+        dir.close();
+        return false;
+      }
     } else {
       if (FsHelpers::hasEpubExtension(std::string_view(name))) {
         results.push_back(fullPath);
@@ -60,6 +71,7 @@ void findEpubFiles(const char* dirPath, std::vector<std::string>& results) {
     }
   }
   dir.close();
+  return true;
 }
 
 int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
@@ -253,9 +265,16 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
   const uint32_t scanStartedAt = millis();
   std::vector<std::string> epubFiles;
-  findEpubFiles("/", epubFiles);
+  CacheGenerationControls controls;
+  const bool scanCompleted = findEpubFiles("/", epubFiles, controls, renderer);
   LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
 
+  if (!scanCompleted) {
+    LOG_DBG("GENALL", "Cancelled while scanning for EPUB files");
+    state = INTERRUPTED;
+    requestUpdate();
+    return;
+  }
   totalCount = epubFiles.size();
   processedCount = 0;
 
@@ -311,10 +330,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
       lastDisplayedProgress = progress;
     }
 
-    // Check for cancel (button held)
-    const int adc1 = analogRead(1);
-    const int adc2 = analogRead(2);
-    if (adc1 < 3800 || adc2 < 3800) {
+    if (controls.shouldCancel(renderer)) {
       LOG_DBG("GENALL", "Cancelled by user at book %d/%d", bookIdx + 1, totalCount);
       cancelled = true;
       break;
@@ -387,7 +403,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     bool allSectionsReady = true;
 
     for (int i = 0; i < spineCount; i++) {
-      if (analogRead(1) < 3800 || analogRead(2) < 3800) {
+      if (controls.shouldCancel(renderer)) {
         LOG_DBG("GENALL", "Cancelled at section %d/%d of book %d/%d", i, spineCount, bookIdx + 1, totalCount);
         cancelled = true;
         allSectionsReady = false;
@@ -439,7 +455,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                      const uint32_t pngStartedAt = millis();
                                      generatedPngCaches += pregeneratePngCaches(page, renderer);
                                      pngCacheMs += millis() - pngStartedAt;
-                                   })) {
+                                   },
+                                   [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
           continue;
@@ -455,7 +472,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const uint32_t imageStartedAt = millis();
     const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
         epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "GENALL", "GEN",
-        [this, &cancelled, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs,
+        [this, &cancelled, &controls, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs,
          bookIdx](const int done, const int total) {
           const int bookProgress = total > 0 ? 80 + (done * 20) / total : 100;
           const int overallProgress = (bookIdx * 100 + bookProgress) / this->totalCount;
@@ -468,7 +485,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
             progressDisplayMs += millis() - displayStartedAt;
             lastDisplayedProgress = overallProgress;
           }
-          cancelled = analogRead(1) < 3800 || analogRead(2) < 3800;
+          cancelled = controls.shouldCancel(renderer);
           return !cancelled;
         });
     imageCacheMs += millis() - imageStartedAt;

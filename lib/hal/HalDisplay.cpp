@@ -44,6 +44,8 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
       return EInkDisplay::FULL_REFRESH;
     case HalDisplay::HALF_REFRESH:
       return EInkDisplay::HALF_REFRESH;
+    case HalDisplay::SLEEP_REFRESH:
+      return EInkDisplay::SLEEP_REFRESH;
     case HalDisplay::FAST_REFRESH:
     default:
       return EInkDisplay::FAST_REFRESH;
@@ -51,7 +53,7 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
 }
 
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
-  if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
+  if (gpio.deviceIsX3() && (mode == RefreshMode::HALF_REFRESH || mode == RefreshMode::SLEEP_REFRESH)) {
     einkDisplay.requestResync(1);
   }
 
@@ -59,7 +61,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
 }
 
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
-  if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
+  if (gpio.deviceIsX3() && (mode == RefreshMode::HALF_REFRESH || mode == RefreshMode::SLEEP_REFRESH)) {
     einkDisplay.requestResync(1);
   }
 

@@ -9,14 +9,38 @@
 #include <string>
 
 #include "Bitmap.h"  // Required for BmpHeader struct definition
+#include "components/UITheme.h"
+
+namespace {
+
+constexpr const char* kScreenshotDirectory = "/screenshots";
+constexpr uint16_t kMaxScreenshotIndex = 9999;
+
+String nextScreenshotFilename() {
+  // There is no RTC-backed wall clock available in the common runtime path.
+  // Keep names stable across reboots and avoid overwriting an earlier capture.
+  static uint16_t nextIndex = 0;
+  for (uint16_t attempts = 0; attempts <= kMaxScreenshotIndex; ++attempts) {
+    const String filename = String(kScreenshotDirectory) + "/screenshot_" + String(nextIndex) + ".bmp";
+    nextIndex = (nextIndex == kMaxScreenshotIndex) ? 0 : nextIndex + 1;
+    if (!Storage.exists(filename.c_str())) {
+      return filename;
+    }
+  }
+  return String();
+}
+
+}  // namespace
 
 void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
   const uint8_t* fb = renderer.getFrameBuffer();
+  bool saved = false;
   if (fb) {
-    String filename_str = "/screenshots/screenshot-" + String(millis()) + ".bmp";
-    if (ScreenshotUtil::saveFramebufferAsBmp(filename_str.c_str(), fb, renderer.getDisplayWidth(),
-                                             renderer.getDisplayHeight())) {
-      LOG_DBG("SCR", "Screenshot saved to %s", filename_str.c_str());
+    const String filename = nextScreenshotFilename();
+    if (!filename.isEmpty() && ScreenshotUtil::saveFramebufferAsBmp(filename.c_str(), fb, renderer.getDisplayWidth(),
+                                                                      renderer.getDisplayHeight())) {
+      saved = true;
+      LOG_DBG("SCR", "Screenshot saved to %s", filename.c_str());
     } else {
       LOG_ERR("SCR", "Failed to save screenshot");
     }
@@ -24,11 +48,12 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
     LOG_ERR("SCR", "Framebuffer not available");
   }
 
-  // Display a border around the screen to indicate a screenshot was taken
+  // Save before drawing the notification so the BMP represents the screen the
+  // user requested, not the notification itself.  The BW backup is chunked by
+  // GfxRenderer, so no large contiguous allocation is required.
   if (renderer.storeBwBuffer()) {
-    renderer.drawRect(6, 6, renderer.getDisplayHeight() - 12, renderer.getDisplayWidth() - 12, 2, true);
-    renderer.displayBuffer();
-    delay(1000);
+    GUI.drawPopup(renderer, saved ? "Screenshot saved" : "Screenshot failed");
+    delay(800);
     renderer.restoreBwBuffer();
     renderer.displayBuffer(HalDisplay::RefreshMode::HALF_REFRESH);
   }

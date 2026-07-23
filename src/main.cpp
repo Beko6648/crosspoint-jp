@@ -511,18 +511,53 @@ void loop() {
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
 
-  static bool screenshotButtonsReleased = true;
+  // Reserve a brief interval after POWER is pressed for the screenshot chord.
+  // With short POWER set to Sleep its normal threshold is only 10 ms, which
+  // otherwise sends the device to sleep before DOWN can be pressed.
+  constexpr unsigned long screenshotChordGraceMs = 250;
+  static bool screenshotChordPending = false;
+  static bool screenshotChordActive = false;
+  static unsigned long screenshotPowerPressedAt = 0;
+
+  if (screenshotChordActive) {
+    // Consume both release edges so a completed screenshot cannot also become
+    // a short POWER action or a reader page turn.
+    if (gpio.isPressed(HalGPIO::BTN_POWER) || gpio.isPressed(HalGPIO::BTN_DOWN)) {
+      return;
+    }
+    screenshotChordActive = false;
+    return;
+  }
+
+  if (gpio.wasPressed(HalGPIO::BTN_POWER)) {
+    screenshotChordPending = true;
+    screenshotPowerPressedAt = millis();
+  }
+
   if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
-    if (screenshotButtonsReleased) {
-      screenshotButtonsReleased = false;
-      {
-        RenderLock lock;
-        ScreenshotUtil::takeScreenshot(renderer);
-      }
+    screenshotChordPending = false;
+    screenshotChordActive = true;
+    {
+      RenderLock lock;
+      ScreenshotUtil::takeScreenshot(renderer);
     }
     return;
-  } else {
-    screenshotButtonsReleased = true;
+  }
+
+  if (screenshotChordPending) {
+    if (!gpio.isPressed(HalGPIO::BTN_POWER)) {
+      screenshotChordPending = false;
+      // Preserve the configured short-press sleep behavior when DOWN was not
+      // added during the grace interval.
+      if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) {
+        enterDeepSleep();
+        return;
+      }
+    } else if (millis() - screenshotPowerPressedAt < screenshotChordGraceMs) {
+      return;
+    } else {
+      screenshotChordPending = false;
+    }
   }
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();

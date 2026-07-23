@@ -20,6 +20,26 @@ constexpr char sourceFingerprintTmpFile[] = "/source.fingerprint.tmp";
 constexpr uint8_t FULL_CACHE_MARKER_VERSION = 1;
 constexpr char fullCacheMarkerFile[] = "/.full_cache_complete";
 constexpr char fullCacheMarkerTmpFile[] = "/.full_cache_complete.tmp";
+
+class AozoraIdentifierProbe final : public Print {
+ public:
+  size_t write(const uint8_t value) override {
+    static constexpr char marker[] = "urn:uuid:aozora-epub";
+    if (value == static_cast<uint8_t>(marker[matched])) {
+      ++matched;
+      if (marker[matched] == '\0') found = true;
+    } else {
+      matched = value == static_cast<uint8_t>(marker[0]) ? 1 : 0;
+    }
+    return 1;
+  }
+
+  bool isFound() const { return found; }
+
+ private:
+  size_t matched = 0;
+  bool found = false;
+};
 }  // namespace
 
 bool Epub::prepareSourceFingerprint(const uint64_t fingerprint, bool& markerNeedsWrite) {
@@ -436,6 +456,18 @@ void Epub::parseCssFiles() const {
   LOG_DBG("EBP", "CSS rules released: free=%u, maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
+bool Epub::detectAozoraEpub() const {
+  std::string contentOpfFilePath;
+  if (!findContentOpfFile(&contentOpfFilePath)) return false;
+
+  AozoraIdentifierProbe probe;
+  if (!readItemContentsToStream(contentOpfFilePath, probe, 512)) {
+    LOG_DBG("EBP", "Could not inspect EPUB identifier for Aozora compatibility");
+    return false;
+  }
+  return probe.isFound();
+}
+
 // load in the meta data for the epub file
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "Loading ePub: %s", filepath.c_str());
@@ -452,6 +484,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
     return false;
   }
   LOG_DBG("EBP", "EPUB source fingerprint checked in %lu ms", millis() - fingerprintStartedAt);
+
+  aozoraEpub = detectAozoraEpub();
+  LOG_DBG("EBP", "Aozora EPUB compatibility: %s", aozoraEpub ? "enabled" : "disabled");
 
   // Initialize spine/TOC cache
   bookMetadataCache.reset(new BookMetadataCache(cachePath));
