@@ -27,7 +27,9 @@ namespace {
 // Version 57: Aozora-download EPUBs turn full-width paragraph markers into blocks.
 // Version 58: adjacent Aozora dialogue quotes begin a new paragraph.
 // Version 59: Aozora dialogue after a sentence begins a new paragraph.
-constexpr uint8_t SECTION_FILE_VERSION = 59;
+// Version 60: refresh vertical layout for bounded block spacing, voiced marks,
+// punctuation, ruby, symbols, and halfwidth kana.
+constexpr uint8_t SECTION_FILE_VERSION = 60;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

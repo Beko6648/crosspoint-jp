@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Utf8.h>
+#include <VerticalTextUtils.h>
 #include <expat.h>
 
 #include "../../Epub.h"
@@ -159,6 +160,14 @@ bool isCjkCodepointForSplit(const uint32_t cp) {
   if (cp >= 0xF900 && cp <= 0xFAFF) return true;
   // Fullwidth forms: U+FF00 - U+FFEF
   if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+  // Symbols that remain upright in Japanese vertical text. Splitting them
+  // prevents a trailing symbol from being joined to an ASCII run (e.g. 1△).
+  if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆
+      cp == 0x25BD || cp == 0x25BC ||  // ▽ ▼
+      cp == 0x25B3 || cp == 0x25B2 ||  // △ ▲
+      cp == 0x2642 || cp == 0x2640 ||  // ♂ ♀
+      cp == 0x266A)                    // ♪
+    return true;
   return false;
 }
 
@@ -278,7 +287,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   ensureTextBlockCapacityForWord();
   partWordBuffer[partWordBufferIndex] = '\0';
   if (verticalMode) {
-    // Classify for vertical: count ASCII digits to determine TateChuYoko vs Sideways
+    // Classify for vertical: short numbers and paired !/? use TateChuYoko.
     bool allDigits = true;
     int asciiCharCount = 0;
     for (int ci = 0; ci < partWordBufferIndex; ci++) {
@@ -286,7 +295,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
       if (partWordBuffer[ci] < '0' || partWordBuffer[ci] > '9') allDigits = false;
     }
     auto vb = VerticalTextUtils::VerticalBehavior::Sideways;  // default for Latin text
-    if (allDigits && asciiCharCount <= 2) {
+    if ((allDigits && asciiCharCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(partWordBuffer)) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
     currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues);

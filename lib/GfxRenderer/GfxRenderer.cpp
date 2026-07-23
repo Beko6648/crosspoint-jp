@@ -1909,7 +1909,14 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       // horizontal advance) so punctuation occupies a full character cell.
       yPos += verticalAdvance;
     } else {
-      // Fall back to upright rendering via drawText
+      // Fall back to the normal glyph. Punctuation with no OpenType `vert`
+      // substitute (including U+301C in older SD-card fonts) still needs a
+      // rotated horizontal glyph in vertical text.
+      // Keep U+FF65 visually centered in the vertical body column. Device
+      // screenshots show that the small reader font needs 5px less correction
+      // than the other three reader sizes.
+      const int middleDotOffset = getLineHeight(effectiveFontId) <= 24 ? 11 : 16;
+      const int glyphX = cp == 0xFF65 ? x - middleDotOffset : x;
       char charBuf[5] = {};
       if (cp < 0x80) {
         charBuf[0] = static_cast<char>(cp);
@@ -1921,7 +1928,15 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         charBuf[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
         charBuf[2] = static_cast<char>(0x80 | (cp & 0x3F));
       }
-      drawText(effectiveFontId, x, yPos, charBuf, black, style);
+      const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(cp);
+      if (punctuation && punctuation->rotate) {
+        const int columnWidth = getLineHeight(effectiveFontId);
+        const int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
+        const int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+        drawTextSideways(effectiveFontId, drawX, drawY, charBuf, black, style, columnWidth);
+      } else {
+        drawText(effectiveFontId, glyphX, yPos, charBuf, black, style);
+      }
       yPos += verticalAdvance;
     }
   }

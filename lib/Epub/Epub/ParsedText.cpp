@@ -306,7 +306,9 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
     auto vb =
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
-    if (vb == VerticalTextUtils::VerticalBehavior::Upright) {
+    const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
+    const uint32_t firstCp = utf8NextCodepoint(&p);
+    if (vb == VerticalTextUtils::VerticalBehavior::Upright && !utf8IsJapaneseVoicingMark(firstCp)) {
       cjkCharAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
     }
   }
@@ -337,8 +339,32 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     auto vb =
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
 
+    const auto* wordPtr = reinterpret_cast<const unsigned char*>(words[i].c_str());
+    const uint32_t wordCp = utf8NextCodepoint(&wordPtr);
+    const bool isStandaloneVoicingMark = wordCp != 0 && *wordPtr == '\0' && utf8IsJapaneseVoicingMark(wordCp);
+    bool overlaysPreviousCharacter = false;
+    if (isStandaloneVoicingMark) {
+      for (size_t baseIndex = i; baseIndex > 0;) {
+        --baseIndex;
+        const auto* basePtr = reinterpret_cast<const unsigned char*>(words[baseIndex].c_str());
+        const uint32_t baseCp = utf8NextCodepoint(&basePtr);
+        if (baseCp != 0 && *basePtr == '\0' && utf8IsJapaneseVoicingMark(baseCp)) continue;
+        overlaysPreviousCharacter = baseCp != 0 && *basePtr == '\0' && VerticalTextUtils::isUprightInVertical(baseCp);
+        break;
+      }
+    }
+
     uint16_t baseHeight;
-    switch (vb) {
+    if (overlaysPreviousCharacter) {
+      // The renderer overlays this mark on the preceding character in vertical
+      // text, so it must not consume a separate character cell.
+      baseHeight = 0;
+    } else if (vb == VerticalTextUtils::VerticalBehavior::Upright &&
+               VerticalTextUtils::isHalfwidthKatakana(wordCp)) {
+      // Halfwidth kana are rendered centered inside a full vertical cell.
+      // Reserving that cell here prevents adjacent glyphs from overlapping.
+      baseHeight = static_cast<uint16_t>(cjkCharAdvance);
+    } else switch (vb) {
       case VerticalTextUtils::VerticalBehavior::Sideways:
         baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
         break;
@@ -353,7 +379,9 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     }
 
     uint16_t finalHeight;
-    if (vb == VerticalTextUtils::VerticalBehavior::Upright) {
+    if (overlaysPreviousCharacter) {
+      finalHeight = 0;
+    } else if (vb == VerticalTextUtils::VerticalBehavior::Upright) {
       finalHeight = baseHeight + baseHeight * sp / 100;
     } else {
       finalHeight = baseHeight + cjkSpacing;

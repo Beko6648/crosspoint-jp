@@ -14,6 +14,10 @@ struct BlockStyle {
   // cap, effectiveWidth collapses to 1-2 words per line and justification dumps
   // the remaining space into a single gap.
   static constexpr float MAX_HORIZONTAL_INSET_EM = 2.0f;
+  // Vertical writing maps h1/h2 after-block spacing to the next column. Keep
+  // EPUB chapter-openers from reserving most of a page between a heading and
+  // its body while retaining normal book-defined paragraph spacing.
+  static constexpr float MAX_VERTICAL_BLOCK_SPACING_EM = 2.0f;
 
   CssTextAlign alignment = CssTextAlign::Justify;
 
@@ -92,14 +96,15 @@ struct BlockStyle {
     BlockStyle blockStyle;
     const float vw = viewportWidth;
     const auto maxHorizontalInsetPx = static_cast<int16_t>(emSize * MAX_HORIZONTAL_INSET_EM);
+    const auto maxVerticalSpacingPx = static_cast<int16_t>(emSize * MAX_VERTICAL_BLOCK_SPACING_EM);
     // Resolve all CssLength values to pixels using the current font's em size and viewport width
-    blockStyle.marginTop = cssStyle.marginTop.toPixelsInt16(emSize, vw);
-    blockStyle.marginBottom = cssStyle.marginBottom.toPixelsInt16(emSize, vw);
+    blockStyle.marginTop = std::min(cssStyle.marginTop.toPixelsInt16(emSize, vw), maxVerticalSpacingPx);
+    blockStyle.marginBottom = std::min(cssStyle.marginBottom.toPixelsInt16(emSize, vw), maxVerticalSpacingPx);
     blockStyle.marginLeft = std::min(cssStyle.marginLeft.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
     blockStyle.marginRight = std::min(cssStyle.marginRight.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
 
-    blockStyle.paddingTop = cssStyle.paddingTop.toPixelsInt16(emSize, vw);
-    blockStyle.paddingBottom = cssStyle.paddingBottom.toPixelsInt16(emSize, vw);
+    blockStyle.paddingTop = std::min(cssStyle.paddingTop.toPixelsInt16(emSize, vw), maxVerticalSpacingPx);
+    blockStyle.paddingBottom = std::min(cssStyle.paddingBottom.toPixelsInt16(emSize, vw), maxVerticalSpacingPx);
     blockStyle.paddingLeft = std::min(cssStyle.paddingLeft.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
     blockStyle.paddingRight = std::min(cssStyle.paddingRight.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
 

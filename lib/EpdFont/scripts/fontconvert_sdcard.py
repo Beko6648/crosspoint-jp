@@ -661,7 +661,8 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
         0xFF1A, 0xFF1B,               # ：；
         0xFF3B, 0xFF3D,               # ［］
         0xFF5B, 0xFF5D,               # ｛｝
-        0xFF5E,                       # ～
+        0xFF0D,                       # －
+        0x301C, 0xFF5E,               # 〜～
         0x30FC,                       # ー
         0x2014, 0x2015,               # —―
         0x2025, 0x2026,               # ‥…

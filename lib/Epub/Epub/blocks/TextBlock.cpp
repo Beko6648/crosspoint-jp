@@ -163,6 +163,36 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       uint32_t firstCp = utf8NextCodepoint(&p);
       const bool isSingleCodepoint = (firstCp != 0 && *p == '\0');
 
+      if (isSingleCodepoint && utf8IsJapaneseVoicingMark(firstCp)) {
+        // EPUBs sometimes place a voiced mark after a character that has no
+        // precomposed form (for example, 阿゛). In vertical text it belongs in
+        // the same cell as that preceding character, not on its own line.
+        bool renderedAsOverlay = false;
+        size_t baseIndex = i;
+        while (baseIndex > 0) {
+          --baseIndex;
+          const auto* basePtr = reinterpret_cast<const unsigned char*>(words[baseIndex].c_str());
+          const uint32_t baseCp = utf8NextCodepoint(&basePtr);
+          if (!(baseCp != 0 && *basePtr == '\0' && utf8IsJapaneseVoicingMark(baseCp))) {
+            if (baseCp != 0 && *basePtr == '\0' && VerticalTextUtils::isUprightInVertical(baseCp) &&
+                baseIndex < wordYpos.size()) {
+              const int cellSize = renderer.getLineHeight(effectiveFontId);
+              // U+3099/U+309A are combining glyphs whose dots sit farther
+              // left in their cell. Spacing and halfwidth marks already have
+              // their own right-side bearing, so keep those closer to the
+              // base character.
+              const int markOffset = (firstCp == 0x3099 || firstCp == 0x309A) ? (cellSize * 3) / 4 : cellSize / 3;
+              const int markX = x + wordXpos[baseIndex] + markOffset;
+              const int markY = y + wordYpos[baseIndex] - cellSize / 8;
+              renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
+              renderedAsOverlay = true;
+            }
+            break;
+          }
+        }
+        if (renderedAsOverlay) continue;
+      }
+
       // 縦書きでは「＝」と半角長音符「ｰ」を90度回転する。
       const bool forceSidewaysSymbol =
           isSingleCodepoint &&
@@ -175,7 +205,12 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           VerticalTextUtils::isUprightInVertical(firstCp);
 
       if (isSingleCjk) {
-        renderer.drawTextVertical(effectiveFontId, wx, wy, w, true, currentStyle);
+        int uprightX = wx;
+        if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
+          const int glyphWidth = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
+          uprightX += std::max(0, (columnWidth - glyphWidth) / 2);
+        }
+        renderer.drawTextVertical(effectiveFontId, uprightX, wy, w, true, currentStyle);
       } else {
         bool allDigits = true;
         int asciiCount = 0;
@@ -189,7 +224,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           }
         }
 
-        if (allDigits && asciiCount <= 2) {
+        if ((allDigits && asciiCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(w)) {
           // TateChuYoko: draw horizontally, centered in the column
           const int textW = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
           const int centerOffset = (columnWidth - textW) / 2;
@@ -251,9 +286,13 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         const int maxRubyX = std::max(minRubyX, renderer.getScreenWidth() - rubyColumnWidth);
         const int rubyX = std::clamp(rightBaseX + rubyOffsetX, minRubyX, maxRubyX);
 
-        const int rubyTextHeight =
-            std::max(rubyColumnWidth,
-                     renderer.getTextAdvanceYVertical(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR));
+        const bool rubyIsAsciiWord = VerticalTextUtils::isAsciiAlphabeticWord(rubyTexts[i].c_str());
+        const int rubyNaturalHeight = rubyIsAsciiWord
+                                          ? renderer.getTextAdvanceX(
+                                                rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR)
+                                          : renderer.getTextAdvanceYVertical(
+                                                rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
+        const int rubyTextHeight = std::max(rubyColumnWidth, rubyNaturalHeight);
         constexpr int rubyViewportSafety = 2;
         const int minRubyY = viewportHeight > 0 ? viewportTop + rubyViewportSafety : 0;
         const int maxRubyY =
@@ -262,14 +301,14 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
                 : INT_MAX;
         const int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
 
-        renderer.drawTextVertical(
-            rubyFontId,
-            rubyX,
-            rubyY,
-            rubyTexts[i].c_str(),
-            true,
-            EpdFontFamily::REGULAR
-        );
+        if (rubyIsAsciiWord) {
+          const int rubyShift = renderer.getFontAscenderSize(rubyFontId) / 3;
+          renderer.drawTextSideways(
+              rubyFontId, rubyX, rubyY + rubyShift, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR, rubyColumnWidth);
+        } else {
+          renderer.drawTextVertical(
+              rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
+        }
       }
     } else {
       const int wordX = wordXpos[i] + x;

@@ -41,6 +41,16 @@ inline bool utf8IsCombiningMark(const uint32_t cp) {
          || (cp >= 0xFE20 && cp <= 0xFE2F);  // Combining Half Marks
 }
 
+// Japanese voiced and semi-voiced sound marks. U+3099/U+309A are true
+// combining marks, while the remaining forms are spacing characters that
+// EPUBs sometimes use after arbitrary kana or ideographs. In vertical text,
+// all six attach to the preceding character cell when one is available.
+inline bool utf8IsJapaneseVoicingMark(const uint32_t cp) {
+  return cp == 0x3099 || cp == 0x309A ||  // ゙ ゚ combining marks
+         cp == 0x309B || cp == 0x309C ||  // ゛ ゜ spacing marks
+         cp == 0xFF9E || cp == 0xFF9F;    // ﾞ ﾟ halfwidth marks
+}
+
 // 日本語仮名の濁点(U+3099)・半濁点(U+309A)をin-placeでNFC合成する。
 // macOS等がNFD形式で書き込んだファイル名を正規化するために使用。
 void utf8NfcNormalizeKana(std::string& str);

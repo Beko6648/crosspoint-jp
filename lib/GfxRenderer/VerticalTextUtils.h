@@ -30,8 +30,6 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0x3002, 0, 0, true},  // 。 ideographic period
     {0xFF0C, 0, 0, true},  // ， fullwidth comma
     {0xFF0E, 0, 0, true},  // ． fullwidth period
-    {0xFF01, 0, 0, true},  // ！ fullwidth exclamation
-    {0xFF1F, 0, 0, true},  // ？ fullwidth question mark
     {0xFF1A, 0, 0, true},  // ： fullwidth colon
     {0xFF1B, 0, 0, true},  // ； fullwidth semicolon
     // Brackets - rotate so opening/closing direction matches vertical flow
@@ -54,6 +52,8 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0x2014, 0, 0, true},  // — em dash
     {0x2015, 0, 0, true},  // ― horizontal bar
     {0x2026, 0, 0, true},  // … ellipsis
+    {0x301C, -1, 0, true}, // 〜 wave dash: center the rotated fallback glyph
+    {0xFF0D, 0, 0, true},  // － fullwidth hyphen-minus
     {0xFF5E, 0, 0, true},  // ～ fullwidth tilde
 };
 static constexpr int VERTICAL_PUNCTUATION_COUNT = sizeof(VERTICAL_PUNCTUATION) / sizeof(VERTICAL_PUNCTUATION[0]);
@@ -64,6 +64,32 @@ inline const PunctuationOffset* getVerticalPunctuationOffset(uint32_t cp) {
     if (VERTICAL_PUNCTUATION[i].codepoint == cp) return &VERTICAL_PUNCTUATION[i];
   }
   return nullptr;
+}
+
+// Halfwidth katakana are narrow horizontal glyphs, but in vertical Japanese
+// text each one occupies a normal character cell.
+inline bool isHalfwidthKatakana(uint32_t cp) {
+  return cp >= 0xFF65 && cp <= 0xFF9D;
+}
+
+// Keep a two-character ASCII !/? sequence in one vertical cell. A single
+// mark and longer runs deliberately remain sideways, matching Japanese
+// vertical typesetting conventions.
+inline bool isTateChuYokoPunctuationPair(const char* text) {
+  return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') &&
+         text[2] == '\0';
+}
+
+// A ruby annotation containing Latin letters is conventionally rotated as a
+// whole phrase in vertical Japanese text, rather than stacking its letters.
+inline bool isAsciiAlphabeticWord(const char* text) {
+  if (text == nullptr || *text == '\0') return false;
+  for (const char* p = text; *p; ++p) {
+    if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Determine if a codepoint should be drawn upright in vertical text.
@@ -80,6 +106,13 @@ inline bool isUprightInVertical(uint32_t cp) {
   if (cp >= 0x3300 && cp <= 0x33FF) return true;  // CJK Compatibility
   if (cp >= 0x3100 && cp <= 0x312F) return true;  // Bopomofo
   if (cp >= 0xAC00 && cp <= 0xD7AF) return true;  // Hangul
+  // Common symbols used upright in Japanese vertical text.
+  if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆
+      cp == 0x25BD || cp == 0x25BC ||  // ▽ ▼
+      cp == 0x25B3 || cp == 0x25B2 ||  // △ ▲
+      cp == 0x2642 || cp == 0x2640 ||  // ♂ ♀
+      cp == 0x266A)                    // ♪
+    return true;
   return false;
 }
 
@@ -94,13 +127,16 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   if (cp >= 0x3008 && cp <= 0x3011) return true;  // 〈〉《》「」『』【】
   if (cp >= 0x3014 && cp <= 0x301B) return true;  // 〔〕〖〗〘〙〚〛
   if (cp >= 0x301D && cp <= 0x301F) return true;  // 〝〞〟
+  if (cp == 0x301C) return true;                  // 〜
   // Fullwidth punctuation and brackets
-  if (cp == 0xFF01 || cp == 0xFF1F) return true;  // ！？
+  // Fullwidth !/? use the rotated normal glyph below. Some SD fonts carry
+  // horizontal-looking vert alternates for these two punctuation marks.
   if (cp == 0xFF08 || cp == 0xFF09) return true;  // （）
   if (cp == 0xFF0C || cp == 0xFF0E) return true;  // ，．
   if (cp == 0xFF1A || cp == 0xFF1B) return true;  // ：；
   if (cp == 0xFF3B || cp == 0xFF3D) return true;  // ［］
   if (cp == 0xFF5B || cp == 0xFF5D) return true;  // ｛｝
+  if (cp == 0xFF0D) return true;                  // －
   if (cp == 0xFF5E) return true;                  // ～
   // Long marks and dashes
   if (cp == 0x30FC) return true;                  // ー
