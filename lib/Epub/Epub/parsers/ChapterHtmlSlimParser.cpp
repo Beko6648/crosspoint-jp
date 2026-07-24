@@ -160,6 +160,9 @@ bool isCjkCodepointForSplit(const uint32_t cp) {
   if (cp >= 0xF900 && cp <= 0xFAFF) return true;
   // Fullwidth forms: U+FF00 - U+FFEF
   if (cp >= 0xFF00 && cp <= 0xFFEF) return true;
+  // Horizontal bars use dedicated vertical glyphs and must occupy one cell
+  // each instead of being merged into a sideways text run.
+  if (cp == 0x2014 || cp == 0x2015) return true;
   // Symbols that remain upright in Japanese vertical text. Splitting them
   // prevents a trailing symbol from being joined to an ASCII run (e.g. 1△).
   if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆

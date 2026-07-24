@@ -133,6 +133,9 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     if (columnWidth <= 0) columnWidth = renderer.getLineHeight(effectiveFontId);
   }
 
+  // Keep annotations in one vertical column from drawing over each other.
+  // This adjusts only ruby glyphs; body-text positions remain unchanged.
+  int nextVerticalRubyY = INT_MIN;
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
 #if DEBUG_RUBY_RENDER
@@ -299,7 +302,11 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
             viewportHeight > 0
                 ? std::max(minRubyY, viewportTop + viewportHeight - rubyTextHeight - rubyViewportSafety)
                 : INT_MAX;
-        const int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
+        int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
+        if (rubyY < nextVerticalRubyY) {
+          rubyY = std::min(nextVerticalRubyY, maxRubyY);
+        }
+        nextVerticalRubyY = rubyY + rubyTextHeight + 1;
 
         if (rubyIsAsciiWord) {
           const int rubyShift = renderer.getFontAscenderSize(rubyFontId) / 3;

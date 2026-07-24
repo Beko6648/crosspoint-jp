@@ -106,6 +106,9 @@ inline bool isUprightInVertical(uint32_t cp) {
   if (cp >= 0x3300 && cp <= 0x33FF) return true;  // CJK Compatibility
   if (cp >= 0x3100 && cp <= 0x312F) return true;  // Bopomofo
   if (cp >= 0xAC00 && cp <= 0xD7AF) return true;  // Hangul
+  // Horizontal bars have OpenType vertical substitutions. Treat each as a
+  // single vertical cell rather than rotating a combined text run.
+  if (cp == 0x2014 || cp == 0x2015) return true;
   // Common symbols used upright in Japanese vertical text.
   if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆
       cp == 0x25BD || cp == 0x25BC ||  // ▽ ▼
