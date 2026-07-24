@@ -31,11 +31,8 @@ class Epub {
   bool saveSourceFingerprint(uint64_t fingerprint) const;
   // CSS files
   std::vector<std::string> cssFiles;
-  // True only for EPUBs produced by Yomika's Aozora download service.
-  bool aozoraEpub = false;
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
-  bool detectAozoraEpub() const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true);
   bool parseTocNcxFile() const;
   bool parseTocNavFile() const;
@@ -91,7 +88,6 @@ class Epub {
   size_t getBookSize() const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;
   CssParser* getCssParser() const { return cssParser.get(); }
-  bool isAozoraEpub() const { return aozoraEpub; }
   int resolveHrefToSpineIndex(const std::string& href) const;
   bool isPageProgressionRtl() const;
 };
