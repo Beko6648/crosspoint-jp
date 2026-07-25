@@ -814,7 +814,7 @@ void BaseTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& lay
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool rtlProgress) const {
+                              const bool rtlProgress, const bool isPageBookmarked) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -872,11 +872,30 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+  int batteryClusterWidth = 0;
+  if (SETTINGS.statusBarBattery) {
+    batteryClusterWidth = metrics.batteryWidth;
+    if (showBatteryPercentage) {
+      const auto batteryText = std::to_string(powerManager.getBatteryPercentage()) + "%";
+      batteryClusterWidth += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, batteryText.c_str());
+    }
+  }
   if (SETTINGS.statusBarBattery) {
     GUI.drawBatteryLeft(renderer,
                         Rect{metrics.statusBarHorizontalMargin + orientedMarginLeft + 1, textY, metrics.batteryWidth,
                              metrics.batteryHeight},
                         showBatteryPercentage);
+  }
+
+  // Keep the bookmark mark deliberately simple so it also works with every
+  // orientation and does not consume a font glyph.
+  const int bookmarkWidth = 8;
+  if (isPageBookmarked) {
+    constexpr int bookmarkGap = 6;
+    const int x = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + batteryClusterWidth + bookmarkGap;
+    renderer.drawRect(x, textY, bookmarkWidth, 12);
+    renderer.drawLine(x, textY + 11, x + bookmarkWidth / 2, textY + 7);
+    renderer.drawLine(x + bookmarkWidth, textY + 11, x + bookmarkWidth / 2, textY + 7);
   }
 
   // Draw Title
@@ -887,8 +906,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int rendererableScreenWidth =
         renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
-    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
-    const int titleMarginLeft = batterySize + 30;
+    const int titleMarginLeft = batteryClusterWidth + (isPageBookmarked ? bookmarkWidth + 36 : 30);
     const int titleMarginRight = progressTextWidth + 30;
 
     // Attempt to center title on the screen, but if title is too wide then later we will center it within the

@@ -11,6 +11,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "RecentBooksStore.h"
+#include "BookmarkEntry.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
 
@@ -61,6 +62,79 @@ void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
       settings.statusBarBattery = 1;
       break;
   }
+}
+
+bool JsonSettingsIO::saveBookmarks(const std::vector<BookmarkEntry>& bookmarks, const char* path) {
+  JsonDocument doc;
+  JsonArray entries = doc["bookmarks"].to<JsonArray>();
+  for (const auto& bookmark : bookmarks) {
+    JsonObject entry = entries.add<JsonObject>();
+    entry["summary"] = bookmark.summary;
+    entry["percentage"] = bookmark.percentage;
+    entry["spine"] = bookmark.spineIndex;
+    entry["pages"] = bookmark.chapterPageCount;
+    entry["page"] = bookmark.chapterPage;
+  }
+  const std::string finalPath(path);
+  const std::string tmpPath = finalPath + ".tmp";
+  const std::string backupPath = finalPath + ".bak";
+  Storage.remove(tmpPath.c_str());
+  {
+    FsFile file;
+    if (!Storage.openFileForWrite("BKM", tmpPath, file)) {
+      LOG_ERR("BKM", "Failed to open temporary bookmark file");
+      return false;
+    }
+    if (serializeJson(doc, file) == 0) {
+      LOG_ERR("BKM", "Failed to write temporary bookmark file");
+      file.close();
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+    file.flush();
+    file.close();
+  }
+  const bool hadOriginal = Storage.exists(finalPath.c_str());
+  if (hadOriginal) {
+    Storage.remove(backupPath.c_str());
+    if (!Storage.rename(finalPath.c_str(), backupPath.c_str())) {
+      LOG_ERR("BKM", "Failed to back up bookmark file");
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+  }
+  if (!Storage.rename(tmpPath.c_str(), finalPath.c_str())) {
+    LOG_ERR("BKM", "Failed to install bookmark file");
+    Storage.remove(tmpPath.c_str());
+    if (hadOriginal) Storage.rename(backupPath.c_str(), finalPath.c_str());
+    return false;
+  }
+  if (hadOriginal) Storage.remove(backupPath.c_str());
+  return true;
+}
+
+bool JsonSettingsIO::loadBookmarks(std::vector<BookmarkEntry>& bookmarks, const char* json,
+                                   const size_t maximumEntries) {
+  JsonDocument doc;
+  const auto error = deserializeJson(doc, json);
+  if (error) {
+    LOG_ERR("BKM", "JSON parse error: %s", error.c_str());
+    return false;
+  }
+  bookmarks.clear();
+  JsonArray entries = doc["bookmarks"].as<JsonArray>();
+  bookmarks.reserve(std::min(entries.size(), maximumEntries));
+  for (JsonObject entry : entries) {
+    if (bookmarks.size() >= maximumEntries) break;
+    BookmarkEntry bookmark;
+    bookmark.summary = entry["summary"] | std::string("");
+    bookmark.percentage = entry["percentage"] | 0.0f;
+    bookmark.spineIndex = entry["spine"] | static_cast<uint16_t>(0);
+    bookmark.chapterPageCount = entry["pages"] | static_cast<uint16_t>(0);
+    bookmark.chapterPage = entry["page"] | static_cast<uint16_t>(0);
+    bookmarks.push_back(std::move(bookmark));
+  }
+  return true;
 }
 // ---- CrossPointState ----
 

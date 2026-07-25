@@ -3,7 +3,10 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include "BookmarkEntry.h"
+
 #include <optional>
+#include <vector>
 
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
@@ -35,6 +38,10 @@ class EpubReaderActivity final : public Activity {
   bool rubyAdjustActive = false;
   bool rubyAdjustIgnoreOpeningRelease = false;
   bool rubyAdjustChanged = false;
+  bool currentPageBookmarked = false;
+  enum class BookmarkNotice : uint8_t { NONE, ADDED, REMOVED, LIMIT };
+  BookmarkNotice bookmarkNotice = BookmarkNotice::NONE;
+  std::vector<BookmarkEntry> cachedBookmarks;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -54,6 +61,7 @@ class EpubReaderActivity final : public Activity {
   void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
+  void jumpToBookProgress(float progress);
   void invalidateSectionPreservingPosition();
   void onReaderMenuBack(uint8_t orientation);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -67,6 +75,9 @@ class EpubReaderActivity final : public Activity {
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
   void restoreSavedPosition();
+  void loadCachedBookmarks();
+  void toggleBookmark();
+  void updateBookmarkFlag();
 
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub)

@@ -18,8 +18,11 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "JsonSettingsIO.h"
 #include "BookCacheClearActivity.h"
+#include "BookmarkEntry.h"
 #include "EpubReaderChapterSelectionActivity.h"
+#include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderDetailsActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
@@ -37,6 +40,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/CacheGenerationControls.h"
+#include "util/BookmarkUtil.h"
 #include "util/ScreenshotUtil.h"
 
 namespace {
@@ -48,6 +52,8 @@ constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 // Vertical glyph bounds can extend a few pixels past their layout advance.
 // Keep this guard between reader content and a visible status bar.
 constexpr int STATUS_BAR_CONTENT_GUARD = 8;
+constexpr size_t MAX_BOOKMARKS_PER_BOOK = 24;
+constexpr float BOOKMARK_PROGRESS_EPSILON = 0.0001f;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -63,6 +69,17 @@ int clampPercent(int percent) {
     return 100;
   }
   return percent;
+}
+
+struct ProgressRange { float start; float end; };
+
+ProgressRange getBookmarkPageRange(const std::shared_ptr<Epub>& epub, const int spineIndex, const int page,
+                                   const int pageCount) {
+  if (pageCount <= 1) return {epub->calculateProgress(spineIndex, 0.0f), epub->calculateProgress(spineIndex, 1.0f)};
+  const float step = 1.0f / static_cast<float>(pageCount - 1);
+  const float anchor = std::clamp(static_cast<float>(page) * step, 0.0f, 1.0f);
+  return {epub->calculateProgress(spineIndex, std::max(0.0f, anchor - step * 0.5f)),
+          epub->calculateProgress(spineIndex, std::min(1.0f, anchor + step * 0.5f))};
 }
 
 int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
@@ -263,6 +280,7 @@ void EpubReaderActivity::onEnter() {
   // enterNewActivity() → OrientationHelper::applyOrientation() before onEnter().
 
   epub->setupCacheDir();
+  loadCachedBookmarks();
 
   FsFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -426,7 +444,7 @@ void EpubReaderActivity::loop() {
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), menuCurrentPage, menuTotalPages,
-                               bookProgressPercent, SETTINGS.orientation, verticalMode),
+                               bookProgressPercent, SETTINGS.orientation, verticalMode, !cachedBookmarks.empty()),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -527,14 +545,16 @@ void EpubReaderActivity::jumpToPercent(int percent) {
   // Normalize input to 0-100 to avoid invalid jumps.
   percent = clampPercent(percent);
 
-  // Convert percent into a byte-like absolute position across the spine sizes.
-  // Use an overflow-safe computation: (bookSize / 100) * percent + (bookSize % 100) * percent / 100
-  size_t targetSize =
-      (bookSize / 100) * static_cast<size_t>(percent) + (bookSize % 100) * static_cast<size_t>(percent) / 100;
-  if (percent >= 100) {
-    // Ensure the final percent lands inside the last spine item.
-    targetSize = bookSize - 1;
-  }
+  jumpToBookProgress(static_cast<float>(clampPercent(percent)) / 100.0f);
+}
+
+void EpubReaderActivity::jumpToBookProgress(float progress) {
+  if (!epub || epub->getBookSize() == 0) return;
+  progress = std::clamp(progress, 0.0f, 1.0f);
+  const size_t bookSize = epub->getBookSize();
+  // Convert normalized progress into an absolute position across the spine sizes.
+  size_t targetSize = static_cast<size_t>(progress * static_cast<float>(bookSize));
+  if (targetSize >= bookSize) targetSize = bookSize - 1;
 
   const int spineCount = epub->getSpineItemsCount();
   if (spineCount == 0) {
@@ -586,8 +606,28 @@ void EpubReaderActivity::invalidateSectionPreservingPosition() {
 }
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
-  switch (action) {
-    case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
+    switch (action) {
+      case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
+        startActivityForResult(std::make_unique<EpubReaderBookmarksActivity>(renderer, mappedInput, epub, epub->getPath()),
+                               [this](const ActivityResult& result) {
+          loadCachedBookmarks();
+          if (result.isCancelled) return;
+          const auto& bookmark = std::get<BookmarkResult>(result.data);
+          if (bookmark.spineIndex == currentSpineIndex && section &&
+              bookmark.chapterPageCount == section->pageCount) {
+            RenderLock lock(*this);
+            section->currentPage = std::min<int>(bookmark.chapterPage, section->pageCount - 1);
+          } else {
+            jumpToBookProgress(bookmark.percentage);
+          }
+          requestUpdate();
+        });
+        break;
+      }
+      case EpubReaderMenuActivity::MenuAction::TOGGLE_BOOKMARK:
+        toggleBookmark();
+        break;
+      case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
       const int spineIdx = currentSpineIndex;
       const std::string path = epub->getPath();
       startActivityForResult(
@@ -1254,11 +1294,19 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
                rubyOffsetX, rubyOffsetY);
+  updateBookmarkFlag();
   renderStatusBar();
   renderRubyAdjustOverlay();
+  if (bookmarkNotice != BookmarkNotice::NONE) {
+    const char* message = tr(STR_BOOKMARK_ADDED);
+    if (bookmarkNotice == BookmarkNotice::REMOVED) message = tr(STR_BOOKMARK_REMOVED);
+    if (bookmarkNotice == BookmarkNotice::LIMIT) message = tr(STR_BOOKMARK_LIMIT);
+    GUI.drawPopup(renderer, message);
+  }
   const auto tBwRender = millis();
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  bookmarkNotice = BookmarkNotice::NONE;
   const auto tDisplay = millis();
 
   // Illustration caches store four real pixel levels, but the normal BW pass
@@ -1343,7 +1391,68 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub->getTitle();
   }
 
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, verticalMode);
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, verticalMode,
+                    currentPageBookmarked);
+}
+
+void EpubReaderActivity::loadCachedBookmarks() {
+  cachedBookmarks.clear();
+  currentPageBookmarked = false;
+  if (!epub) return;
+  const std::string path = BookmarkUtil::getBookmarkPath(epub->getPath());
+  BookmarkUtil::recoverBookmarkFile(path);
+  if (!Storage.exists(path.c_str())) return;
+  const String json = Storage.readFile(path.c_str());
+  if (!json.isEmpty()) JsonSettingsIO::loadBookmarks(cachedBookmarks, json.c_str(), MAX_BOOKMARKS_PER_BOOK);
+  updateBookmarkFlag();
+}
+
+void EpubReaderActivity::updateBookmarkFlag() {
+  currentPageBookmarked = false;
+  if (!epub || !section || cachedBookmarks.empty() || section->pageCount <= 0) return;
+  const auto range = getBookmarkPageRange(epub, currentSpineIndex, section->currentPage, section->pageCount);
+  currentPageBookmarked = std::any_of(cachedBookmarks.begin(), cachedBookmarks.end(), [&](const BookmarkEntry& entry) {
+    if (entry.spineIndex == currentSpineIndex && entry.chapterPageCount == section->pageCount &&
+        entry.chapterPage == section->currentPage) return true;
+    return entry.percentage + BOOKMARK_PROGRESS_EPSILON >= range.start &&
+           entry.percentage - BOOKMARK_PROGRESS_EPSILON <= range.end;
+  });
+}
+
+void EpubReaderActivity::toggleBookmark() {
+  if (!epub || !section || section->pageCount <= 0) return;
+  const int page = section->currentPage;
+  const int pageCount = section->pageCount;
+  const auto range = getBookmarkPageRange(epub, currentSpineIndex, page, pageCount);
+  const auto existing = std::find_if(cachedBookmarks.begin(), cachedBookmarks.end(), [&](const BookmarkEntry& entry) {
+    if (entry.spineIndex == currentSpineIndex && entry.chapterPageCount == pageCount && entry.chapterPage == page) return true;
+    return entry.percentage + BOOKMARK_PROGRESS_EPSILON >= range.start &&
+           entry.percentage - BOOKMARK_PROGRESS_EPSILON <= range.end;
+  });
+  if (existing != cachedBookmarks.end()) {
+    cachedBookmarks.erase(existing);
+    bookmarkNotice = BookmarkNotice::REMOVED;
+  } else if (cachedBookmarks.size() >= MAX_BOOKMARKS_PER_BOOK) {
+    bookmarkNotice = BookmarkNotice::LIMIT;
+  } else {
+    BookmarkEntry entry;
+    entry.spineIndex = static_cast<uint16_t>(currentSpineIndex);
+    entry.chapterPageCount = static_cast<uint16_t>(pageCount);
+    entry.chapterPage = static_cast<uint16_t>(page);
+    const float chapterProgress =
+        pageCount <= 1 ? 0.0f : static_cast<float>(page) / static_cast<float>(pageCount - 1);
+    entry.percentage = epub->calculateProgress(currentSpineIndex, chapterProgress);
+    const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+    entry.summary = tocIndex >= 0 ? epub->getTocItem(tocIndex).title : std::string(tr(STR_UNNAMED));
+    cachedBookmarks.insert(cachedBookmarks.begin(), std::move(entry));
+    bookmarkNotice = BookmarkNotice::ADDED;
+  }
+  Storage.mkdir(BookmarkUtil::getBookmarksDir().c_str());
+  if (!JsonSettingsIO::saveBookmarks(cachedBookmarks, BookmarkUtil::getBookmarkPath(epub->getPath()).c_str())) {
+    LOG_ERR("BKM", "Failed to save bookmarks");
+  }
+  updateBookmarkFlag();
+  requestUpdate();
 }
 
 void EpubReaderActivity::renderRubyAdjustOverlay() const {
