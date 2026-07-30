@@ -191,6 +191,10 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Horizontal bitmap bounds relative to the requested draw origin. Unlike
+  // getTextWidth(), this retains the font's left side bearing.
+  void getTextVisibleBoundsX(int fontId, const char* text, int* minX, int* maxX,
+                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawCenteredText(const int fontId, const int y, const char* text, const bool black = true,
                         const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 

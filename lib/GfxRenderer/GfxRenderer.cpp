@@ -533,6 +533,76 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   return w;
 }
 
+void GfxRenderer::getTextVisibleBoundsX(const int fontId, const char* text, int* minX, int* maxX,
+                                        const EpdFontFamily::Style style) const {
+  if (minX == nullptr || maxX == nullptr) return;
+  *minX = 0;
+  *maxX = 0;
+  if (text == nullptr || *text == '\0') return;
+
+  // External reader glyphs trim minX before drawing, so their visible bounds
+  // differ from both their source bitmap width and their advance. Match that
+  // path before falling back to the built-in font geometry below.
+  if (isReaderFont(fontId)) {
+    FontManager& fm = FontManager::getInstance();
+    if (fm.isExternalFontEnabled()) {
+      ExternalFont* extFont = fm.getActiveFont();
+      if (extFont != nullptr) {
+        int penX = 0;
+        int visibleRight = 0;
+        bool allGlyphsExternal = true;
+        const char* ptr = text;
+        while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr))) {
+          const uint8_t* bitmap = extFont->getGlyph(cp);
+          if (bitmap == nullptr) {
+            allGlyphsExternal = false;
+            break;
+          }
+          uint8_t glyphMinX = 0;
+          uint8_t advanceX = extFont->getCharWidth();
+          extFont->getGlyphMetrics(cp, &glyphMinX, &advanceX);
+          visibleRight = std::max(visibleRight, penX + extFont->getCharWidth() - glyphMinX);
+          const int spacing = isAsciiDigit(cp) ? asciiDigitSpacing : isAsciiLetter(cp) ? asciiLetterSpacing : 0;
+          penX += clampExternalAdvance(advanceX, spacing);
+        }
+        if (allGlyphsExternal) {
+          *maxX = visibleRight;
+          return;
+        }
+      }
+    }
+  }
+
+  const int effectiveFontId = getEffectiveFontId(fontId);
+  const auto fontIt = fontMap.find(effectiveFontId);
+  if (fontIt == fontMap.end()) {
+    *maxX = getTextWidth(fontId, text, style);
+    return;
+  }
+
+  // This is the same unscaled glyph geometry used by drawText(). The scale
+  // conversion below mirrors renderChar() for SD-card reader fonts.
+  int minY = 0;
+  int maxY = 0;
+  fontIt->second.getTextBounds(text, 0, 0, minX, &minY, maxX, &maxY, style);
+
+  // EpdFont::getTextBounds() deliberately includes the requested origin so
+  // generic text measurement never reports a positive minimum. For centering
+  // a short vertical run, that hides the first glyph's left side bearing and
+  // shifts halfwidth digits right. Use the first rendered glyph's true left
+  // edge while retaining the computed right edge for the complete run.
+  const char* firstPtr = text;
+  const uint32_t firstCp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&firstPtr));
+  if (const EpdGlyph* firstGlyph = fontIt->second.getGlyph(firstCp, style)) {
+    *minX = firstGlyph->left;
+  }
+  const uint16_t scale = getSdCardFontScale(effectiveFontId);
+  if (scale != 256) {
+    *minX = (*minX * static_cast<int>(scale) + 128) >> 8;
+    *maxX = (*maxX * static_cast<int>(scale) + 128) >> 8;
+  }
+}
+
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
                                    const EpdFontFamily::Style style) const {
   const int x = (getScreenWidth() - getTextWidth(fontId, text, style)) / 2;

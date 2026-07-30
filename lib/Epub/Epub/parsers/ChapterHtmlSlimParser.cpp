@@ -290,15 +290,10 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   ensureTextBlockCapacityForWord();
   partWordBuffer[partWordBufferIndex] = '\0';
   if (verticalMode) {
-    // Classify for vertical: short numbers and paired !/? use TateChuYoko.
-    bool allDigits = true;
-    int asciiCharCount = 0;
-    for (int ci = 0; ci < partWordBufferIndex; ci++) {
-      if ((static_cast<uint8_t>(partWordBuffer[ci]) & 0xC0) != 0x80) asciiCharCount++;
-      if (partWordBuffer[ci] < '0' || partWordBuffer[ci] > '9') allDigits = false;
-    }
+    // Classify short numbers and paired !/? consistently with rendering.
+    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer);
     auto vb = VerticalTextUtils::VerticalBehavior::Sideways;  // default for Latin text
-    if ((allDigits && asciiCharCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(partWordBuffer)) {
+    if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
     currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues);

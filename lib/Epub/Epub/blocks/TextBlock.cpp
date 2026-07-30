@@ -215,28 +215,21 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         }
         renderer.drawTextVertical(effectiveFontId, uprightX, wy, w, true, currentStyle);
       } else {
-        bool allDigits = true;
-        int asciiCount = 0;
-
-        for (const char* c = w; *c; c++) {
-          if ((static_cast<uint8_t>(*c) & 0xC0) != 0x80) {
-            asciiCount++;
-          }
-          if (*c < '0' || *c > '9') {
-            allDigits = false;
-          }
-        }
-
-        if ((allDigits && asciiCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(w)) {
-          // TateChuYoko: first center the visible glyph bounds. For two tabular
-          // digits, shift left by half of one digit so their midpoint, rather
-          // than the first digit, is on the body-column centerline.
-          const int textW = renderer.getTextWidth(effectiveFontId, w, currentStyle);
-          const int twoDigitShift = (allDigits && asciiCount == 2) ? textW / 4 : 0;
-          // Narrow single digits still look fractionally right of the body
-          // center with their font-side bearing, so nudge them inward by 1 px.
-          const int singleDigitShift = (allDigits && asciiCount == 1) ? 1 : 0;
-          const int centerOffset = (columnWidth - textW) / 2 - twoDigitShift - singleDigitShift;
+        const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w);
+        if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
+          // Align the actual halfwidth-digits bounds with a fullwidth digit
+          // in the same column. This is more reliable than the abstract cell
+          // width: some fonts (notably Noto) have a cell center that differs
+          // from the visible fullwidth-numeral center.
+          int textMinX = 0;
+          int textMaxX = 0;
+          renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, currentStyle);
+          int fullwidthDigitMinX = 0;
+          int fullwidthDigitMaxX = 0;
+          renderer.getTextVisibleBoundsX(
+              effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX, currentStyle);  // U+FF10
+          const int centerOffset =
+              (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
           renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
