@@ -228,9 +228,15 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         }
 
         if ((allDigits && asciiCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(w)) {
-          // TateChuYoko: draw horizontally, centered in the column
-          const int textW = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
-          const int centerOffset = (columnWidth - textW) / 2;
+          // TateChuYoko: first center the visible glyph bounds. For two tabular
+          // digits, shift left by half of one digit so their midpoint, rather
+          // than the first digit, is on the body-column centerline.
+          const int textW = renderer.getTextWidth(effectiveFontId, w, currentStyle);
+          const int twoDigitShift = (allDigits && asciiCount == 2) ? textW / 4 : 0;
+          // Narrow single digits still look fractionally right of the body
+          // center with their font-side bearing, so nudge them inward by 1 px.
+          const int singleDigitShift = (allDigits && asciiCount == 1) ? 1 : 0;
+          const int centerOffset = (columnWidth - textW) / 2 - twoDigitShift - singleDigitShift;
           renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
