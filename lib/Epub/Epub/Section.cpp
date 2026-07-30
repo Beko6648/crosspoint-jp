@@ -492,10 +492,17 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Pre-check heap before heavy allocation work.
   // On ESP32 without C++ exceptions, new/make_shared call abort() on failure.
   const uint32_t freeHeapBeforeBuild = ESP.getFreeHeap();
+  const uint32_t maxAllocHeapBeforeBuild = ESP.getMaxAllocHeap();
   const size_t requiredHeapBeforeBuild = requiredHeapForSectionBuild(fileSize);
-  if (freeHeapBeforeBuild < requiredHeapBeforeBuild) {
-    LOG_ERR("SCT", "Insufficient heap for section build (%u bytes free, need %zu, html=%lu), aborting gracefully",
-            freeHeapBeforeBuild, requiredHeapBeforeBuild, static_cast<unsigned long>(fileSize));
+  // CSS parsing and font setup can fragment the heap after the earlier ZIP-stream
+  // check.  The parser's initial ParsedText reserves need one sizeable contiguous
+  // allocation, so total free heap alone is not a safe admission test here.
+  if (freeHeapBeforeBuild < requiredHeapBeforeBuild || maxAllocHeapBeforeBuild < MIN_MAX_ALLOC_FOR_SECTION_STREAM) {
+    LOG_ERR("SCT",
+            "Insufficient heap for section build (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu), "
+            "aborting gracefully",
+            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild,
+            MIN_MAX_ALLOC_FOR_SECTION_STREAM, static_cast<unsigned long>(fileSize));
     file.close();
     Storage.remove(tmpSectionPath.c_str());
     Storage.remove(tmpHtmlPath.c_str());
@@ -504,8 +511,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
     return false;
   }
-  LOG_DBG("SCT", "Section build heap check passed (free=%u, need=%zu, html=%lu)", freeHeapBeforeBuild,
-          requiredHeapBeforeBuild, static_cast<unsigned long>(fileSize));
+  LOG_DBG("SCT", "Section build heap check passed (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu)",
+          freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild, MIN_MAX_ALLOC_FOR_SECTION_STREAM,
+          static_cast<unsigned long>(fileSize));
 
   const uint32_t parseBuildStart = millis();
   const uint32_t estimatedBytesPerPage = verticalMode ? 700 : 3072;
