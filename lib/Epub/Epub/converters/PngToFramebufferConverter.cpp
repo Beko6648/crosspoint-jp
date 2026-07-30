@@ -100,24 +100,58 @@ int bytesPerPixelFromType(int pixelType) {
   }
 }
 
-int requiredPngInternalBufferBytes(int srcWidth, int pixelType) {
+int packedRowBytes(int srcWidth, int bitsPerSample) { return (srcWidth * bitsPerSample + 7) / 8; }
+
+int requiredPngInternalBufferBytes(int srcWidth, int pixelType, int bitsPerSample) {
   // +1 filter byte per scanline, *2 for current+previous lines, +32 for alignment margin.
   int pitch = srcWidth * bytesPerPixelFromType(pixelType);
+  if ((pixelType == PNG_PIXEL_GRAYSCALE || pixelType == PNG_PIXEL_INDEXED) && bitsPerSample < 8) {
+    pitch = packedRowBytes(srcWidth, bitsPerSample);
+  }
   return ((pitch + 1) * 2) + 32;
 }
 
+bool isSupportedBitDepth(int pixelType, int bitsPerSample) {
+  if (bitsPerSample == 8) return true;
+  if (bitsPerSample != 1 && bitsPerSample != 2 && bitsPerSample != 4) return false;
+  return pixelType == PNG_PIXEL_GRAYSCALE || pixelType == PNG_PIXEL_INDEXED;
+}
+
+uint8_t readPackedSample(const uint8_t* pixels, int x, int bitsPerSample) {
+  if (bitsPerSample == 8) return pixels[x];
+
+  const int bitOffset = x * bitsPerSample;
+  const int shift = 8 - bitsPerSample - (bitOffset & 7);
+  const uint8_t mask = (1U << bitsPerSample) - 1;
+  return (pixels[bitOffset >> 3] >> shift) & mask;
+}
+
+uint8_t expandSampleToByte(uint8_t sample, int bitsPerSample) {
+  if (bitsPerSample == 8) return sample;
+  const uint8_t maxSample = (1U << bitsPerSample) - 1;
+  return static_cast<uint8_t>((sample * 255U) / maxSample);
+}
+
 // Convert entire source line to grayscale with alpha blending to white background.
+// Low-bit-depth grayscale/indexed scanlines are packed most-significant sample first.
 // For indexed PNGs with tRNS chunk, alpha values are stored at palette[768] onwards.
 // Processing the whole line at once improves cache locality and reduces per-pixel overhead.
-void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixelType, uint8_t* palette, int hasAlpha) {
+void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int pixelType, int bitsPerSample,
+                       uint8_t* palette, int hasAlpha) {
   switch (pixelType) {
     case PNG_PIXEL_GRAYSCALE:
-      memcpy(grayLine, pPixels, width);
+      if (bitsPerSample == 8) {
+        memcpy(grayLine, pPixels, width);
+      } else {
+        for (int x = 0; x < width; x++) {
+          grayLine[x] = expandSampleToByte(readPackedSample(pPixels, x, bitsPerSample), bitsPerSample);
+        }
+      }
       break;
 
     case PNG_PIXEL_TRUECOLOR:
       for (int x = 0; x < width; x++) {
-        uint8_t* p = &pPixels[x * 3];
+        const uint8_t* p = &pPixels[x * 3];
         grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
       }
       break;
@@ -126,20 +160,23 @@ void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixel
       if (palette) {
         if (hasAlpha) {
           for (int x = 0; x < width; x++) {
-            uint8_t idx = pPixels[x];
-            uint8_t* p = &palette[idx * 3];
+            const uint8_t idx = readPackedSample(pPixels, x, bitsPerSample);
+            const uint8_t* p = &palette[idx * 3];
             uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
             uint8_t alpha = palette[768 + idx];
             grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
           }
         } else {
           for (int x = 0; x < width; x++) {
-            uint8_t* p = &palette[pPixels[x] * 3];
+            const uint8_t idx = readPackedSample(pPixels, x, bitsPerSample);
+            const uint8_t* p = &palette[idx * 3];
             grayLine[x] = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
           }
         }
       } else {
-        memcpy(grayLine, pPixels, width);
+        for (int x = 0; x < width; x++) {
+          grayLine[x] = expandSampleToByte(readPackedSample(pPixels, x, bitsPerSample), bitsPerSample);
+        }
       }
       break;
 
@@ -153,7 +190,7 @@ void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixel
 
     case PNG_PIXEL_TRUECOLOR_ALPHA:
       for (int x = 0; x < width; x++) {
-        uint8_t* p = &pPixels[x * 4];
+        const uint8_t* p = &pPixels[x * 4];
         uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
         uint8_t alpha = p[3];
         grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
@@ -187,7 +224,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   if (outY >= ctx->screenHeight) return 1;
 
   // Convert entire source line to grayscale (improves cache locality)
-  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->pPalette,
+  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
                     pDraw->iHasAlpha);
 
   // Render scaled row using Bresenham-style integer stepping (no floating-point division)
@@ -369,21 +406,34 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
           ctx.scale, png->getBpp());
 
   const int pixelType = png->getPixelType();
-  const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType);
+  const int bitsPerSample = png->getBpp();
+  const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType, bitsPerSample);
   if (requiredInternal > PNG_MAX_BUFFERED_PIXELS) {
     LOG_ERR("PNG",
-            "PNG row buffer too small: need %d bytes for width=%d type=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
-            requiredInternal, ctx.srcWidth, pixelType, PNG_MAX_BUFFERED_PIXELS);
+            "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
+            requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
     LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
     return false;
   }
 
-  if (png->getBpp() != 8) {
-    warnUnsupportedFeature("bit depth (" + std::to_string(png->getBpp()) + "bpp)", imagePath);
+  if (!isSupportedBitDepth(pixelType, bitsPerSample)) {
+    warnUnsupportedFeature("bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " +
+                               std::to_string(pixelType),
+                           imagePath);
+    return false;
   }
 
-  // Allocate grayscale line buffer on demand (~3.2 KB) - freed after decode
-  const size_t grayBufSize = PNG_MAX_BUFFERED_PIXELS / 2;
+  // Low-bit-depth rows are expanded to one byte per source pixel before dithering.
+  // Keep this separate from PNGdec's packed scanline buffer and reject images
+  // whose expanded row would exceed the bounded scratch allocation.
+  constexpr size_t MAX_GRAY_LINE_BUFFER_BYTES = PNG_MAX_BUFFERED_PIXELS / 2;
+  const size_t grayBufSize = static_cast<size_t>(ctx.srcWidth);
+  if (grayBufSize > MAX_GRAY_LINE_BUFFER_BYTES) {
+    LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u",
+            static_cast<unsigned>(grayBufSize), ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
+    return false;
+  }
+
   ctx.grayLineBuffer = static_cast<uint8_t*>(malloc(grayBufSize));
   if (!ctx.grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
