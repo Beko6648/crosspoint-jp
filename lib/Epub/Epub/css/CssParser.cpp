@@ -870,6 +870,10 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     }
   }
 
+  // Size the bucket array before restoring rules so the map does not repeatedly
+  // rehash while this cache is loaded.
+  rulesBySelector_.reserve(ruleCount);
+
   auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
     return static_cast<size_t>(file.available()) >= neededBytes;
   };
