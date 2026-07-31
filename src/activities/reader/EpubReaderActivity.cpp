@@ -1357,6 +1357,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       tBwRestore = millis();
+
+      // The grayscale image overlay can leave residual charge that a subsequent
+      // FAST_REFRESH text page does not clear.  Keep the normal image rendering
+      // path intact, but make the next ordinary page use the existing
+      // HALF_REFRESH cleanup path once (CrossPoint Reader #2226).
+      pagesUntilFullRefresh = 1;
     } else {
       LOG_ERR("ERS", "Failed to store BW buffer for illustration grayscale");
     }

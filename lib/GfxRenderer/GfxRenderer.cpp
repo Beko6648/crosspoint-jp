@@ -2543,6 +2543,12 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
+void GfxRenderer::displayGrayscaleBase(const HalDisplay::RefreshMode fallback) const {
+  display.displayGrayscaleBase(fallback, fadingFix);
+}
+
+void GfxRenderer::preconditionGrayscale() const { display.preconditionGrayscale(); }
+
 void GfxRenderer::displayGrayBuffer(const bool turnOffScreen, const bool darkMode) const {
   // Note: HalDisplay::displayGrayBuffer does not support darkMode parameter directly.
   // Dark mode grayscale rendering is handled at the pixel level in renderChar.

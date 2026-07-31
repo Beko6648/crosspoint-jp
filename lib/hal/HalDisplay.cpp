@@ -54,7 +54,10 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
 
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
   if (gpio.deviceIsX3() && (mode == RefreshMode::HALF_REFRESH || mode == RefreshMode::SLEEP_REFRESH)) {
-    einkDisplay.requestResync(1);
+    // A static sleep image exposes residual differential charge much more than
+    // an interactive screen. Give the static sleep image three conditioning
+    // passes on X3; regular HALF_REFRESH keeps the single-pass cadence.
+    einkDisplay.requestResync(mode == RefreshMode::SLEEP_REFRESH ? 3 : 1);
   }
 
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
@@ -62,7 +65,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
 
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
   if (gpio.deviceIsX3() && (mode == RefreshMode::HALF_REFRESH || mode == RefreshMode::SLEEP_REFRESH)) {
-    einkDisplay.requestResync(1);
+    einkDisplay.requestResync(mode == RefreshMode::SLEEP_REFRESH ? 3 : 1);
   }
 
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
@@ -81,6 +84,12 @@ void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) { einkDisplay
 void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay.copyGrayscaleMsbBuffers(msbBuffer); }
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
+
+void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) {
+  einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
+}
+
+void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }
 
 void HalDisplay::displayGrayBuffer(bool turnOffScreen) { einkDisplay.displayGrayBuffer(turnOffScreen); }
 
