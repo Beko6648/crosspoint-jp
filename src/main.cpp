@@ -400,7 +400,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_INF("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION " (build " CROSSPOINT_BUILD_ID ")");
+  LOG_INF("MAIN", "Starting Yomuka version " CROSSPOINT_VERSION " (build " CROSSPOINT_BUILD_ID ")");
 
   setupDisplayAndFonts();
 

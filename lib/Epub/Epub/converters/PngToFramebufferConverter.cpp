@@ -4,7 +4,6 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
-#include <Memory.h>
 #include <PNGdec.h>
 
 #include <cstdlib>

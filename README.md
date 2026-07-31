@@ -1,12 +1,12 @@
-# CrossPoint JP
+# CrossPoint Yomuka
 
 > 日本語の基本操作と、表示トラブル時の安全な確認方法は [基本操作と困ったときの確認](docs/basic-operations-ja.md) を参照してください。
 
-CrossPoint JPは、Xteink X4向けの日本語読書に特化したオープンソースファームウェアです。
+CrossPoint Yomukaは、Xteink X4向けの日本語読書に特化したオープンソースファームウェアです。
 
 このリポジトリでは、本家CrossPointおよび既存のCrossPoint JPをベースに、日本語EPUBの縦書き表示、ルビ、縦中横、日本語UI、青空文庫からの直接ダウンロードなど、日本語の書籍を読みやすくするための機能追加と改善を行っています。
 
-v0.2.9まではCrossPoint JPとして継続し、v0.3.0からは正式名称を「CrossPoint Yomuka」、画面上の短い表記を「Yomuka」とする予定です。
+v0.2.9まではCrossPoint JPとして提供し、v0.3.0からは正式名称を「CrossPoint Yomuka」、画面上と配布物の短い表記を「Yomuka」とします。
 
 開発の優先順位と名称移行の方針は、[ロードマップ](docs/roadmap.md)を参照してください。
 
@@ -20,14 +20,14 @@ v0.2.9まではCrossPoint JPとして継続し、v0.3.0からは正式名称を�
 </p>
 
 > [!WARNING]
-> CrossPoint JPは個人開発の非公式ファームウェアです。  
+> CrossPoint Yomukaは個人開発の非公式ファームウェアです。<br>
 > 動作保証はありません。導入や更新は自己責任で行ってください。
 
 ## 対応端末
 
 ### Xteink X4
 
-CrossPoint JP（ponto1216版）の主な開発・動作確認対象です。
+CrossPoint Yomuka（ponto1216版）の主な開発・動作確認対象です。
 
 ### Xteink X3
 
@@ -48,7 +48,7 @@ EPUBの表示は、すべてのCSSやレイアウトを完全に再現するも�
 
 ## 現在の主な改善点
 
-CrossPoint JP（ponto1216版）では、既存のCrossPoint JPをベースに、現在も利用できる日本語表示、安定性、操作性の改善を行っています。
+CrossPoint Yomuka（ponto1216版）では、既存のCrossPoint JPをベースに、現在も利用できる日本語表示、安定性、操作性の改善を行っています。
 
 ### 縦書き・ルビ表示
 
@@ -112,7 +112,7 @@ v0.2.7では、設定画面の操作性とキャッシュ生成処理を中心�
 
 ## 既知の問題・制限事項
 
-CrossPoint JP（ponto1216版）には、現在次の問題や制限があります。
+CrossPoint Yomuka（ponto1216版）には、現在次の問題や制限があります。
 
 ### 青空文庫
 
@@ -126,7 +126,7 @@ CrossPoint JP（ponto1216版）には、現在次の問題や制限がありま�
 - 複雑な装飾、段組み、特殊な位置指定などは、簡略化されたり正しく表示されなかったりする場合があります。
 - 固定レイアウトEPUBには対応していません。
 - 特殊な章構成を持つEPUBでは、目次やページ分割が正しく処理されない場合があります。
-- 書籍に指定されたスタイルとCrossPoint JP側の表示設定が異なる場合、元の書籍と見た目が変わることがあります。
+- 書籍に指定されたスタイルとCrossPoint Yomuka側の表示設定が異なる場合、元の書籍と見た目が変わることがあります。
 
 ### 画像表示
 
@@ -166,7 +166,7 @@ CrossPoint JP（ponto1216版）には、現在次の問題や制限がありま�
 
 次の情報があると、原因を確認しやすくなります。
 
-- CrossPoint JPのバージョン
+- CrossPoint Yomukaのバージョン
 - 使用している端末
 - 書籍の形式
 - 問題が発生した操作
@@ -179,9 +179,9 @@ CrossPoint JP（ponto1216版）には、現在次の問題や制限がありま�
 
 ## インストール
 
-CrossPoint JP（ponto1216版）は、GitHub Releasesで配布しているファームウェアから導入できます。
+CrossPoint Yomuka（ponto1216版）は、GitHub Releasesで配布しているファームウェアから導入できます。
 
-### 既にCrossPoint JPを使用している場合
+### 既にCrossPoint Yomukaを使用している場合
 
 1. GitHub Releasesから最新版のファームウェアをダウンロードします。
 2. ファームウェア更新用ファイルを、指定された名前のままSDカードへ配置します。
@@ -201,7 +201,7 @@ CrossPoint JP（ponto1216版）は、GitHub Releasesで配布しているファ�
 
 ## フォント
 
-日本語EPUBを表示するには、CrossPoint JPに対応した読書用フォントが必要です。
+日本語EPUBを表示するには、CrossPoint Yomukaに対応した読書用フォントが必要です。
 
 ダウンロードしたフォントは、SDカード直下の `fonts` フォルダへ配置することを推奨します。
 
@@ -233,12 +233,12 @@ SDカード/
 
 ## ライセンス
 
-CrossPoint JPのライセンスは、リポジトリ内のライセンスファイルを確認してください。
+CrossPoint Yomukaのライセンスは、リポジトリ内のライセンスファイルを確認してください。
 
 使用しているフォント、ライブラリ、画像などには、それぞれ個別のライセンスが適用される場合があります。
 
 ## 謝辞
 
-このCrossPoint JPは、本家CrossPoint、既存のCrossPoint JP、および関連するオープンソースプロジェクトの成果を基に開発されています。
+CrossPoint Yomukaは、本家CrossPoint、既存のCrossPoint JP、および関連するオープンソースプロジェクトの成果を基に開発されています。
 
 本家の開発者、CrossPoint JPの開発者、貢献者、ライブラリ作者、フォント作者の皆さまに感謝します。
