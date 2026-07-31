@@ -97,7 +97,7 @@ def inject_version(env):
 
     version = get_base_version(project_dir)
     env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version}\\"')])
-    print(f'CrossPoint build version: {version} (build {build_id})')
+    print(f'Yomuka build version: {version} (build {build_id})')
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.
