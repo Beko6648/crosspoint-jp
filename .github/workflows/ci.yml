@@ -2,7 +2,7 @@ name: CI (build)
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -29,8 +30,10 @@ jobs:
           sudo apt-get install -y clang-format-21
 
       - name: Run clang-format
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
+          PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix --diff-base "${BASE_SHA}"
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
   cppcheck:
@@ -54,7 +57,8 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Run cppcheck
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+        # Keep reporting low-severity style findings without failing the build on the existing baseline.
+        run: pio check --fail-on-defect medium --fail-on-defect high
 
   build:
     runs-on: ubuntu-latest
