@@ -34,7 +34,7 @@ jobs:
           sed -i "s/^version = .*/version = ${VERSION}/" platformio.ini
           echo "Building with version: ${VERSION}"
 
-      - name: Build CrossPoint
+      - name: Build Yomuka
         run: |
           set -euo pipefail
           pio run -e gh_release
@@ -56,7 +56,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CrossPoint-${{ github.ref_name }}
+          name: Yomuka-${{ github.ref_name }}
           path: |
             bootloader.bin
             partitions.bin
@@ -65,7 +65,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: CrossPoint Reader JP ${{ github.ref_name }}
+          name: CrossPoint Yomuka ${{ github.ref_name }}
           files: |
             firmware.bin
             bootloader.bin
@@ -74,7 +74,7 @@ jobs:
           # その下に GitHub が自動生成する変更点 (マージされた PR の一覧 / 新規 contributor /
           # Full Changelog リンク) が追記される。
           body: |
-            ## CrossPoint Reader JP ${{ github.ref_name }}
+            ## CrossPoint Yomuka ${{ github.ref_name }}
 
             ### 📦 ファームウェア
 
