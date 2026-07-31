@@ -1,8 +1,9 @@
 name: Compile Release
+
 on:
   push:
     tags:
-      - '*'
+      - 'yomuka-v*'
 
 jobs:
   build-release:
@@ -27,17 +28,36 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Sync version from tag
+      - name: Parse release version
+        id: release
         run: |
+          set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
+
+          if [[ ! "${TAG}" =~ ^yomuka-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid Yomuka release tag: ${TAG}"
+            echo "Expected format: yomuka-vX.Y.Z or yomuka-vX.Y.Z-suffix"
+            exit 1
+          fi
+
+          VERSION="${TAG#yomuka-}"
+
+          if [[ "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PRERELEASE=false
+          else
+            PRERELEASE=true
+          fi
+
           sed -i "s/^version = .*/version = ${VERSION}/" platformio.ini
-          echo "Building with version: ${VERSION}"
+          grep -Fx "version = ${VERSION}" platformio.ini
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${PRERELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "Building Yomuka ${VERSION} from tag ${TAG}"
 
       - name: Build Yomuka
         run: |
           set -euo pipefail
-          pio run -e gh_release
+          pio run -e gh_release | tee pio.log
 
           firmware="$(find .pio/build -maxdepth 3 -type f -path "*/firmware.bin" | grep "/gh_release/" | head -n1)"
           bootloader="$(find .pio/build -maxdepth 3 -type f -path "*/bootloader.bin" | grep "/gh_release/" | head -n1)"
@@ -53,40 +73,70 @@ jobs:
           cp "${bootloader}" bootloader.bin
           cp "${partitions}" partitions.bin
 
+      - name: Verify release artifacts
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -s firmware.bin
+          test -s bootloader.bin
+          test -s partitions.bin
+          grep -aFq "Yomuka" firmware.bin
+          grep -aFq "${RELEASE_VERSION}" firmware.bin
+          sha256sum firmware.bin bootloader.bin partitions.bin | tee SHA256SUMS.txt
+
+          ram_line="$(grep -E "RAM:\s" -m1 pio.log || true)"
+          flash_line="$(grep -E "Flash:\s" -m1 pio.log || true)"
+          {
+            echo "## CrossPoint Yomuka ${RELEASE_VERSION}"
+            if [ -n "${ram_line}" ]; then echo "- ${ram_line}"; fi
+            if [ -n "${flash_line}" ]; then echo "- ${flash_line}"; fi
+            echo "- firmware.bin: $(stat --printf='%s' firmware.bin) bytes"
+            echo '```text'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Yomuka-${{ github.ref_name }}
+          name: Yomuka-${{ steps.release.outputs.version }}
           path: |
             bootloader.bin
             partitions.bin
             firmware.bin
+            SHA256SUMS.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: CrossPoint Yomuka ${{ github.ref_name }}
+          name: CrossPoint Yomuka ${{ steps.release.outputs.version }}
           files: |
             firmware.bin
             bootloader.bin
             partitions.bin
-          # body はヘッダーとして使われ、generate_release_notes が有効な場合は
-          # その下に GitHub が自動生成する変更点 (マージされた PR の一覧 / 新規 contributor /
-          # Full Changelog リンク) が追記される。
+            SHA256SUMS.txt
           body: |
-            ## CrossPoint Yomuka ${{ github.ref_name }}
+            ## CrossPoint Yomuka ${{ steps.release.outputs.version }}
 
-            ### 📦 ファームウェア
+            ### 配布ファイル
 
-            | ファイル | 言語 |
+            | ファイル | 用途 |
             |---------|------|
-            | `firmware.bin` | 日本語 / English |
+            | `firmware.bin` | SDカード更新および通常のファームウェア書き込み |
+            | `bootloader.bin` | 初回書き込み・復旧用 |
+            | `partitions.bin` | 初回書き込み・復旧用 |
+            | `SHA256SUMS.txt` | ダウンロードしたファイルの検証用 |
 
-            ### 📥 インストール方法
+            ### 既存のCrossPoint Yomukaを更新する場合
 
-            1. USB-C でデバイスをPCに接続
-            2. `firmware.bin` をダウンロードし、フラッシュツールで書き込み
+            1. `firmware.bin`をダウンロードし、ファイル名を変更せずSDカードへ配置します。
+            2. 端末の「SDカードファームウェア更新」を開きます。
+            3. 画面の案内に従って更新し、完了するまで電源を切ったりSDカードを抜いたりしないでください。
+
+            更新前に、必要な書籍、フォント、設定ファイルをバックアップしてください。
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref, '-') }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          make_latest: ${{ steps.release.outputs.prerelease == 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
