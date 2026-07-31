@@ -1,10 +1,10 @@
 # CJK Font Support
 
-This guide explains how to use Chinese, Japanese, and Korean (CJK) fonts on your CrossPoint Reader.
+This guide explains how to use Chinese, Japanese, and Korean (CJK) fonts on Yomuka.
 
 ## Overview
 
-CrossPoint Reader supports external CJK fonts for both:
+Yomuka supports external CJK fonts for both:
 
 - **UI Font** - Used for menus, settings, and system interface
 - **Reader Font** - Used for reading ebook content
@@ -13,7 +13,7 @@ The device includes a built-in CJK UI font (Source Han Sans subset) for basic in
 
 ## Prerequisites
 
-- CrossPoint Reader device with firmware version supporting CJK fonts
+- Yomuka device with firmware version supporting CJK fonts
 - SD card with available space for font files
 - TrueType font files (.ttf) converted to the CrossPoint font format
 
@@ -21,7 +21,7 @@ The device includes a built-in CJK UI font (Source Han Sans subset) for basic in
 
 ## Font File Format
 
-CrossPoint Reader uses a custom binary font format optimized for e-ink displays. Font files must be placed in the `/fonts/` directory on the SD card.
+Yomuka uses a custom binary font format optimized for e-ink displays. Font files must be placed in the `/fonts/` directory on the SD card.
 
 ### File Naming Convention
 
