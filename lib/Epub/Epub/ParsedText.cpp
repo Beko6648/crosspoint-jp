@@ -299,8 +299,11 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
 
   const int lineHeight = renderer.getLineHeight(fontId);
 
-  // Compute CJK character advance once from the first Upright word.
+  // Compute CJK character advance once from the first fullwidth Upright word.
   // This is used as the reference cell height for TateChuYoko and spacing.
+  // Prefer a fullwidth glyph whenever the paragraph contains one, so embedded
+  // halfwidth kana follow the surrounding Japanese rhythm. Halfwidth-only
+  // paragraphs use a separate fallback below.
   // Cannot use a hardcoded reference char ("一") because it may not be in the advance table.
   int cjkCharAdvance = 0;
   for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
@@ -308,11 +311,26 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
     const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
     const uint32_t firstCp = utf8NextCodepoint(&p);
-    if (vb == VerticalTextUtils::VerticalBehavior::Upright && !utf8IsJapaneseVoicingMark(firstCp)) {
+    if (vb == VerticalTextUtils::VerticalBehavior::Upright && !utf8IsJapaneseVoicingMark(firstCp) &&
+        !VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
       cjkCharAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
     }
   }
-  if (cjkCharAdvance == 0) cjkCharAdvance = lineHeight;  // fallback
+  if (cjkCharAdvance == 0) {
+    // A halfwidth-only paragraph has no fullwidth body glyph from which to
+    // derive its pitch. Use three fifths of the font line height as its cell: the raw
+    // halfwidth advance lets adjacent kana ink overlap, while a full line-height
+    // cell makes the run roughly twice as loose as requested.
+    for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
+      const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
+      const uint32_t firstCp = utf8NextCodepoint(&p);
+      if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
+        const int kanaAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
+        cjkCharAdvance = std::max(kanaAdvance, (lineHeight * 3) / 5);
+      }
+    }
+  }
+  if (cjkCharAdvance == 0) cjkCharAdvance = lineHeight;  // final fallback
 
   // Calculate word heights for vertical layout
   std::vector<uint16_t> wordHeights;
@@ -354,16 +372,22 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       }
     }
 
+    const bool isUprightHalfwidthKana =
+        vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isHalfwidthKatakana(wordCp);
+
     uint16_t baseHeight;
     if (overlaysPreviousCharacter) {
       // The renderer overlays this mark on the preceding character in vertical
       // text, so it must not consume a separate character cell.
       baseHeight = 0;
-    } else if (vb == VerticalTextUtils::VerticalBehavior::Upright &&
-               VerticalTextUtils::isHalfwidthKatakana(wordCp)) {
-      // Halfwidth kana are rendered centered inside a full vertical cell.
-      // Reserving that cell here prevents adjacent glyphs from overlapping.
-      baseHeight = static_cast<uint16_t>(cjkCharAdvance);
+    } else if (isUprightHalfwidthKana) {
+      // Halfwidth kana stay visually narrow across the column. They follow a
+      // fullwidth body cell when one exists, or the natural halfwidth pitch in
+      // a kana-only paragraph. The sideways prolonged mark uses its own short
+      // advance so it does not leave a full-cell gap before the next kana.
+      baseHeight = wordCp == 0xFF70
+                       ? renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i])
+                       : static_cast<uint16_t>(cjkCharAdvance);
     } else switch (vb) {
       case VerticalTextUtils::VerticalBehavior::Sideways:
         baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
@@ -431,6 +455,16 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   if (firstLineIndent && blockStyle.textIndent == 0 && !blockStyle.textIndentDefined &&
       (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)) {
     verticalIndent = cjkCharAdvance > 0 ? cjkCharAdvance : lineHeight;
+    // Halfwidth kana at the beginning of a vertical paragraph use the same
+    // three-fifths-line-height cell as their run. A zero indent places their ink above
+    // neighboring line heads, while a full Japanese indent lowers it too far.
+    for (size_t i = 0; i < words.size(); i++) {
+      const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
+      const uint32_t firstCp = utf8NextCodepoint(&p);
+      if (firstCp == 0 || utf8IsJapaneseVoicingMark(firstCp)) continue;
+      if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) verticalIndent = cjkCharAdvance;
+      break;
+    }
   }
 
   // Helper: get the first codepoint of a word string

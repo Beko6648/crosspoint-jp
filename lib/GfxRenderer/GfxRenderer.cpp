@@ -2059,11 +2059,39 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
       const int drawAscender =
           needsScale ? ((fontData->ascender * static_cast<int>(scale) + 128) >> 8) : fontData->ascender;
 
-      // Center rotated glyph horizontally within the column
+      // Center the visible rotated glyph, not its bitmap box. ASCII glyphs
+      // carry unequal empty rows above/below their ink, which becomes a
+      // sideways left/right bearing after rotation. Centering the whole box
+      // made those letters appear shifted whenever a vertical page also had
+      // ruby, even though the body column itself had not moved.
       int baseX;
       if (columnWidth > 0) {
         const int centerX = x + columnWidth / 2;
-        baseX = centerX + (drawH - 1) / 2;
+        int visibleMinY = drawH;
+        int visibleMaxY = -1;
+        for (int glyphY = 0; glyphY < glyph->height; glyphY++) {
+          bool rowHasInk = false;
+          for (int glyphX = 0; glyphX < glyph->width; glyphX++) {
+            const int pixelPosition = glyphY * glyph->width + glyphX;
+            if (fontData->is2Bit) {
+              const uint8_t byte = bitmap[pixelPosition / 4];
+              const uint8_t bitIndex = (3 - pixelPosition % 4) * 2;
+              rowHasInk = ((byte >> bitIndex) & 0x3) != 0;
+            } else {
+              const uint8_t byte = bitmap[pixelPosition / 8];
+              const uint8_t bitIndex = 7 - (pixelPosition % 8);
+              rowHasInk = ((byte >> bitIndex) & 1) != 0;
+            }
+            if (rowHasInk) break;
+          }
+          if (rowHasInk) {
+            const int scaledY = needsScale ? (glyphY * scale >> 8) : glyphY;
+            visibleMinY = std::min(visibleMinY, scaledY);
+            visibleMaxY = std::max(visibleMaxY, scaledY);
+          }
+        }
+        baseX = visibleMaxY >= visibleMinY ? centerX + (visibleMinY + visibleMaxY) / 2
+                                            : centerX + (drawH - 1) / 2;
       } else {
         baseX = x + drawAscender - drawTop + drawH - 1;
       }

@@ -133,6 +133,17 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     if (columnWidth <= 0) columnWidth = renderer.getLineHeight(effectiveFontId);
   }
 
+  // The bitmap center of a CJK body glyph can differ from half the advance
+  // width. Sideways ASCII and symbols must use this same visual center.
+  int verticalBodyCenterOffset = 0;
+  if (isVertical) {
+    int bodyMinX = 0;
+    int bodyMaxX = 0;
+    renderer.getTextVisibleBoundsX(
+        effectiveFontId, "\xe4\xb8\x80", &bodyMinX, &bodyMaxX, EpdFontFamily::REGULAR);  // U+4E00
+    verticalBodyCenterOffset = (bodyMinX + bodyMaxX) / 2 - columnWidth / 2;
+  }
+
   // Keep annotations in one vertical column from drawing over each other.
   // This adjusts only ruby glyphs; body-text positions remain unchanged.
   int nextVerticalRubyY = INT_MIN;
@@ -210,9 +221,22 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       if (isSingleCjk) {
         int uprightX = wx;
         if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
-          const int glyphWidth = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
-          uprightX += std::max(0, (columnWidth - glyphWidth) / 2);
+          // Halfwidth kana are upright, but their advance box carries uneven
+          // side bearings. Align their visible ink with the body CJK glyph,
+          // just as TateChuYoko aligns halfwidth digits below.
+          int kanaMinX = 0;
+          int kanaMaxX = 0;
+          int bodyMinX = 0;
+          int bodyMaxX = 0;
+          renderer.getTextVisibleBoundsX(effectiveFontId, w, &kanaMinX, &kanaMaxX, currentStyle);
+          renderer.getTextVisibleBoundsX(
+              effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
+          uprightX += (bodyMinX + bodyMaxX - kanaMinX - kanaMaxX) / 2;
         }
+        // wordYpos already contains the halfwidth glyph advance plus the
+        // fullwidth inter-cell spacing. Adding another half-cell inset here
+        // shifts the ink into the next item (and separates a following voiced
+        // mark from its base kana).
         renderer.drawTextVertical(effectiveFontId, uprightX, wy, w, true, currentStyle);
       } else {
         const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w);
@@ -234,7 +258,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           const int vertShift = renderer.getFontAscenderSize(effectiveFontId) / 3;
-          renderer.drawTextSideways(effectiveFontId, wx, wy + vertShift, w, true, currentStyle, columnWidth);
+          renderer.drawTextSideways(
+              effectiveFontId, wx + verticalBodyCenterOffset, wy + vertShift, w, true, currentStyle, columnWidth);
         }
       }
 
@@ -380,11 +405,25 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     }
   }
 
-  // Draw full-width separator line below the block (used for h1/h2 headings).
-  // Suppressed in vertical mode: horizontal lines are inappropriate for tategaki.
-  if (blockStyle.drawSeparatorBelow && viewportWidth > 0 && !isVertical) {
-    const int separatorY = y + renderer.getLineHeight(effectiveFontId) + 2;
-    renderer.drawLine(0, separatorY, viewportWidth, separatorY, true);
+  // Draw a rule at the block boundary. In vertical writing the equivalent of
+  // an HTML horizontal rule follows the column flow, so it is vertical.
+  if (blockStyle.drawSeparatorBelow && viewportWidth > 0) {
+    const int lineHeight = renderer.getLineHeight(effectiveFontId);
+    if (isVertical) {
+      const int separatorX = x + lineHeight / 2;
+      const int separatorTop = viewportTop + lineHeight / 4;
+      const int separatorBottom = viewportTop + viewportHeight - lineHeight / 4;
+      if (separatorBottom > separatorTop) {
+        renderer.drawLine(separatorX, separatorTop, separatorX, separatorBottom, true);
+      }
+    } else {
+      const int separatorY = y + lineHeight + 2;
+      const int separatorStart = x;
+      const int separatorEnd = viewportLeft + viewportWidth - blockStyle.rightInset();
+      if (separatorEnd > separatorStart) {
+        renderer.drawLine(separatorStart, separatorY, separatorEnd, separatorY, true);
+      }
+    }
   }
 }
 

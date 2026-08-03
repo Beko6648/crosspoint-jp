@@ -892,7 +892,37 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     bodyBlockStyle.fontId = closestFontId == self->fontId ? 0 : closestFontId;
   }
 
-  if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
+  if (strcmp(name, "hr") == 0) {
+    // <hr> is a block-level rule. Flush surrounding text first, then use an
+    // otherwise empty TextBlock so pagination and cached rendering follow the
+    // normal text path in both writing directions.
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      self->makePages();
+    }
+
+    auto ruleBlockStyle = bodyBlockStyle;
+    const int ruleSpacing = self->renderer.getLineHeight(self->fontId) / 3;
+    if (!cssStyle.hasMarginTop()) ruleBlockStyle.marginTop = ruleSpacing;
+    if (!cssStyle.hasMarginBottom()) ruleBlockStyle.marginBottom = ruleSpacing;
+    ruleBlockStyle.textIndent = 0;
+    ruleBlockStyle.textIndentDefined = true;
+    ruleBlockStyle.drawSeparatorBelow = true;
+
+    self->currentTextBlock.reset();
+    self->startNewTextBlock(ruleBlockStyle);
+    // ParsedText deliberately ignores an empty word. A zero-width space keeps
+    // this as a real layout line while remaining invisible to the reader.
+    self->currentTextBlock->addWord("\xE2\x80\x8B", EpdFontFamily::REGULAR);
+    self->makePages();
+    self->currentTextBlock.reset();
+    // XHTML permits text directly after a self-closing <hr/>. Start a fresh
+    // body block now so the following character-data callback never writes
+    // through a null currentTextBlock.
+    self->startNewTextBlock(bodyBlockStyle);
+  } else if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     self->currentCssStyle = cssStyle;
     auto headerBlockStyle = BlockStyle::fromCssStyle(
         cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
@@ -1077,6 +1107,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // Middle of skip
   if (self->skipUntilDepth < self->depth) {
     return;
+  }
+
+  // Most block tags create this eagerly, but HTML allows bare text after a
+  // self-closing element such as <hr/>. Keep malformed/minimal XHTML from
+  // dereferencing a missing current block during recovery.
+  if (!self->currentTextBlock) {
+    LOG_ERR("EHP", "Missing text block before character data; starting a fallback body block");
+    self->startNewTextBlock(BlockStyle{});
   }
 
   // Collect ruby text instead of normal word processing

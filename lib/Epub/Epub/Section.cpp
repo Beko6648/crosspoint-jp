@@ -30,7 +30,19 @@ namespace {
 // Version 60: refresh vertical layout for bounded block spacing, voiced marks,
 // punctuation, ruby, symbols, and halfwidth kana.
 // Version 61: horizontal bars are stored as individual vertical punctuation cells.
-constexpr uint8_t SECTION_FILE_VERSION = 61;
+// Version 62: parse and persist HTML <hr> rules in both writing directions.
+// Version 63: leading halfwidth kana use a full vertical body cell.
+// Version 64: halfwidth kana keep their own advance with fullwidth inter-cell
+// spacing, and leading halfwidth kana use a half-em paragraph indent.
+// Version 65: halfwidth kana use the same vertical cell pitch and paragraph
+// indent as the surrounding Japanese body text.
+// Version 66: halfwidth-only paragraphs use the kana's natural pitch and no
+// first-line indent; U+FF70 no longer leaves a full-cell gap before its suffix.
+// Version 67: halfwidth-only paragraphs use a half-line-height pitch and
+// matching indent to avoid both overlap and full-cell gaps.
+// Version 68: halfwidth-only pitch and indent increase to three fifths of the
+// line height for a slightly lower line head and wider kana rhythm.
+constexpr uint8_t SECTION_FILE_VERSION = 68;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
