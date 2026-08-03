@@ -294,6 +294,10 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       allText += w;
       allText += ' ';
     }
+    // Keep a fullwidth em reference in the advance table even when this block
+    // contains only halfwidth kana. This lets each font provide its own body
+    // cell instead of deriving one from family-specific line-height metrics.
+    allText += "\xE4\xB8\x80";  // U+4E00
     renderer.ensureSdCardFontReady(fontId, allText.c_str());
   }
 
@@ -304,7 +308,6 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   // Prefer a fullwidth glyph whenever the paragraph contains one, so embedded
   // halfwidth kana follow the surrounding Japanese rhythm. Halfwidth-only
   // paragraphs use a separate fallback below.
-  // Cannot use a hardcoded reference char ("一") because it may not be in the advance table.
   int cjkCharAdvance = 0;
   for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
     auto vb =
@@ -318,15 +321,20 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   }
   if (cjkCharAdvance == 0) {
     // A halfwidth-only paragraph has no fullwidth body glyph from which to
-    // derive its pitch. Use three fifths of the font line height as its cell: the raw
-    // halfwidth advance lets adjacent kana ink overlap, while a full line-height
-    // cell makes the run roughly twice as loose as requested.
+    // derive its pitch. Measure a fullwidth em from the active font instead of
+    // using a line-height ratio, which differs substantially between Noto and
+    // BIZUD despite similar visible CJK body sizes.
     for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
       const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
       const uint32_t firstCp = utf8NextCodepoint(&p);
       if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
         const int kanaAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
-        cjkCharAdvance = std::max(kanaAdvance, (lineHeight * 3) / 5);
+        const auto bodyStyle = static_cast<EpdFontFamily::Style>(wordStyles[i] & EpdFontFamily::BOLD_ITALIC);
+        const int fullwidthAdvance =
+            renderer.getTextAdvanceX(fontId, "\xE4\xB8\x80", bodyStyle);  // U+4E00
+        if (fullwidthAdvance > 0) {
+          cjkCharAdvance = std::max(kanaAdvance, fullwidthAdvance);
+        }
       }
     }
   }
@@ -456,8 +464,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)) {
     verticalIndent = cjkCharAdvance > 0 ? cjkCharAdvance : lineHeight;
     // Halfwidth kana at the beginning of a vertical paragraph use the same
-    // three-fifths-line-height cell as their run. A zero indent places their ink above
-    // neighboring line heads, while a full Japanese indent lowers it too far.
+    // measured fullwidth body cell as their run, keeping line heads consistent
+    // across font families without a line-height-specific correction.
     for (size_t i = 0; i < words.size(); i++) {
       const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
       const uint32_t firstCp = utf8NextCodepoint(&p);

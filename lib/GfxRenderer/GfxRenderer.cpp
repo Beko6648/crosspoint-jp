@@ -1986,11 +1986,6 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       // Fall back to the normal glyph. Punctuation with no OpenType `vert`
       // substitute (including U+301C in older SD-card fonts) still needs a
       // rotated horizontal glyph in vertical text.
-      // Keep U+FF65 visually centered in the vertical body column. Device
-      // screenshots show that the small reader font needs 5px less correction
-      // than the other three reader sizes.
-      const int middleDotOffset = getLineHeight(effectiveFontId) <= 24 ? 11 : 16;
-      const int glyphX = cp == 0xFF65 ? x - middleDotOffset : x;
       char charBuf[5] = {};
       if (cp < 0x80) {
         charBuf[0] = static_cast<char>(cp);
@@ -2009,7 +2004,7 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         const int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
         drawTextSideways(effectiveFontId, drawX, drawY, charBuf, black, style, columnWidth);
       } else {
-        drawText(effectiveFontId, glyphX, yPos, charBuf, black, style);
+        drawText(effectiveFontId, x, yPos, charBuf, black, style);
       }
       yPos += verticalAdvance;
     }

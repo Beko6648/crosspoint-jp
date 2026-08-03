@@ -44,7 +44,9 @@ namespace {
 // line height for a slightly lower line head and wider kana rhythm.
 // Version 69: distinguish explicit HTML rules from heading separators so
 // vertical h1/h2 underlines do not become page-height rules.
-constexpr uint8_t SECTION_FILE_VERSION = 69;
+// Version 70: halfwidth-only vertical layout uses the active font's measured
+// fullwidth advance instead of a line-height ratio.
+constexpr uint8_t SECTION_FILE_VERSION = 70;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

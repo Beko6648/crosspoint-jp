@@ -190,14 +190,61 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           if (!(baseCp != 0 && *basePtr == '\0' && utf8IsJapaneseVoicingMark(baseCp))) {
             if (baseCp != 0 && *basePtr == '\0' && VerticalTextUtils::isUprightInVertical(baseCp) &&
                 baseIndex < wordYpos.size()) {
-              const int cellSize = renderer.getLineHeight(effectiveFontId);
+              const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : currentStyle;
+              const auto baseFontStyle =
+                  static_cast<EpdFontFamily::Style>(baseStyle & EpdFontFamily::BOLD_ITALIC);
+              const int baseAdvance =
+                  renderer.getTextAdvanceX(effectiveFontId, words[baseIndex].c_str(), baseFontStyle);
+              const int measuredEm =
+                  renderer.getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", baseFontStyle);  // U+4E00
+              const int emAdvance = measuredEm > 0 ? measuredEm : renderer.getLineHeight(effectiveFontId);
+
+              // Halfwidth body glyphs are visibly centered in the CJK column
+              // below. Carry the same font-specific adjustment into the mark
+              // anchor so BIZUD and Noto side bearings do not separate ｼ and ﾞ.
+              const bool hasHalfwidthBase = VerticalTextUtils::isHalfwidthKatakana(baseCp);
+              int baseCenterOffset = 0;
+              if (hasHalfwidthBase) {
+                int baseMinX = 0;
+                int baseMaxX = 0;
+                int bodyMinX = 0;
+                int bodyMaxX = 0;
+                renderer.getTextVisibleBoundsX(
+                    effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX, baseFontStyle);
+                renderer.getTextVisibleBoundsX(
+                    effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, baseFontStyle);  // U+4E00
+                baseCenterOffset = (bodyMinX + bodyMaxX - baseMinX - baseMaxX) / 2;
+              }
+
               // U+3099/U+309A are combining glyphs whose dots sit farther
               // left in their cell. Spacing and halfwidth marks already have
               // their own right-side bearing, so keep those closer to the
               // base character.
-              const int markOffset = (firstCp == 0x3099 || firstCp == 0x309A) ? (cellSize * 3) / 4 : cellSize / 3;
-              const int markX = x + wordXpos[baseIndex] + markOffset;
-              const int markY = y + wordYpos[baseIndex] - cellSize / 8;
+              // Preserve the established fullwidth positioning for unusual
+              // sequences such as あﾞ / 阿゛. Only a halfwidth base needs the
+              // new advance- and side-bearing-aware anchor.
+              const int anchorCell = hasHalfwidthBase ? emAdvance : renderer.getLineHeight(effectiveFontId);
+              const int markOffset = (firstCp == 0x3099 || firstCp == 0x309A)
+                                         ? (anchorCell * 3) / 4
+                                         : hasHalfwidthBase ? (baseAdvance * 2) / 3 : anchorCell / 3;
+              int markX = x + wordXpos[baseIndex] + baseCenterOffset + markOffset;
+              const bool isCombiningVoicingMark = firstCp == 0x3099 || firstCp == 0x309A;
+              if (!hasHalfwidthBase && !isCombiningVoicingMark) {
+                // U+309B/U+309C and U+FF9E/U+FF9F carry very different left
+                // bearings in Noto and BIZUD. Align their visible center with
+                // the base glyph's visible right edge instead of sharing a
+                // font-independent origin. Combining marks keep the existing
+                // placement, which both device screenshots already validate.
+                int baseMinX = 0;
+                int baseMaxX = 0;
+                int markMinX = 0;
+                int markMaxX = 0;
+                renderer.getTextVisibleBoundsX(
+                    effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX, baseFontStyle);
+                renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, baseFontStyle);
+                markX = x + wordXpos[baseIndex] + baseMaxX - (markMinX + markMaxX) / 2;
+              }
+              const int markY = y + wordYpos[baseIndex] - anchorCell / 8;
               renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
               renderedAsOverlay = true;
             }
