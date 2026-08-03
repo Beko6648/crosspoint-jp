@@ -1,8 +1,9 @@
 name: Compile Release
+
 on:
   push:
     tags:
-      - '*'
+      - 'yomuka-v*'
 
 jobs:
   build-release:
@@ -29,9 +30,9 @@ jobs:
 
       - name: Sync version from tag
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
+          VERSION="${GITHUB_REF_NAME#yomuka-}"
           sed -i "s/^version = .*/version = ${VERSION}/" platformio.ini
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "Building with version: ${VERSION}"
 
       - name: Build Yomuka
@@ -49,43 +50,42 @@ jobs:
             exit 1
           fi
 
-          cp "${firmware}" firmware.bin
-          cp "${bootloader}" bootloader.bin
-          cp "${partitions}" partitions.bin
+          cp "${firmware}" "Yomuka-${RELEASE_VERSION}-firmware.bin"
+          cp "${bootloader}" "Yomuka-${RELEASE_VERSION}-bootloader.bin"
+          cp "${partitions}" "Yomuka-${RELEASE_VERSION}-partitions.bin"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Yomuka-${{ github.ref_name }}
+          name: Yomuka-${{ env.RELEASE_VERSION }}
           path: |
-            bootloader.bin
-            partitions.bin
-            firmware.bin
+            Yomuka-${{ env.RELEASE_VERSION }}-firmware.bin
+            Yomuka-${{ env.RELEASE_VERSION }}-bootloader.bin
+            Yomuka-${{ env.RELEASE_VERSION }}-partitions.bin
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: CrossPoint Yomuka ${{ github.ref_name }}
+          name: CrossPoint Yomuka ${{ env.RELEASE_VERSION }}
           files: |
-            firmware.bin
-            bootloader.bin
-            partitions.bin
-          # body はヘッダーとして使われ、generate_release_notes が有効な場合は
-          # その下に GitHub が自動生成する変更点 (マージされた PR の一覧 / 新規 contributor /
-          # Full Changelog リンク) が追記される。
+            Yomuka-${{ env.RELEASE_VERSION }}-firmware.bin
+            Yomuka-${{ env.RELEASE_VERSION }}-bootloader.bin
+            Yomuka-${{ env.RELEASE_VERSION }}-partitions.bin
           body: |
             ## CrossPoint Yomuka ${{ github.ref_name }}
 
-            ### 📦 ファームウェア
+            ### ファームウェア
 
-            | ファイル | 言語 |
-            |---------|------|
-            | `firmware.bin` | 日本語 / English |
+            | ファイル | 用途 |
+            |---|---|
+            | `Yomuka-${{ env.RELEASE_VERSION }}-firmware.bin` | 通常のSDカード更新用 |
+            | `Yomuka-${{ env.RELEASE_VERSION }}-bootloader.bin` | 復旧・開発時のみ使用 |
+            | `Yomuka-${{ env.RELEASE_VERSION }}-partitions.bin` | 復旧・開発時のみ使用 |
 
-            ### 📥 インストール方法
+            ### インストール方法
 
-            1. USB-C でデバイスをPCに接続
-            2. `firmware.bin` をダウンロードし、フラッシュツールで書き込み
+            1. 通常の更新は、`Yomuka-${{ env.RELEASE_VERSION }}-firmware.bin` をSDカードの更新手順に従って使用します。
+            2. 詳細は README と基本操作ガイドを確認してください。
           generate_release_notes: true
           prerelease: ${{ contains(github.ref, '-') }}
         env:
