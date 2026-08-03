@@ -64,11 +64,23 @@ float cssFontScale(const CssLength& size, const float currentEmSize) {
 const char* SKIP_TAGS[] = {"head", "style", "script", "title", "rp"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
-// Balanced mode takes only paragraph geometry from the book. Typography,
-// inline decoration, writing direction, visibility and image dimensions stay
-// under CrossPoint control; headings are handled separately.
+// Balanced mode takes paragraph geometry and semantic inline emphasis from the
+// book. Reader-controlled typography, writing direction, visibility and image
+// dimensions stay under CrossPoint control; headings are handled separately.
 void retainBalancedParagraphStyle(CssStyle& style) {
   CssStyle balanced;
+  if (style.hasFontStyle()) {
+    balanced.fontStyle = style.fontStyle;
+    balanced.defined.fontStyle = 1;
+  }
+  if (style.hasFontWeight()) {
+    balanced.fontWeight = style.fontWeight;
+    balanced.defined.fontWeight = 1;
+  }
+  if (style.hasTextDecoration()) {
+    balanced.textDecoration = style.textDecoration;
+    balanced.defined.textDecoration = 1;
+  }
   if (style.hasTextAlign()) {
     balanced.textAlign = style.textAlign;
     balanced.defined.textAlign = 1;
@@ -1186,10 +1198,20 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       for (int j = 0; j < charLen && j < 4; j++) {
         cjkWord[j] = s[i + j];
       }
+      // CJK is laid out as one character per word, but it remains inline
+      // content. Preserve the active emphasis rather than resetting it to
+      // Regular when splitting the input stream.
+      const bool cjkBold = self->boldUntilDepth < self->depth || self->effectiveBold;
+      const bool cjkItalic = self->italicUntilDepth < self->depth || self->effectiveItalic;
+      const bool cjkUnderline = self->underlineUntilDepth < self->depth || self->effectiveUnderline;
+      EpdFontFamily::Style cjkStyle = EpdFontFamily::REGULAR;
+      if (cjkBold) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::BOLD);
+      if (cjkItalic) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::ITALIC);
+      if (cjkUnderline) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::UNDERLINE);
       if (self->verticalMode) {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright);
+        self->currentTextBlock->addWord(cjkWord, cjkStyle, VerticalTextUtils::VerticalBehavior::Upright);
       } else {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR);
+        self->currentTextBlock->addWord(cjkWord, cjkStyle);
       }
       i += charLen;
       continue;

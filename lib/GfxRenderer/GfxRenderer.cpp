@@ -412,9 +412,13 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
 
   FontManager& fm = FontManager::getInstance();
 
-  // Check if using external font for reader fonts
+  // Check if using an external font for legacy reader fonts. SD-card cpfonts
+  // must use their own metrics and glyphs, including their Bold style.
   if (isReaderFont(fontId)) {
-    if (fm.isExternalFontEnabled()) {
+    // SD-card cpfonts are complete reader font families.  They must skip the
+    // legacy external-font route, but they are still reader fonts (not UI
+    // fonts), so let them continue to the EpdFontFamily rendering below.
+    if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
         int width = 0;
@@ -543,7 +547,7 @@ void GfxRenderer::getTextVisibleBoundsX(const int fontId, const char* text, int*
   // External reader glyphs trim minX before drawing, so their visible bounds
   // differ from both their source bitmap width and their advance. Match that
   // path before falling back to the built-in font geometry below.
-  if (isReaderFont(fontId)) {
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -720,7 +724,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   // no printable characters — check if CJK external font can handle them
   if (!fontHasPrintableChars(font, text, style)) {
     FontManager& fm = FontManager::getInstance();
-    if (isReaderFont(fontId)) {
+    if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
       if (!fm.isExternalFontEnabled()) {
         return;
       }
@@ -1606,7 +1610,7 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
   }
 
   // Use external font's space advance when active - keeps word/space metrics consistent
-  if (isReaderFont(fontId)) {
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1683,7 +1687,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   }
 
   // External reader font: compute advance using bitmap font metrics
-  if (isReaderFont(fontId)) {
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1758,8 +1762,8 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
-  // Check if using external font for reader fonts
-  if (isReaderFont(fontId)) {
+  // Check if using external font for legacy reader fonts.
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1787,8 +1791,8 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
-  // Check if using external font for reader fonts
-  if (isReaderFont(fontId)) {
+  // Check if using external font for legacy reader fonts.
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -2647,9 +2651,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
   // Cache character classification results to avoid repeated calls (perf opt)
   const bool isCjk = isCjkCodepoint(cp);
 
-  // Prefer external reader font when enabled; fall back to built-in only if missing
+  // SD-card cpfonts carry their own style data. Never let a legacy external
+  // font override their CJK glyphs, or Bold degrades to the external Regular.
   if (isReaderFont(fontId)) {
-    if (fm.isExternalFontEnabled()) {
+    if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
         const uint8_t* bitmap = extFont->getGlyph(cp);
@@ -2767,18 +2772,23 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
   const int drawLeft = needsScale ? ((glyph->left * static_cast<int>(scale) + 128) >> 8) : glyph->left;
   const int drawTop = needsScale ? ((glyph->top * static_cast<int>(scale) + 128) >> 8) : glyph->top;
 
-  // Synthetic bold: Bold requested but font has no separate Bold style (same data as Regular)
+  // Synthetic bold: Bold requested but font has no separate Bold style (same data as Regular).
+  // A horizontal-only 1px pass is barely visible on dense CJK glyphs. Add
+  // downward and diagonal passes for body-sized glyphs, while retaining the
+  // lighter two-pass result for small text such as ruby.
   const bool synthBold = (style & EpdFontFamily::BOLD) && sdCardFontScales_.count(fontId) > 0 &&
                          fontFamily.getData(style) == fontFamily.getData(EpdFontFamily::REGULAR);
-  const int boldPasses = synthBold ? 2 : 1;
+  const bool synthBoldSecondAxis = synthBold && std::min(drawW, drawH) >= 18;
+  const int boldPasses = synthBold ? (synthBoldSecondAxis ? 4 : 2) : 1;
 
   if (bitmap != nullptr) {
     for (int pass = 0; pass < boldPasses; pass++) {
-      const int xBoldOffset = pass;  // 2nd pass: 1px right shift for bold
+      const int xBoldOffset = pass == 1 || pass == 3 ? 1 : 0;
+      const int yBoldOffset = pass == 2 || pass == 3 ? 1 : 0;
       for (int glyphY = 0; glyphY < drawH; glyphY++) {
         const int srcY = needsScale ? (glyphY * 256 / scale) : glyphY;
         if (srcY >= baseH) continue;
-        const int screenY = *y - drawTop + glyphY;
+        const int screenY = *y - drawTop + glyphY + yBoldOffset;
         for (int glyphX = 0; glyphX < drawW; glyphX++) {
           const int srcX = needsScale ? (glyphX * 256 / scale) : glyphX;
           if (srcX >= baseW) continue;
