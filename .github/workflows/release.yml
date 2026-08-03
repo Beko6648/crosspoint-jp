@@ -87,6 +87,6 @@ jobs:
             1. 通常の更新は、`Yomuka-${{ env.RELEASE_VERSION }}-firmware.bin` をSDカードの更新手順に従って使用します。
             2. 詳細は README と基本操作ガイドを確認してください。
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
