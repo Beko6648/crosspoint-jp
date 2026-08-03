@@ -80,6 +80,10 @@ class ChapterHtmlSlimParser {
     bool hasBold = false, bold = false;
     bool hasItalic = false, italic = false;
     bool hasUnderline = false, underline = false;
+    // Ruby tags use a dedicated end-element path with their own depth updates.
+    // Mark their entries so <rb> cannot accidentally pop a parent <ruby> style.
+    bool rubyTagStyle = false;
+    bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
   CssStyle currentCssStyle;

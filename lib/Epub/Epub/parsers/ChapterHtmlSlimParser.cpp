@@ -814,6 +814,28 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Ruby tag handling
   if (strcmp(name, "ruby") == 0) {
     self->flushPartWordBuffer();
+    // Ruby has a dedicated parsing path, so it does not reach the generic
+    // inline-element branch below. Keep semantic CSS emphasis active while
+    // the base text is emitted as individual words.
+    if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration()) {
+      StyleStackEntry entry;
+      entry.depth = self->depth;
+      if (cssStyle.hasFontWeight()) {
+        entry.hasBold = true;
+        entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
+      }
+      if (cssStyle.hasFontStyle()) {
+        entry.hasItalic = true;
+        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
+      }
+      if (cssStyle.hasTextDecoration()) {
+        entry.hasUnderline = true;
+        entry.underline = cssStyle.textDecoration == CssTextDecoration::Underline;
+      }
+      entry.rubyTagStyle = true;
+      self->inlineStyleStack.push_back(entry);
+      self->updateEffectiveInlineStyle();
+    }
     self->ensureTextBlockCapacityForWord();
     self->inRuby = true;
     self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
@@ -826,6 +848,27 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (strcmp(name, "rb") == 0) {
     // <rb> is ruby base text. Treat it as normal text inside <ruby>.
     self->flushPartWordBuffer();
+    // Like <ruby>, <rb> bypasses generic inline style handling. This lets an
+    // EPUB style either the complete ruby base or one part of a multi-rb base.
+    if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration()) {
+      StyleStackEntry entry;
+      entry.depth = self->depth;
+      if (cssStyle.hasFontWeight()) {
+        entry.hasBold = true;
+        entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
+      }
+      if (cssStyle.hasFontStyle()) {
+        entry.hasItalic = true;
+        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
+      }
+      if (cssStyle.hasTextDecoration()) {
+        entry.hasUnderline = true;
+        entry.underline = cssStyle.textDecoration == CssTextDecoration::Underline;
+      }
+      entry.rubyBaseTagStyle = true;
+      self->inlineStyleStack.push_back(entry);
+      self->updateEffectiveInlineStyle();
+    }
     self->depth += 1;
     return;
   }
@@ -1442,6 +1485,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   if (strcmp(name, "rb") == 0) {
    self->flushPartWordBuffer();
    self->depth -= 1;
+   if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
+     self->inlineStyleStack.pop_back();
+     self->updateEffectiveInlineStyle();
+   }
    return;
   }
 
@@ -1494,6 +1541,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->rubyTextBuffer.clear();
 
     self->depth -= 1;
+    if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyTagStyle) {
+      self->inlineStyleStack.pop_back();
+      self->updateEffectiveInlineStyle();
+    }
     return;
   }
 
