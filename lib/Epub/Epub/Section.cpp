@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <algorithm>
 #include <HalStorage.h>
+#include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -12,6 +13,82 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
+constexpr size_t SECTION_FONT_CODEPOINT_LIMIT = 1024;
+
+void appendUtf8Codepoint(std::string& out, const uint32_t cp) {
+  if (cp <= 0x7F) {
+    out.push_back(static_cast<char>(cp));
+  } else if (cp <= 0x7FF) {
+    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else if (cp <= 0xFFFF) {
+    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else if (cp <= 0x10FFFF) {
+    out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  }
+}
+
+bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniqueText) {
+  FsFile htmlFile;
+  if (!Storage.openFileForRead("SCT", htmlPath, htmlFile)) return false;
+
+  std::vector<uint32_t> codepoints;
+  codepoints.reserve(SECTION_FONT_CODEPOINT_LIMIT);
+  constexpr size_t SCAN_BUFFER_SIZE = 4096;
+  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[SCAN_BUFFER_SIZE]);
+  if (!buffer) {
+    htmlFile.close();
+    return false;
+  }
+  uint32_t pendingCodepoint = 0;
+  uint8_t pendingBytes = 0;
+
+  const auto recordCodepoint = [&codepoints](const uint32_t cp) {
+    const auto pos = std::lower_bound(codepoints.begin(), codepoints.end(), cp);
+    if (pos == codepoints.end() || *pos != cp) codepoints.insert(pos, cp);
+  };
+
+  while (htmlFile.available() > 0 && codepoints.size() < SECTION_FONT_CODEPOINT_LIMIT) {
+    const size_t bytesRead = htmlFile.read(buffer.get(), SCAN_BUFFER_SIZE);
+    if (bytesRead == 0) break;
+    for (size_t i = 0; i < bytesRead && codepoints.size() < SECTION_FONT_CODEPOINT_LIMIT; i++) {
+      const uint8_t byte = buffer[i];
+      if (pendingBytes == 0) {
+        if (byte < 0x80) {
+          recordCodepoint(byte);
+        } else if ((byte & 0xE0) == 0xC0) {
+          pendingCodepoint = byte & 0x1F;
+          pendingBytes = 1;
+        } else if ((byte & 0xF0) == 0xE0) {
+          pendingCodepoint = byte & 0x0F;
+          pendingBytes = 2;
+        } else if ((byte & 0xF8) == 0xF0) {
+          pendingCodepoint = byte & 0x07;
+          pendingBytes = 3;
+        }
+      } else if ((byte & 0xC0) == 0x80) {
+        pendingCodepoint = (pendingCodepoint << 6) | (byte & 0x3F);
+        pendingBytes--;
+        if (pendingBytes == 0) recordCodepoint(pendingCodepoint);
+      } else {
+        pendingCodepoint = 0;
+        pendingBytes = 0;
+      }
+    }
+  }
+  htmlFile.close();
+
+  uniqueText.clear();
+  uniqueText.reserve(codepoints.size() * 3);
+  for (const uint32_t cp : codepoints) appendUtf8Codepoint(uniqueText, cp);
+  return !uniqueText.empty();
+}
+
 // Version 42: horizontal ruby stores its complete base-text span for centering.
 // Version 43: full-page illustrations are isolated in both writing modes.
 // Version 44: page layout reserves edge space for vertical and first-line horizontal ruby.
@@ -537,6 +614,13 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
           static_cast<unsigned long>(fileSize));
 
   const uint32_t parseBuildStart = millis();
+  renderer.resetSdCardAdvanceBuildTiming();
+  if (renderer.isSdCardFont(fontId)) {
+    std::string sectionFontText;
+    if (collectSectionFontCodepoints(tmpHtmlPath, sectionFontText)) {
+      renderer.ensureSdCardFontReady(fontId, sectionFontText.c_str());
+    }
+  }
   const uint32_t estimatedBytesPerPage = verticalMode ? 700 : 3072;
   const uint16_t estimatedPages =
       std::max<uint16_t>(4, static_cast<uint16_t>((fileSize + estimatedBytesPerPage - 1) / estimatedBytesPerPage));
@@ -554,6 +638,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
       verticalMode, cssBodyFontIds, cancelFn);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
+  LOG_INF("SCT", "Section %d parse/build=%lu ms, SD advance tables=%lu ms (%lu builds)", spineIndex,
+          millis() - parseBuildStart, renderer.getSdCardAdvanceBuildMs(), renderer.getSdCardAdvanceBuildCalls());
 
   Storage.remove(tmpHtmlPath.c_str());
   if (!success) {

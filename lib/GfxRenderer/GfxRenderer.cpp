@@ -157,11 +157,22 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
     // Unlike prewarm(), this has no codepoint limit — handles CJK paragraphs
     // with 2000+ unique codepoints without overflow thrashing.
     // Uses 6 bytes per codepoint (vs 16 for full EpdGlyph), no bitmap data.
+    const uint32_t startedAt = millis();
     int missed = it->second->buildAdvanceTable(utf8Text, 0x0F);
+    sdCardAdvanceBuildMs_ += millis() - startedAt;
+    sdCardAdvanceBuildCalls_++;
     if (missed > 0) {
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
   }
+}
+
+void GfxRenderer::resetSdCardAdvanceBuildTiming() const {
+  for (const auto& entry : sdCardFonts_) {
+    if (entry.second) entry.second->resetAdvanceTable();
+  }
+  sdCardAdvanceBuildCalls_ = 0;
+  sdCardAdvanceBuildMs_ = 0;
 }
 
 void GfxRenderer::begin() {
