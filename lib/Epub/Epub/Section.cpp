@@ -46,7 +46,10 @@ namespace {
 // vertical h1/h2 underlines do not become page-height rules.
 // Version 70: halfwidth-only vertical layout uses the active font's measured
 // fullwidth advance instead of a line-height ratio.
-constexpr uint8_t SECTION_FILE_VERSION = 70;
+// Version 71: explicit empty p/div paragraphs and consecutive <br> tags retain
+// one invisible layout line instead of being discarded as an empty block.
+// Version 72: explicit blank lines at a page or column head are discarded.
+constexpr uint8_t SECTION_FILE_VERSION = 72;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

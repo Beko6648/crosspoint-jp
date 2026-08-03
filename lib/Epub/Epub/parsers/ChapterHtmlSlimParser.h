@@ -66,6 +66,14 @@ class ChapterHtmlSlimParser {
   int imageCounter = 0;
   bool verticalMode = false;
 
+  struct EmptyBlockCandidate {
+    int depth = 0;
+    bool hasContent = false;
+    bool hasExplicitBreak = false;
+  };
+  std::vector<EmptyBlockCandidate> emptyBlockCandidates;
+  uint8_t consecutiveExplicitBlankLines = 0;
+
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
     int depth = 0;
@@ -114,6 +122,10 @@ class ChapterHtmlSlimParser {
   void flushPartWordBuffer();
   void flushTextBlockForMemory();
   void ensureTextBlockCapacityForWord();
+  void noteEmptyBlockContent();
+  void noteEmptyBlockBreak();
+  bool addExplicitBlankLine();
+  bool consumeEmptyBlockCandidate(int depth);
   void makePages();
   void flushTableAsGrid();
   // XML callbacks

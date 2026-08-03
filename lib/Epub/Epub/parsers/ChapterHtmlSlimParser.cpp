@@ -30,6 +30,7 @@ constexpr size_t MIN_FREE_HEAP_FOR_PARSING = 20 * 1024;  // 20KB
 // 1KB Expat callback cannot grow a vector past that reservation before its
 // end-of-callback flush runs.
 constexpr size_t TEXT_BLOCK_SAFE_WORD_LIMIT = 700;
+constexpr uint8_t MAX_CONSECUTIVE_EXPLICIT_BLANK_LINES = 1;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -279,6 +280,36 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   }
 }
 
+void ChapterHtmlSlimParser::noteEmptyBlockContent() {
+  for (auto& candidate : emptyBlockCandidates) candidate.hasContent = true;
+  consecutiveExplicitBlankLines = 0;
+}
+
+void ChapterHtmlSlimParser::noteEmptyBlockBreak() {
+  if (emptyBlockCandidates.empty()) return;
+  for (size_t i = 0; i + 1 < emptyBlockCandidates.size(); ++i) {
+    emptyBlockCandidates[i].hasContent = true;
+  }
+  emptyBlockCandidates.back().hasExplicitBreak = true;
+}
+
+bool ChapterHtmlSlimParser::addExplicitBlankLine() {
+  if (!currentTextBlock || consecutiveExplicitBlankLines >= MAX_CONSECUTIVE_EXPLICIT_BLANK_LINES) return false;
+
+  // ParsedText discards empty words. A zero-width space keeps one invisible
+  // layout line in the cache while occupying no visible text width.
+  currentTextBlock->addWord("\xE2\x80\x8B", EpdFontFamily::REGULAR);
+  consecutiveExplicitBlankLines++;
+  return true;
+}
+
+bool ChapterHtmlSlimParser::consumeEmptyBlockCandidate(const int candidateDepth) {
+  if (emptyBlockCandidates.empty() || emptyBlockCandidates.back().depth != candidateDepth) return false;
+  const auto candidate = emptyBlockCandidates.back();
+  emptyBlockCandidates.pop_back();
+  return !candidate.hasContent && !candidate.hasExplicitBreak;
+}
+
 // flush the contents of partWordBuffer to currentTextBlock
 void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // Determine font style from depth-based tracking and CSS effective style
@@ -298,6 +329,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::UNDERLINE);
   }
 
+  const bool hasBufferedWord = partWordBufferIndex > 0;
   // flush the buffer
   ensureTextBlockCapacityForWord();
   partWordBuffer[partWordBufferIndex] = '\0';
@@ -312,6 +344,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   } else {
     currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
   }
+  if (hasBufferedWord) noteEmptyBlockContent();
   partWordBufferIndex = 0;
   nextWordContinues = false;
 }
@@ -434,6 +467,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Special handling for tables: buffer cell data for grid rendering.
   if (strcmp(name, "table") == 0) {
+    self->noteEmptyBlockContent();
     if (self->tableDepth > 0) {
       self->tableDepth += 1;
       self->depth += 1;
@@ -471,6 +505,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
+    self->noteEmptyBlockContent();
     std::string src;
     std::string alt;
     if (atts != nullptr) {
@@ -893,6 +928,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (strcmp(name, "hr") == 0) {
+    self->noteEmptyBlockContent();
     // <hr> is a block-level rule. Flush surrounding text first, then use an
     // otherwise empty TextBlock so pagination and cached rendering follow the
     // normal text path in both writing directions.
@@ -959,7 +995,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
       }
-      self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+      const BlockStyle blockStyle = self->currentTextBlock->getBlockStyle();
+      if (self->currentTextBlock->isEmpty()) {
+        // Keep author-intended empty paragraphs and blank <br/> runs, but
+        // collapse the second and later consecutive empty lines.
+        self->noteEmptyBlockBreak();
+        self->addExplicitBlankLine();
+      }
+      self->startNewTextBlock(blockStyle);
     } else {
       self->currentCssStyle = cssStyle;
 
@@ -982,9 +1025,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         self->startNewTextBlock(liBlockStyle);
         self->updateEffectiveInlineStyle();
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+        self->noteEmptyBlockContent();
       } else {
         self->startNewTextBlock(bodyBlockStyle);
         self->updateEffectiveInlineStyle();
+        if (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) {
+          self->emptyBlockCandidates.push_back({self->depth});
+        }
       }
     }
   } else if (matches(name, UNDERLINE_TAGS, NUM_UNDERLINE_TAGS)) {
@@ -1252,6 +1299,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       } else {
         self->currentTextBlock->addWord(cjkWord, cjkStyle);
       }
+      self->noteEmptyBlockContent();
       i += charLen;
       continue;
     }
@@ -1373,6 +1421,16 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   self->depth -= 1;
+
+  const bool closedEmptyParagraph =
+      (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) && self->consumeEmptyBlockCandidate(self->depth);
+  if (closedEmptyParagraph && self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+    // The explicit blank line is real content for any containing <div>, but
+    // it must not reset the consecutive-blank-line limit.
+    for (auto& candidate : self->emptyBlockCandidates) candidate.hasContent = true;
+    self->addExplicitBlankLine();
+    if (!self->currentTextBlock->isEmpty()) self->makePages();
+  }
 
   // Ruby closing tags
   if (strcmp(name, "rt") == 0) {
@@ -1626,8 +1684,10 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
     }
-    completePageFn(std::move(currentPage));
-    completedPageCount++;
+    if (currentPage && !currentPage->elements.empty()) {
+      completePageFn(std::move(currentPage));
+      completedPageCount++;
+    }
     currentPage.reset();
     currentTextBlock.reset();
   }
@@ -1880,20 +1940,47 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
-  if (!currentPage) {
-    currentPage.reset(new Page());
-    currentPageNextY = 0;
+  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
+                          currentTextBlock->getBlockStyle().lineHeightMultiplier;
+  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
+
+  const int horizontalInset = blockStyle.totalHorizontalInset();
+  const uint16_t effectiveWidth =
+      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+  const int layoutFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
+
+  const auto discardExplicitBlankLine = [&]() {
     if (verticalMode) {
-      const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
-      currentPageNextX = viewportWidth - lineHeight;
+      currentTextBlock->layoutVerticalColumns(renderer, layoutFontId, viewportHeight,
+                                               [](const std::shared_ptr<TextBlock>&) {});
+    } else {
+      currentTextBlock->layoutAndExtractLines(renderer, layoutFontId, effectiveWidth,
+                                              [](const std::shared_ptr<TextBlock>&) {});
+    }
+  };
+
+  // Keep a blank line at the tail of a page, but never create a new page or
+  // column headed only by that blank line. Its margins are discarded as well.
+  if (currentTextBlock->isExplicitBlankLine()) {
+    const bool pageHasContent = currentPage && !currentPage->elements.empty();
+    const bool wouldStartNewPage =
+        verticalMode ? !pageHasContent || currentPageNextX < 0
+                     : !pageHasContent || currentPageNextY + std::max(0, static_cast<int>(blockStyle.marginTop)) +
+                                               std::max(0, static_cast<int>(blockStyle.paddingTop)) + lineHeight >
+                                               viewportHeight;
+    if (wouldStartNewPage) {
+      discardExplicitBlankLine();
+      return;
     }
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
-                         currentTextBlock->getBlockStyle().lineHeightMultiplier;
+  if (!currentPage) {
+    currentPage.reset(new Page());
+    currentPageNextY = 0;
+    if (verticalMode) currentPageNextX = viewportWidth - lineHeight;
+  }
 
   // Apply top spacing before the paragraph (stored in pixels)
-  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
   if (blockStyle.marginTop > 0) {
     currentPageNextY += blockStyle.marginTop;
   }
@@ -1901,12 +1988,6 @@ void ChapterHtmlSlimParser::makePages() {
     currentPageNextY += blockStyle.paddingTop;
   }
 
-  // Calculate effective width accounting for horizontal margins/padding
-  const int horizontalInset = blockStyle.totalHorizontalInset();
-  const uint16_t effectiveWidth =
-      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
-
-  const int layoutFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
   if (verticalMode) {
     currentTextBlock->layoutVerticalColumns(
         renderer, layoutFontId, viewportHeight,
