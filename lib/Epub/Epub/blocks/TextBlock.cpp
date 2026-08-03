@@ -410,11 +410,16 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   if (blockStyle.drawSeparatorBelow && viewportWidth > 0) {
     const int lineHeight = renderer.getLineHeight(effectiveFontId);
     if (isVertical) {
-      const int separatorX = x + lineHeight / 2;
-      const int separatorTop = viewportTop + lineHeight / 4;
-      const int separatorBottom = viewportTop + viewportHeight - lineHeight / 4;
-      if (separatorBottom > separatorTop) {
-        renderer.drawLine(separatorX, separatorTop, separatorX, separatorBottom, true);
+      // Only an explicit HTML <hr> becomes a vertical rule. h1/h2 separators
+      // are horizontal-writing underlines; turning those into page-height
+      // lines makes table-of-contents headings overlap adjacent body columns.
+      if (blockStyle.isHtmlRule) {
+        const int separatorX = x + lineHeight / 2;
+        const int separatorTop = viewportTop + lineHeight / 4;
+        const int separatorBottom = viewportTop + viewportHeight - lineHeight / 4;
+        if (separatorBottom > separatorTop) {
+          renderer.drawLine(separatorX, separatorTop, separatorX, separatorBottom, true);
+        }
       }
     } else {
       const int separatorY = y + lineHeight + 2;
@@ -456,6 +461,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.lineHeightMultiplier);
   serialization::writePod(file, blockStyle.fontId);
   serialization::writePod(file, blockStyle.drawSeparatorBelow);
+  serialization::writePod(file, blockStyle.isHtmlRule);
   serialization::writePod(file, blockStyle.isListItem);
 
   // Vertical layout data
@@ -512,6 +518,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.lineHeightMultiplier);
   serialization::readPod(file, blockStyle.fontId);
   serialization::readPod(file, blockStyle.drawSeparatorBelow);
+  serialization::readPod(file, blockStyle.isHtmlRule);
   serialization::readPod(file, blockStyle.isListItem);
 
   // Vertical layout data

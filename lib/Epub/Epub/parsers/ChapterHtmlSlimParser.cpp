@@ -910,6 +910,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     ruleBlockStyle.textIndent = 0;
     ruleBlockStyle.textIndentDefined = true;
     ruleBlockStyle.drawSeparatorBelow = true;
+    ruleBlockStyle.isHtmlRule = true;
 
     self->currentTextBlock.reset();
     self->startNewTextBlock(ruleBlockStyle);

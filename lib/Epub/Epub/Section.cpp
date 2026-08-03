@@ -42,7 +42,9 @@ namespace {
 // matching indent to avoid both overlap and full-cell gaps.
 // Version 68: halfwidth-only pitch and indent increase to three fifths of the
 // line height for a slightly lower line head and wider kana rhythm.
-constexpr uint8_t SECTION_FILE_VERSION = 68;
+// Version 69: distinguish explicit HTML rules from heading separators so
+// vertical h1/h2 underlines do not become page-height rules.
+constexpr uint8_t SECTION_FILE_VERSION = 69;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
