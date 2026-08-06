@@ -34,7 +34,7 @@ struct BmpHeader {
     uint8_t rgbRed;
     uint8_t rgbReserved;
   };
-  RgbQuad colors[2];
+  RgbQuad colors[4];
 };
 #pragma pack(pop)
 
