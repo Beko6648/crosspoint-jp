@@ -1688,7 +1688,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     int32_t widthFP = 0;
     const uint8_t styleIdx = static_cast<uint8_t>(style);
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
-      widthFP += sdIt->second->getAdvance(cp, styleIdx);
+      widthFP += sdIt->second->getAdvanceOrLoad(cp, styleIdx);
     }
     const uint16_t scale = getSdCardFontScale(fontId);
     if (scale != 256) {
@@ -1861,7 +1861,7 @@ int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text, con
     while (*ptr) {
       const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
       if (cp == 0) break;
-      int32_t advanceFp = sdIt->second->getAdvance(cp, styleIdx);
+      int32_t advanceFp = sdIt->second->getAdvanceOrLoad(cp, styleIdx);
       if (fontScale != 256) advanceFp = static_cast<int32_t>(static_cast<int64_t>(advanceFp) * fontScale / 256);
       const int advance = fp4::toPixel(advanceFp);
       lastAdvance = advance + advance * verticalCharSpacingPercent_ / 100;

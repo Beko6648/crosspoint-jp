@@ -928,6 +928,36 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
   return 0;
 }
 
+uint16_t SdCardFont::getAdvanceOrLoad(const uint32_t codepoint, const uint8_t style) const {
+  if (const uint16_t advance = getAdvance(codepoint, style); advance != 0) return advance;
+
+  // A missing compact-table entry must not become a zero-width (overlapping)
+  // glyph in layout: return a nominal full-width advance instead.  This is
+  // deliberately allocation-free and SD-read-free — reading the real advance
+  // from the .cpfont on every miss would open/close the file repeatedly during
+  // cache generation and fragment the heap, starving XTC's ~96KB page buffer.
+  const uint8_t resolvedStyle = resolveStyle(style);
+  return getFullWidthAdvance(resolvedStyle);
+}
+
+uint16_t SdCardFont::getFullWidthAdvance(const uint8_t style) const {
+  // CJK fonts are monospaced across full-width glyphs, so any common full-width
+  // character's advance is a good nominal full-width width.  Try several
+  // high-frequency references, then fall back to the widest entry in the table
+  // (full-width glyphs are usually the widest in a CJK font).
+  if (style >= MAX_STYLES || !advanceTable_[style]) return 0;
+  static constexpr uint32_t kRefs[] = {0x4E00, 0x3042, 0x30F3, 0x306E, 0x7684};  // 一 あ ン の 的
+  for (const uint32_t ref : kRefs) {
+    if (const uint16_t adv = getAdvance(ref, style); adv != 0) return adv;
+  }
+  const AdvanceEntry* table = advanceTable_[style];
+  uint16_t maxAdv = 0;
+  for (uint32_t i = 0; i < advanceTableSize_[style]; i++) {
+    if (table[i].advanceX > maxAdv) maxAdv = table[i].advanceX;
+  }
+  return maxAdv;
+}
+
 int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
   if (!loaded_) return -1;
 

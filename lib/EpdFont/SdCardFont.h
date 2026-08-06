@@ -35,6 +35,12 @@ class SdCardFont {
   // Returns the 12.4 fixed-point advance, or 0 if not found.
   uint16_t getAdvance(uint32_t codepoint, uint8_t style) const;
 
+  // Returns the advance for layout, falling back to a nominal full-width
+  // advance for codepoints missing from the compact advance table, so a
+  // missing entry never becomes a zero-width (overlapping) glyph.  No SD read
+  // and no heap allocation.
+  uint16_t getAdvanceOrLoad(uint32_t codepoint, uint8_t style) const;
+
   // Returns true if advance table is populated for at least one style.
   bool hasAdvanceTable() const;
 
@@ -203,6 +209,8 @@ class SdCardFont {
   AdvanceEntry* advanceTable_[MAX_STYLES] = {};
   uint32_t advanceTableSize_[MAX_STYLES] = {};
   void clearAdvanceTables();
+  // Nominal full-width advance for layout fallback (no SD read, no alloc).
+  uint16_t getFullWidthAdvance(uint8_t style) const;
 
   Stats stats_;
   uint32_t contentHash_ = 0;
