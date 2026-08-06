@@ -108,13 +108,14 @@ uint8_t quantize1bit(int gray, int x, int y) {
   return (gray >= adjustedThreshold) ? 1 : 0;
 }
 
-void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder rowOrder) {
+void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder rowOrder, int bitDepth) {
   if (!bmpHeader) return;
+  if (bitDepth != 1 && bitDepth != 2) bitDepth = 1;
 
   // Zero out the memory to ensure no garbage data if called on uninitialized stack memory
   std::memset(bmpHeader, 0, sizeof(BmpHeader));
 
-  uint32_t rowSize = (width + 31) / 32 * 4;
+  uint32_t rowSize = ((uint32_t)width * bitDepth + 31) / 32 * 4;
   uint32_t imageSize = rowSize * height;
   uint32_t fileSize = sizeof(BmpHeader) + imageSize;
 
@@ -128,14 +129,15 @@ void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder ro
   bmpHeader->infoHeader.biWidth = width;
   bmpHeader->infoHeader.biHeight = (rowOrder == BmpRowOrder::TopDown) ? -height : height;
   bmpHeader->infoHeader.biPlanes = 1;
-  bmpHeader->infoHeader.biBitCount = 1;
+  bmpHeader->infoHeader.biBitCount = bitDepth;
   bmpHeader->infoHeader.biCompression = 0;
   bmpHeader->infoHeader.biSizeImage = imageSize;
   bmpHeader->infoHeader.biXPelsPerMeter = 2835;  // 72 DPI
   bmpHeader->infoHeader.biYPelsPerMeter = 2835;  // 72 DPI
-  bmpHeader->infoHeader.biClrUsed = 2;
-  bmpHeader->infoHeader.biClrImportant = 2;
+  bmpHeader->infoHeader.biClrUsed = bitDepth == 2 ? 4 : 2;
+  bmpHeader->infoHeader.biClrImportant = bitDepth == 2 ? 4 : 2;
 
+  // 1-bit palette: index 0 = black, index 1 = white
   // Color 0 (black)
   bmpHeader->colors[0].rgbBlue = 0;
   bmpHeader->colors[0].rgbGreen = 0;
@@ -147,4 +149,33 @@ void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder ro
   bmpHeader->colors[1].rgbGreen = 255;
   bmpHeader->colors[1].rgbRed = 255;
   bmpHeader->colors[1].rgbReserved = 0;
+
+  if (bitDepth == 2) {
+    // 2-bit palette matching the display's 4 native gray levels.
+    // The palette order is chosen so the XTH pixel value maps directly:
+    //   index 0 = white (lum 255), 1 = dark gray (85), 2 = light gray (170), 3 = black (0)
+    // readNextRow() computes renderer val = paletteLum[idx] >> 6, giving
+    //   0 -> 3 (white), 1 -> 1 (dark gray), 2 -> 2 (light gray), 3 -> 0 (black),
+    // which matches the display semantics expected by the grayscale draw path.
+    // Color 0 (white)
+    bmpHeader->colors[0].rgbBlue = 255;
+    bmpHeader->colors[0].rgbGreen = 255;
+    bmpHeader->colors[0].rgbRed = 255;
+    bmpHeader->colors[0].rgbReserved = 0;
+    // Color 1 (dark gray)
+    bmpHeader->colors[1].rgbBlue = 85;
+    bmpHeader->colors[1].rgbGreen = 85;
+    bmpHeader->colors[1].rgbRed = 85;
+    bmpHeader->colors[1].rgbReserved = 0;
+    // Color 2 (light gray)
+    bmpHeader->colors[2].rgbBlue = 170;
+    bmpHeader->colors[2].rgbGreen = 170;
+    bmpHeader->colors[2].rgbRed = 170;
+    bmpHeader->colors[2].rgbReserved = 0;
+    // Color 3 (black)
+    bmpHeader->colors[3].rgbBlue = 0;
+    bmpHeader->colors[3].rgbGreen = 0;
+    bmpHeader->colors[3].rgbRed = 0;
+    bmpHeader->colors[3].rgbReserved = 0;
+  }
 }

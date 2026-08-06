@@ -55,8 +55,8 @@ inline uint8_t applyBayerDither4Level(uint8_t gray, int x, int y) {
 
 enum class BmpRowOrder { BottomUp, TopDown };
 
-// Populates a 1-bit BMP header in the provided memory.
-void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder rowOrder);
+// Populates a 1-bit (or 2-bit) BMP header in the provided memory.
+void createBmpHeader(BmpHeader* bmpHeader, int width, int height, BmpRowOrder rowOrder, int bitDepth = 1);
 
 // 1-bit Atkinson dithering - better quality than noise dithering for thumbnails
 // Error distribution pattern (same as 2-bit but quantizes to 2 levels):
