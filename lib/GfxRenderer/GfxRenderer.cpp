@@ -157,11 +157,22 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
     // Unlike prewarm(), this has no codepoint limit — handles CJK paragraphs
     // with 2000+ unique codepoints without overflow thrashing.
     // Uses 6 bytes per codepoint (vs 16 for full EpdGlyph), no bitmap data.
+    const uint32_t startedAt = millis();
     int missed = it->second->buildAdvanceTable(utf8Text, 0x0F);
+    sdCardAdvanceBuildMs_ += millis() - startedAt;
+    sdCardAdvanceBuildCalls_++;
     if (missed > 0) {
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
   }
+}
+
+void GfxRenderer::resetSdCardAdvanceBuildTiming() const {
+  for (const auto& entry : sdCardFonts_) {
+    if (entry.second) entry.second->resetAdvanceTable();
+  }
+  sdCardAdvanceBuildCalls_ = 0;
+  sdCardAdvanceBuildMs_ = 0;
 }
 
 void GfxRenderer::begin() {
@@ -412,9 +423,13 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
 
   FontManager& fm = FontManager::getInstance();
 
-  // Check if using external font for reader fonts
+  // Check if using an external font for legacy reader fonts. SD-card cpfonts
+  // must use their own metrics and glyphs, including their Bold style.
   if (isReaderFont(fontId)) {
-    if (fm.isExternalFontEnabled()) {
+    // SD-card cpfonts are complete reader font families.  They must skip the
+    // legacy external-font route, but they are still reader fonts (not UI
+    // fonts), so let them continue to the EpdFontFamily rendering below.
+    if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
         int width = 0;
@@ -531,6 +546,76 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   const uint16_t scale = getSdCardFontScale(effectiveFontId);
   if (scale != 256) w = (w * scale + 128) >> 8;
   return w;
+}
+
+void GfxRenderer::getTextVisibleBoundsX(const int fontId, const char* text, int* minX, int* maxX,
+                                        const EpdFontFamily::Style style) const {
+  if (minX == nullptr || maxX == nullptr) return;
+  *minX = 0;
+  *maxX = 0;
+  if (text == nullptr || *text == '\0') return;
+
+  // External reader glyphs trim minX before drawing, so their visible bounds
+  // differ from both their source bitmap width and their advance. Match that
+  // path before falling back to the built-in font geometry below.
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
+    FontManager& fm = FontManager::getInstance();
+    if (fm.isExternalFontEnabled()) {
+      ExternalFont* extFont = fm.getActiveFont();
+      if (extFont != nullptr) {
+        int penX = 0;
+        int visibleRight = 0;
+        bool allGlyphsExternal = true;
+        const char* ptr = text;
+        while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr))) {
+          const uint8_t* bitmap = extFont->getGlyph(cp);
+          if (bitmap == nullptr) {
+            allGlyphsExternal = false;
+            break;
+          }
+          uint8_t glyphMinX = 0;
+          uint8_t advanceX = extFont->getCharWidth();
+          extFont->getGlyphMetrics(cp, &glyphMinX, &advanceX);
+          visibleRight = std::max(visibleRight, penX + extFont->getCharWidth() - glyphMinX);
+          const int spacing = isAsciiDigit(cp) ? asciiDigitSpacing : isAsciiLetter(cp) ? asciiLetterSpacing : 0;
+          penX += clampExternalAdvance(advanceX, spacing);
+        }
+        if (allGlyphsExternal) {
+          *maxX = visibleRight;
+          return;
+        }
+      }
+    }
+  }
+
+  const int effectiveFontId = getEffectiveFontId(fontId);
+  const auto fontIt = fontMap.find(effectiveFontId);
+  if (fontIt == fontMap.end()) {
+    *maxX = getTextWidth(fontId, text, style);
+    return;
+  }
+
+  // This is the same unscaled glyph geometry used by drawText(). The scale
+  // conversion below mirrors renderChar() for SD-card reader fonts.
+  int minY = 0;
+  int maxY = 0;
+  fontIt->second.getTextBounds(text, 0, 0, minX, &minY, maxX, &maxY, style);
+
+  // EpdFont::getTextBounds() deliberately includes the requested origin so
+  // generic text measurement never reports a positive minimum. For centering
+  // a short vertical run, that hides the first glyph's left side bearing and
+  // shifts halfwidth digits right. Use the first rendered glyph's true left
+  // edge while retaining the computed right edge for the complete run.
+  const char* firstPtr = text;
+  const uint32_t firstCp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&firstPtr));
+  if (const EpdGlyph* firstGlyph = fontIt->second.getGlyph(firstCp, style)) {
+    *minX = firstGlyph->left;
+  }
+  const uint16_t scale = getSdCardFontScale(effectiveFontId);
+  if (scale != 256) {
+    *minX = (*minX * static_cast<int>(scale) + 128) >> 8;
+    *maxX = (*maxX * static_cast<int>(scale) + 128) >> 8;
+  }
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
@@ -650,7 +735,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   // no printable characters — check if CJK external font can handle them
   if (!fontHasPrintableChars(font, text, style)) {
     FontManager& fm = FontManager::getInstance();
-    if (isReaderFont(fontId)) {
+    if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
       if (!fm.isExternalFontEnabled()) {
         return;
       }
@@ -1536,7 +1621,7 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
   }
 
   // Use external font's space advance when active - keeps word/space metrics consistent
-  if (isReaderFont(fontId)) {
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1613,7 +1698,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   }
 
   // External reader font: compute advance using bitmap font metrics
-  if (isReaderFont(fontId)) {
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1688,8 +1773,8 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
-  // Check if using external font for reader fonts
-  if (isReaderFont(fontId)) {
+  // Check if using external font for legacy reader fonts.
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1717,8 +1802,8 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
-  // Check if using external font for reader fonts
-  if (isReaderFont(fontId)) {
+  // Check if using external font for legacy reader fonts.
+  if (isReaderFont(fontId) && !isSdCardFont(fontId)) {
     FontManager& fm = FontManager::getInstance();
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
@@ -1912,11 +1997,6 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       // Fall back to the normal glyph. Punctuation with no OpenType `vert`
       // substitute (including U+301C in older SD-card fonts) still needs a
       // rotated horizontal glyph in vertical text.
-      // Keep U+FF65 visually centered in the vertical body column. Device
-      // screenshots show that the small reader font needs 5px less correction
-      // than the other three reader sizes.
-      const int middleDotOffset = getLineHeight(effectiveFontId) <= 24 ? 11 : 16;
-      const int glyphX = cp == 0xFF65 ? x - middleDotOffset : x;
       char charBuf[5] = {};
       if (cp < 0x80) {
         charBuf[0] = static_cast<char>(cp);
@@ -1935,7 +2015,7 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         const int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
         drawTextSideways(effectiveFontId, drawX, drawY, charBuf, black, style, columnWidth);
       } else {
-        drawText(effectiveFontId, glyphX, yPos, charBuf, black, style);
+        drawText(effectiveFontId, x, yPos, charBuf, black, style);
       }
       yPos += verticalAdvance;
     }
@@ -1985,11 +2065,39 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
       const int drawAscender =
           needsScale ? ((fontData->ascender * static_cast<int>(scale) + 128) >> 8) : fontData->ascender;
 
-      // Center rotated glyph horizontally within the column
+      // Center the visible rotated glyph, not its bitmap box. ASCII glyphs
+      // carry unequal empty rows above/below their ink, which becomes a
+      // sideways left/right bearing after rotation. Centering the whole box
+      // made those letters appear shifted whenever a vertical page also had
+      // ruby, even though the body column itself had not moved.
       int baseX;
       if (columnWidth > 0) {
         const int centerX = x + columnWidth / 2;
-        baseX = centerX + (drawH - 1) / 2;
+        int visibleMinY = drawH;
+        int visibleMaxY = -1;
+        for (int glyphY = 0; glyphY < glyph->height; glyphY++) {
+          bool rowHasInk = false;
+          for (int glyphX = 0; glyphX < glyph->width; glyphX++) {
+            const int pixelPosition = glyphY * glyph->width + glyphX;
+            if (fontData->is2Bit) {
+              const uint8_t byte = bitmap[pixelPosition / 4];
+              const uint8_t bitIndex = (3 - pixelPosition % 4) * 2;
+              rowHasInk = ((byte >> bitIndex) & 0x3) != 0;
+            } else {
+              const uint8_t byte = bitmap[pixelPosition / 8];
+              const uint8_t bitIndex = 7 - (pixelPosition % 8);
+              rowHasInk = ((byte >> bitIndex) & 1) != 0;
+            }
+            if (rowHasInk) break;
+          }
+          if (rowHasInk) {
+            const int scaledY = needsScale ? (glyphY * scale >> 8) : glyphY;
+            visibleMinY = std::min(visibleMinY, scaledY);
+            visibleMaxY = std::max(visibleMaxY, scaledY);
+          }
+        }
+        baseX = visibleMaxY >= visibleMinY ? centerX + (visibleMinY + visibleMaxY) / 2
+                                            : centerX + (drawH - 1) / 2;
       } else {
         baseX = x + drawAscender - drawTop + drawH - 1;
       }
@@ -2473,6 +2581,12 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
+void GfxRenderer::displayGrayscaleBase(const HalDisplay::RefreshMode fallback) const {
+  display.displayGrayscaleBase(fallback, fadingFix);
+}
+
+void GfxRenderer::preconditionGrayscale() const { display.preconditionGrayscale(); }
+
 void GfxRenderer::displayGrayBuffer(const bool turnOffScreen, const bool darkMode) const {
   // Note: HalDisplay::displayGrayBuffer does not support darkMode parameter directly.
   // Dark mode grayscale rendering is handled at the pixel level in renderChar.
@@ -2571,9 +2685,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
   // Cache character classification results to avoid repeated calls (perf opt)
   const bool isCjk = isCjkCodepoint(cp);
 
-  // Prefer external reader font when enabled; fall back to built-in only if missing
+  // SD-card cpfonts carry their own style data. Never let a legacy external
+  // font override their CJK glyphs, or Bold degrades to the external Regular.
   if (isReaderFont(fontId)) {
-    if (fm.isExternalFontEnabled()) {
+    if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
         const uint8_t* bitmap = extFont->getGlyph(cp);
@@ -2691,18 +2806,23 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
   const int drawLeft = needsScale ? ((glyph->left * static_cast<int>(scale) + 128) >> 8) : glyph->left;
   const int drawTop = needsScale ? ((glyph->top * static_cast<int>(scale) + 128) >> 8) : glyph->top;
 
-  // Synthetic bold: Bold requested but font has no separate Bold style (same data as Regular)
+  // Synthetic bold: Bold requested but font has no separate Bold style (same data as Regular).
+  // A horizontal-only 1px pass is barely visible on dense CJK glyphs. Add
+  // downward and diagonal passes for body-sized glyphs, while retaining the
+  // lighter two-pass result for small text such as ruby.
   const bool synthBold = (style & EpdFontFamily::BOLD) && sdCardFontScales_.count(fontId) > 0 &&
                          fontFamily.getData(style) == fontFamily.getData(EpdFontFamily::REGULAR);
-  const int boldPasses = synthBold ? 2 : 1;
+  const bool synthBoldSecondAxis = synthBold && std::min(drawW, drawH) >= 18;
+  const int boldPasses = synthBold ? (synthBoldSecondAxis ? 4 : 2) : 1;
 
   if (bitmap != nullptr) {
     for (int pass = 0; pass < boldPasses; pass++) {
-      const int xBoldOffset = pass;  // 2nd pass: 1px right shift for bold
+      const int xBoldOffset = pass == 1 || pass == 3 ? 1 : 0;
+      const int yBoldOffset = pass == 2 || pass == 3 ? 1 : 0;
       for (int glyphY = 0; glyphY < drawH; glyphY++) {
         const int srcY = needsScale ? (glyphY * 256 / scale) : glyphY;
         if (srcY >= baseH) continue;
-        const int screenY = *y - drawTop + glyphY;
+        const int screenY = *y - drawTop + glyphY + yBoldOffset;
         for (int glyphX = 0; glyphX < drawW; glyphX++) {
           const int srcX = needsScale ? (glyphX * 256 / scale) : glyphX;
           if (srcX >= baseW) continue;

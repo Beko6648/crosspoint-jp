@@ -1205,6 +1205,23 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     return;
   }
 
+  // Page turns can redraw the penultimate page several times in quick
+  // succession.  Do not repeatedly start the same best-effort cache build.
+  if (lastSilentIndexAttemptedSpineIndex == nextSpineIndex) {
+    return;
+  }
+
+  // ZIP streaming and the parser both need a sizeable contiguous allocation.
+  // This is speculative work, so defer it instead of fragmenting memory while
+  // the reader is responding to page turns.
+  constexpr uint32_t MIN_MAX_ALLOC_FOR_SILENT_INDEX = 30 * 1024;
+  if (ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_SILENT_INDEX) {
+    LOG_DBG("ERS", "Skipping silent indexing for chapter %d (maxAlloc=%u, need >=%u)", nextSpineIndex,
+            ESP.getMaxAllocHeap(), MIN_MAX_ALLOC_FOR_SILENT_INDEX);
+    lastSilentIndexAttemptedSpineIndex = nextSpineIndex;
+    return;
+  }
+
   const auto& silentDs = SETTINGS.getDirectionSettings(verticalMode);
   Section nextSection(epub, nextSpineIndex, renderer);
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(verticalMode),
@@ -1215,6 +1232,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     return;
   }
 
+  lastSilentIndexAttemptedSpineIndex = nextSpineIndex;
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
   const int silentHeadingFontIds[6] = {
       SETTINGS.getHeadingFontId(1, verticalMode), SETTINGS.getHeadingFontId(2, verticalMode), 0, 0, 0, 0};
@@ -1339,6 +1357,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
       tBwRestore = millis();
+
+      // The grayscale image overlay can leave residual charge that a subsequent
+      // FAST_REFRESH text page does not clear.  Keep the normal image rendering
+      // path intact, but make the next ordinary page use the existing
+      // HALF_REFRESH cleanup path once (CrossPoint Reader #2226).
+      pagesUntilFullRefresh = 1;
     } else {
       LOG_ERR("ERS", "Failed to store BW buffer for illustration grayscale");
     }

@@ -53,6 +53,8 @@ class GfxRenderer {
   // allocation inside the SdCardFont objects. Same pragmatic compromise as
   // fontCacheManager_ below.
   mutable std::map<int, SdCardFont*> sdCardFonts_;
+  mutable uint32_t sdCardAdvanceBuildCalls_ = 0;
+  mutable uint32_t sdCardAdvanceBuildMs_ = 0;
   std::map<int, uint16_t> sdCardFontScales_;  // fontId → 8.8固定小数点スケール (256=1.0x)
 
   // Mutable because drawText() is const but needs to delegate scan-mode
@@ -127,6 +129,9 @@ class GfxRenderer {
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   void ensureSdCardFontReady(int fontId, const char* utf8Text) const;
+  void resetSdCardAdvanceBuildTiming() const;
+  uint32_t getSdCardAdvanceBuildCalls() const { return sdCardAdvanceBuildCalls_; }
+  uint32_t getSdCardAdvanceBuildMs() const { return sdCardAdvanceBuildMs_; }
 
   // Orientation control (affects logical width/height and coordinate
   // transforms)
@@ -191,6 +196,10 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Horizontal bitmap bounds relative to the requested draw origin. Unlike
+  // getTextWidth(), this retains the font's left side bearing.
+  void getTextVisibleBoundsX(int fontId, const char* text, int* minX, int* maxX,
+                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawCenteredText(const int fontId, const int y, const char* text, const bool black = true,
                         const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
@@ -246,6 +255,8 @@ class GfxRenderer {
   RenderMode getRenderMode() const { return renderMode; }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
+  void displayGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
+  void preconditionGrayscale() const;
   void displayGrayBuffer(bool turnOffScreen = false, bool darkMode = false) const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer

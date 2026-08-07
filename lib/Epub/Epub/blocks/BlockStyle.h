@@ -39,6 +39,10 @@ struct BlockStyle {
   int fontId = 0;
   // Draw a full-width horizontal separator line below this block (used for h1/h2)
   bool drawSeparatorBelow = false;
+  // True when the separator represents an explicit HTML <hr>. Heading
+  // underlines remain horizontal-writing decoration and are suppressed in
+  // vertical mode, while an <hr> follows the vertical column flow.
+  bool isHtmlRule = false;
   // True for <li> elements — reduces extraParagraphSpacing
   bool isListItem = false;
 
@@ -81,6 +85,7 @@ struct BlockStyle {
     combinedBlockStyle.fontId = (child.fontId != 0) ? child.fontId : fontId;
     combinedBlockStyle.lineHeightMultiplier = child.lineHeightMultiplier;
     combinedBlockStyle.drawSeparatorBelow = child.drawSeparatorBelow || drawSeparatorBelow;
+    combinedBlockStyle.isHtmlRule = child.isHtmlRule || isHtmlRule;
     combinedBlockStyle.isListItem = child.isListItem;
 
     return combinedBlockStyle;

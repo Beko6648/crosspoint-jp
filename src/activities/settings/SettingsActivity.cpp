@@ -29,7 +29,7 @@
 #include "fontIds.h"
 
 const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
-    StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM, StrId::STR_CAT_RTC};
+    StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
 
 void SettingsActivity::enterCategory(const int categoryIndex) {
   if (categoryIndex < 0 || categoryIndex >= categoryCount) return;
@@ -52,7 +52,6 @@ void SettingsActivity::rebuildSettingsLists() {
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
-  rtcSettings.clear();
 
   for (auto& setting : getSettingsList(&sdFontSystem.registry())) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
@@ -65,11 +64,15 @@ void SettingsActivity::rebuildSettingsLists() {
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
       systemSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_RTC) {
-      // RTC無効時はマスタートグルのみ表示（カレンダーサブ設定を隠す）
+      // RTC is an X3 system feature. Keep the master toggle visible and hide
+      // its dependent calendar settings until RTC support is enabled.
+      if (!gpio.deviceIsX3()) {
+        continue;
+      }
       if (!SETTINGS.rtcEnabled && setting.nameId != StrId::STR_RTC_ENABLED) {
         continue;
       }
-      rtcSettings.push_back(setting);
+      systemSettings.push_back(setting);
     }
   }
 
@@ -105,9 +108,6 @@ void SettingsActivity::rebuildSettingsLists() {
     case 3:
       currentSettings = &systemSettings;
       break;
-    case 4:
-      currentSettings = &rtcSettings;
-      break;
     default:
       currentSettings = &systemSettings;
       break;
@@ -118,8 +118,7 @@ void SettingsActivity::rebuildSettingsLists() {
 void SettingsActivity::onEnter() {
   Activity::onEnter();
 
-  // X4 にはDS3231がないためRTCタブを非表示
-  categoryCount = gpio.deviceIsX4() ? 4 : MAX_CATEGORIES;
+  categoryCount = MAX_CATEGORIES;
 
   // Initialize selection based on caller hint.
   if (initialCategoryIndex < 0 || initialCategoryIndex >= categoryCount) {
@@ -423,6 +422,13 @@ void SettingsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
+  // X3 has one side button on each edge. Leave a compact gutter so labels and
+  // values stay clear of the vertical button hints without wasting list width.
+  constexpr int x3ClassicSettingsSideInset = 23;
+  constexpr int x3LyraSettingsSideInset = 15;
+  const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
+  const int listSideInset =
+      gpio.deviceIsX3() ? (isLyraTheme ? x3LyraSettingsSideInset : x3ClassicSettingsSideInset) : 0;
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight},
                  tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
@@ -440,9 +446,9 @@ void SettingsActivity::render(RenderLock&&) {
   GUI.drawList(
       renderer,
       Rect{
-          0,
+          listSideInset,
           metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing,
-          pageWidth,
+          pageWidth - listSideInset * 2,
           pageHeight - (metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight +
                         metrics.buttonHintsHeight + metrics.verticalSpacing * 2)},
       settingsCount, selectedSettingIndex - 1,

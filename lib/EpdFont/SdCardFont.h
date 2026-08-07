@@ -38,6 +38,10 @@ class SdCardFont {
   // Returns true if advance table is populated for at least one style.
   bool hasAdvanceTable() const;
 
+  // Clear layout-only advance data at a section boundary. The following
+  // buildAdvanceTable() calls then grow one shared table for that section.
+  void resetAdvanceTable() { clearAdvanceTables(); }
+
   // Free mini data for all styles, restore stub EpdFontData.
   void clearCache();
 

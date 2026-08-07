@@ -2,8 +2,6 @@
 
 #include <InflateReader.h>
 
-#include <vector>
-
 #include "EpdFontData.h"
 
 class FontDecompressor {
@@ -67,16 +65,22 @@ class FontDecompressor {
 
   // Hot group: last decompressed group (byte-aligned) for non-prewarmed fallback path.
   // Kept in byte-aligned format; individual glyphs are compacted on demand into hotGlyphBuf.
+  // These are explicit malloc buffers because getBitmap() is on the render path;
+  // with exceptions disabled, a failing vector resize aborts the firmware instead
+  // of letting the caller skip an unavailable glyph.
   const EpdFontData* hotGroupFont = nullptr;
   uint16_t hotGroupIndex = UINT16_MAX;
-  std::vector<uint8_t> hotGroup;
+  uint8_t* hotGroup = nullptr;
+  uint32_t hotGroupCapacity = 0;
 
   // Scratch buffer for compacting a single glyph from the hot group.
   // Valid until the next getBitmap() call.
-  std::vector<uint8_t> hotGlyphBuf;
+  uint8_t* hotGlyphBuf = nullptr;
+  uint32_t hotGlyphBufCapacity = 0;
 
   void freePageBuffer();
   void freeHotGroup();
+  static bool ensureCapacity(uint8_t*& buffer, uint32_t& capacity, uint32_t needed);
   uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
   uint32_t getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex);
   bool decompressGroup(const EpdFontData* fontData, uint16_t groupIndex, uint8_t* outBuf, uint32_t outSize);

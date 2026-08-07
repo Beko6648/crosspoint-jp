@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <algorithm>
 #include <HalStorage.h>
+#include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -12,6 +13,82 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
+constexpr size_t SECTION_FONT_CODEPOINT_LIMIT = 1024;
+
+void appendUtf8Codepoint(std::string& out, const uint32_t cp) {
+  if (cp <= 0x7F) {
+    out.push_back(static_cast<char>(cp));
+  } else if (cp <= 0x7FF) {
+    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else if (cp <= 0xFFFF) {
+    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else if (cp <= 0x10FFFF) {
+    out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  }
+}
+
+bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniqueText) {
+  FsFile htmlFile;
+  if (!Storage.openFileForRead("SCT", htmlPath, htmlFile)) return false;
+
+  std::vector<uint32_t> codepoints;
+  codepoints.reserve(SECTION_FONT_CODEPOINT_LIMIT);
+  constexpr size_t SCAN_BUFFER_SIZE = 4096;
+  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[SCAN_BUFFER_SIZE]);
+  if (!buffer) {
+    htmlFile.close();
+    return false;
+  }
+  uint32_t pendingCodepoint = 0;
+  uint8_t pendingBytes = 0;
+
+  const auto recordCodepoint = [&codepoints](const uint32_t cp) {
+    const auto pos = std::lower_bound(codepoints.begin(), codepoints.end(), cp);
+    if (pos == codepoints.end() || *pos != cp) codepoints.insert(pos, cp);
+  };
+
+  while (htmlFile.available() > 0 && codepoints.size() < SECTION_FONT_CODEPOINT_LIMIT) {
+    const size_t bytesRead = htmlFile.read(buffer.get(), SCAN_BUFFER_SIZE);
+    if (bytesRead == 0) break;
+    for (size_t i = 0; i < bytesRead && codepoints.size() < SECTION_FONT_CODEPOINT_LIMIT; i++) {
+      const uint8_t byte = buffer[i];
+      if (pendingBytes == 0) {
+        if (byte < 0x80) {
+          recordCodepoint(byte);
+        } else if ((byte & 0xE0) == 0xC0) {
+          pendingCodepoint = byte & 0x1F;
+          pendingBytes = 1;
+        } else if ((byte & 0xF0) == 0xE0) {
+          pendingCodepoint = byte & 0x0F;
+          pendingBytes = 2;
+        } else if ((byte & 0xF8) == 0xF0) {
+          pendingCodepoint = byte & 0x07;
+          pendingBytes = 3;
+        }
+      } else if ((byte & 0xC0) == 0x80) {
+        pendingCodepoint = (pendingCodepoint << 6) | (byte & 0x3F);
+        pendingBytes--;
+        if (pendingBytes == 0) recordCodepoint(pendingCodepoint);
+      } else {
+        pendingCodepoint = 0;
+        pendingBytes = 0;
+      }
+    }
+  }
+  htmlFile.close();
+
+  uniqueText.clear();
+  uniqueText.reserve(codepoints.size() * 3);
+  for (const uint32_t cp : codepoints) appendUtf8Codepoint(uniqueText, cp);
+  return !uniqueText.empty();
+}
+
 // Version 42: horizontal ruby stores its complete base-text span for centering.
 // Version 43: full-page illustrations are isolated in both writing modes.
 // Version 44: page layout reserves edge space for vertical and first-line horizontal ruby.
@@ -30,7 +107,28 @@ namespace {
 // Version 60: refresh vertical layout for bounded block spacing, voiced marks,
 // punctuation, ruby, symbols, and halfwidth kana.
 // Version 61: horizontal bars are stored as individual vertical punctuation cells.
-constexpr uint8_t SECTION_FILE_VERSION = 61;
+// Version 62: parse and persist HTML <hr> rules in both writing directions.
+// Version 63: leading halfwidth kana use a full vertical body cell.
+// Version 64: halfwidth kana keep their own advance with fullwidth inter-cell
+// spacing, and leading halfwidth kana use a half-em paragraph indent.
+// Version 65: halfwidth kana use the same vertical cell pitch and paragraph
+// indent as the surrounding Japanese body text.
+// Version 66: halfwidth-only paragraphs use the kana's natural pitch and no
+// first-line indent; U+FF70 no longer leaves a full-cell gap before its suffix.
+// Version 67: halfwidth-only paragraphs use a half-line-height pitch and
+// matching indent to avoid both overlap and full-cell gaps.
+// Version 68: halfwidth-only pitch and indent increase to three fifths of the
+// line height for a slightly lower line head and wider kana rhythm.
+// Version 69: distinguish explicit HTML rules from heading separators so
+// vertical h1/h2 underlines do not become page-height rules.
+// Version 70: halfwidth-only vertical layout uses the active font's measured
+// fullwidth advance instead of a line-height ratio.
+// Version 71: explicit empty p/div paragraphs and consecutive <br> tags retain
+// one invisible layout line instead of being discarded as an empty block.
+// Version 72: explicit blank lines at a page or column head are discarded.
+// Version 73: CSS emphasis on <ruby>/<rb> base text is preserved in word styles.
+// Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
+constexpr uint8_t SECTION_FILE_VERSION = 74;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -492,10 +590,17 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Pre-check heap before heavy allocation work.
   // On ESP32 without C++ exceptions, new/make_shared call abort() on failure.
   const uint32_t freeHeapBeforeBuild = ESP.getFreeHeap();
+  const uint32_t maxAllocHeapBeforeBuild = ESP.getMaxAllocHeap();
   const size_t requiredHeapBeforeBuild = requiredHeapForSectionBuild(fileSize);
-  if (freeHeapBeforeBuild < requiredHeapBeforeBuild) {
-    LOG_ERR("SCT", "Insufficient heap for section build (%u bytes free, need %zu, html=%lu), aborting gracefully",
-            freeHeapBeforeBuild, requiredHeapBeforeBuild, static_cast<unsigned long>(fileSize));
+  // CSS parsing and font setup can fragment the heap after the earlier ZIP-stream
+  // check.  The parser's initial ParsedText reserves need one sizeable contiguous
+  // allocation, so total free heap alone is not a safe admission test here.
+  if (freeHeapBeforeBuild < requiredHeapBeforeBuild || maxAllocHeapBeforeBuild < MIN_MAX_ALLOC_FOR_SECTION_STREAM) {
+    LOG_ERR("SCT",
+            "Insufficient heap for section build (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu), "
+            "aborting gracefully",
+            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild,
+            MIN_MAX_ALLOC_FOR_SECTION_STREAM, static_cast<unsigned long>(fileSize));
     file.close();
     Storage.remove(tmpSectionPath.c_str());
     Storage.remove(tmpHtmlPath.c_str());
@@ -504,10 +609,18 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
     return false;
   }
-  LOG_DBG("SCT", "Section build heap check passed (free=%u, need=%zu, html=%lu)", freeHeapBeforeBuild,
-          requiredHeapBeforeBuild, static_cast<unsigned long>(fileSize));
+  LOG_DBG("SCT", "Section build heap check passed (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu)",
+          freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild, MIN_MAX_ALLOC_FOR_SECTION_STREAM,
+          static_cast<unsigned long>(fileSize));
 
   const uint32_t parseBuildStart = millis();
+  renderer.resetSdCardAdvanceBuildTiming();
+  if (renderer.isSdCardFont(fontId)) {
+    std::string sectionFontText;
+    if (collectSectionFontCodepoints(tmpHtmlPath, sectionFontText)) {
+      renderer.ensureSdCardFontReady(fontId, sectionFontText.c_str());
+    }
+  }
   const uint32_t estimatedBytesPerPage = verticalMode ? 700 : 3072;
   const uint16_t estimatedPages =
       std::max<uint16_t>(4, static_cast<uint16_t>((fileSize + estimatedBytesPerPage - 1) / estimatedBytesPerPage));
@@ -525,6 +638,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
       verticalMode, cssBodyFontIds, cancelFn);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
+  LOG_INF("SCT", "Section %d parse/build=%lu ms, SD advance tables=%lu ms (%lu builds)", spineIndex,
+          millis() - parseBuildStart, renderer.getSdCardAdvanceBuildMs(), renderer.getSdCardAdvanceBuildCalls());
 
   Storage.remove(tmpHtmlPath.c_str());
   if (!success) {

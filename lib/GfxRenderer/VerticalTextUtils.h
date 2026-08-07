@@ -32,6 +32,8 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0xFF0E, 0, 0, true},  // ． fullwidth period
     {0xFF1A, 0, 0, true},  // ： fullwidth colon
     {0xFF1B, 0, 0, true},  // ； fullwidth semicolon
+    {0xFF1C, 0, 0, true},  // fullwidth less-than sign
+    {0xFF1E, 0, 0, true},  // fullwidth greater-than sign
     // Brackets - rotate so opening/closing direction matches vertical flow
     {0x300C, 0, 0, true},  // 「 left corner bracket
     {0x300D, 0, 0, true},  // 」 right corner bracket
@@ -78,6 +80,32 @@ inline bool isHalfwidthKatakana(uint32_t cp) {
 inline bool isTateChuYokoPunctuationPair(const char* text) {
   return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') &&
          text[2] == '\0';
+}
+
+// Short ASCII runs that share one Japanese vertical character cell.
+// Keep this classification in one place: the parser stores it for layout and
+// TextBlock repeats it when drawing restored section-cache entries.
+enum class TateChuYokoKind : uint8_t {
+  None,
+  SingleDigit,
+  DoubleDigit,
+  PunctuationPair,
+};
+
+inline TateChuYokoKind classifyTateChuYoko(const char* text) {
+  if (text == nullptr || *text == '\0') return TateChuYokoKind::None;
+
+  int digitCount = 0;
+  for (const char* p = text; *p; ++p) {
+    if (*p < '0' || *p > '9') {
+      return isTateChuYokoPunctuationPair(text) ? TateChuYokoKind::PunctuationPair : TateChuYokoKind::None;
+    }
+    ++digitCount;
+  }
+
+  if (digitCount == 1) return TateChuYokoKind::SingleDigit;
+  if (digitCount == 2) return TateChuYokoKind::DoubleDigit;
+  return TateChuYokoKind::None;
 }
 
 // A ruby annotation containing Latin letters is conventionally rotated as a
@@ -141,6 +169,7 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   if (cp == 0xFF5B || cp == 0xFF5D) return true;  // ｛｝
   if (cp == 0xFF0D) return true;                  // －
   if (cp == 0xFF5E) return true;                  // ～
+  if (cp == 0xFF1C || cp == 0xFF1E) return true;
   // Long marks and dashes
   if (cp == 0x30FC) return true;                  // ー
   if (cp == 0x2014 || cp == 0x2015) return true;  // —―

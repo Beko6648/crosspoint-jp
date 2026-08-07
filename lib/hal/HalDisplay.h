@@ -48,6 +48,8 @@ class HalDisplay {
   void copyGrayscaleMsbBuffers(const uint8_t* msbBuffer);
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
 
+  void displayGrayscaleBase(RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
+  void preconditionGrayscale();
   void displayGrayBuffer(bool turnOffScreen = false);
 
   // Runtime geometry passthrough

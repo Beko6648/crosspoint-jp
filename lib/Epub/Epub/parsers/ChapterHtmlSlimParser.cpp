@@ -30,6 +30,7 @@ constexpr size_t MIN_FREE_HEAP_FOR_PARSING = 20 * 1024;  // 20KB
 // 1KB Expat callback cannot grow a vector past that reservation before its
 // end-of-callback flush runs.
 constexpr size_t TEXT_BLOCK_SAFE_WORD_LIMIT = 700;
+constexpr uint8_t MAX_CONSECUTIVE_EXPLICIT_BLANK_LINES = 1;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -64,11 +65,23 @@ float cssFontScale(const CssLength& size, const float currentEmSize) {
 const char* SKIP_TAGS[] = {"head", "style", "script", "title", "rp"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
-// Balanced mode takes only paragraph geometry from the book. Typography,
-// inline decoration, writing direction, visibility and image dimensions stay
-// under CrossPoint control; headings are handled separately.
+// Balanced mode takes paragraph geometry and semantic inline emphasis from the
+// book. Reader-controlled typography, writing direction, visibility and image
+// dimensions stay under CrossPoint control; headings are handled separately.
 void retainBalancedParagraphStyle(CssStyle& style) {
   CssStyle balanced;
+  if (style.hasFontStyle()) {
+    balanced.fontStyle = style.fontStyle;
+    balanced.defined.fontStyle = 1;
+  }
+  if (style.hasFontWeight()) {
+    balanced.fontWeight = style.fontWeight;
+    balanced.defined.fontWeight = 1;
+  }
+  if (style.hasTextDecoration()) {
+    balanced.textDecoration = style.textDecoration;
+    balanced.defined.textDecoration = 1;
+  }
   if (style.hasTextAlign()) {
     balanced.textAlign = style.textAlign;
     balanced.defined.textAlign = 1;
@@ -267,6 +280,36 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   }
 }
 
+void ChapterHtmlSlimParser::noteEmptyBlockContent() {
+  for (auto& candidate : emptyBlockCandidates) candidate.hasContent = true;
+  consecutiveExplicitBlankLines = 0;
+}
+
+void ChapterHtmlSlimParser::noteEmptyBlockBreak() {
+  if (emptyBlockCandidates.empty()) return;
+  for (size_t i = 0; i + 1 < emptyBlockCandidates.size(); ++i) {
+    emptyBlockCandidates[i].hasContent = true;
+  }
+  emptyBlockCandidates.back().hasExplicitBreak = true;
+}
+
+bool ChapterHtmlSlimParser::addExplicitBlankLine() {
+  if (!currentTextBlock || consecutiveExplicitBlankLines >= MAX_CONSECUTIVE_EXPLICIT_BLANK_LINES) return false;
+
+  // ParsedText discards empty words. A zero-width space keeps one invisible
+  // layout line in the cache while occupying no visible text width.
+  currentTextBlock->addWord("\xE2\x80\x8B", EpdFontFamily::REGULAR);
+  consecutiveExplicitBlankLines++;
+  return true;
+}
+
+bool ChapterHtmlSlimParser::consumeEmptyBlockCandidate(const int candidateDepth) {
+  if (emptyBlockCandidates.empty() || emptyBlockCandidates.back().depth != candidateDepth) return false;
+  const auto candidate = emptyBlockCandidates.back();
+  emptyBlockCandidates.pop_back();
+  return !candidate.hasContent && !candidate.hasExplicitBreak;
+}
+
 // flush the contents of partWordBuffer to currentTextBlock
 void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // Determine font style from depth-based tracking and CSS effective style
@@ -286,25 +329,22 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::UNDERLINE);
   }
 
+  const bool hasBufferedWord = partWordBufferIndex > 0;
   // flush the buffer
   ensureTextBlockCapacityForWord();
   partWordBuffer[partWordBufferIndex] = '\0';
   if (verticalMode) {
-    // Classify for vertical: short numbers and paired !/? use TateChuYoko.
-    bool allDigits = true;
-    int asciiCharCount = 0;
-    for (int ci = 0; ci < partWordBufferIndex; ci++) {
-      if ((static_cast<uint8_t>(partWordBuffer[ci]) & 0xC0) != 0x80) asciiCharCount++;
-      if (partWordBuffer[ci] < '0' || partWordBuffer[ci] > '9') allDigits = false;
-    }
+    // Classify short numbers and paired !/? consistently with rendering.
+    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer);
     auto vb = VerticalTextUtils::VerticalBehavior::Sideways;  // default for Latin text
-    if ((allDigits && asciiCharCount <= 2) || VerticalTextUtils::isTateChuYokoPunctuationPair(partWordBuffer)) {
+    if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
     currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues);
   } else {
     currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
   }
+  if (hasBufferedWord) noteEmptyBlockContent();
   partWordBufferIndex = 0;
   nextWordContinues = false;
 }
@@ -427,6 +467,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Special handling for tables: buffer cell data for grid rendering.
   if (strcmp(name, "table") == 0) {
+    self->noteEmptyBlockContent();
     if (self->tableDepth > 0) {
       self->tableDepth += 1;
       self->depth += 1;
@@ -464,6 +505,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
+    self->noteEmptyBlockContent();
     std::string src;
     std::string alt;
     if (atts != nullptr) {
@@ -537,14 +579,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
               extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
               cachedImageFile.flush();
               cachedImageFile.close();
-              delay(50);  // Give SD card time to sync
             }
 
             if (extractSuccess) {
-              // Get image dimensions
+              // Avoid stalling every image on normal SD cards. Slow cards may
+              // still need a short sync window, so retry dimensions on demand.
               ImageDimensions dims = {0, 0};
               ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(cachedImagePath);
-              if (decoder && decoder->getDimensions(cachedImagePath, dims)) {
+              bool gotDimensions = false;
+              for (int attempt = 0; attempt < 3 && !gotDimensions; attempt++) {
+                if (attempt > 0) {
+                  delay(50);
+                }
+                gotDimensions = decoder && decoder->getDimensions(cachedImagePath, dims);
+              }
+              if (gotDimensions) {
                 LOG_DBG("EHP", "Image dimensions: %dx%d", dims.width, dims.height);
 
                 int displayWidth = 0;
@@ -765,6 +814,28 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Ruby tag handling
   if (strcmp(name, "ruby") == 0) {
     self->flushPartWordBuffer();
+    // Ruby has a dedicated parsing path, so it does not reach the generic
+    // inline-element branch below. Keep semantic CSS emphasis active while
+    // the base text is emitted as individual words.
+    if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration()) {
+      StyleStackEntry entry;
+      entry.depth = self->depth;
+      if (cssStyle.hasFontWeight()) {
+        entry.hasBold = true;
+        entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
+      }
+      if (cssStyle.hasFontStyle()) {
+        entry.hasItalic = true;
+        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
+      }
+      if (cssStyle.hasTextDecoration()) {
+        entry.hasUnderline = true;
+        entry.underline = cssStyle.textDecoration == CssTextDecoration::Underline;
+      }
+      entry.rubyTagStyle = true;
+      self->inlineStyleStack.push_back(entry);
+      self->updateEffectiveInlineStyle();
+    }
     self->ensureTextBlockCapacityForWord();
     self->inRuby = true;
     self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
@@ -777,6 +848,27 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (strcmp(name, "rb") == 0) {
     // <rb> is ruby base text. Treat it as normal text inside <ruby>.
     self->flushPartWordBuffer();
+    // Like <ruby>, <rb> bypasses generic inline style handling. This lets an
+    // EPUB style either the complete ruby base or one part of a multi-rb base.
+    if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration()) {
+      StyleStackEntry entry;
+      entry.depth = self->depth;
+      if (cssStyle.hasFontWeight()) {
+        entry.hasBold = true;
+        entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
+      }
+      if (cssStyle.hasFontStyle()) {
+        entry.hasItalic = true;
+        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
+      }
+      if (cssStyle.hasTextDecoration()) {
+        entry.hasUnderline = true;
+        entry.underline = cssStyle.textDecoration == CssTextDecoration::Underline;
+      }
+      entry.rubyBaseTagStyle = true;
+      self->inlineStyleStack.push_back(entry);
+      self->updateEffectiveInlineStyle();
+    }
     self->depth += 1;
     return;
   }
@@ -878,7 +970,39 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     bodyBlockStyle.fontId = closestFontId == self->fontId ? 0 : closestFontId;
   }
 
-  if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
+  if (strcmp(name, "hr") == 0) {
+    self->noteEmptyBlockContent();
+    // <hr> is a block-level rule. Flush surrounding text first, then use an
+    // otherwise empty TextBlock so pagination and cached rendering follow the
+    // normal text path in both writing directions.
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      self->makePages();
+    }
+
+    auto ruleBlockStyle = bodyBlockStyle;
+    const int ruleSpacing = self->renderer.getLineHeight(self->fontId) / 3;
+    if (!cssStyle.hasMarginTop()) ruleBlockStyle.marginTop = ruleSpacing;
+    if (!cssStyle.hasMarginBottom()) ruleBlockStyle.marginBottom = ruleSpacing;
+    ruleBlockStyle.textIndent = 0;
+    ruleBlockStyle.textIndentDefined = true;
+    ruleBlockStyle.drawSeparatorBelow = true;
+    ruleBlockStyle.isHtmlRule = true;
+
+    self->currentTextBlock.reset();
+    self->startNewTextBlock(ruleBlockStyle);
+    // ParsedText deliberately ignores an empty word. A zero-width space keeps
+    // this as a real layout line while remaining invisible to the reader.
+    self->currentTextBlock->addWord("\xE2\x80\x8B", EpdFontFamily::REGULAR);
+    self->makePages();
+    self->currentTextBlock.reset();
+    // XHTML permits text directly after a self-closing <hr/>. Start a fresh
+    // body block now so the following character-data callback never writes
+    // through a null currentTextBlock.
+    self->startNewTextBlock(bodyBlockStyle);
+  } else if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     self->currentCssStyle = cssStyle;
     auto headerBlockStyle = BlockStyle::fromCssStyle(
         cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
@@ -914,7 +1038,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
       }
-      self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+      const BlockStyle blockStyle = self->currentTextBlock->getBlockStyle();
+      if (self->currentTextBlock->isEmpty()) {
+        // Keep author-intended empty paragraphs and blank <br/> runs, but
+        // collapse the second and later consecutive empty lines.
+        self->noteEmptyBlockBreak();
+        self->addExplicitBlankLine();
+      }
+      self->startNewTextBlock(blockStyle);
     } else {
       self->currentCssStyle = cssStyle;
 
@@ -937,9 +1068,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         self->startNewTextBlock(liBlockStyle);
         self->updateEffectiveInlineStyle();
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+        self->noteEmptyBlockContent();
       } else {
         self->startNewTextBlock(bodyBlockStyle);
         self->updateEffectiveInlineStyle();
+        if (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) {
+          self->emptyBlockCandidates.push_back({self->depth});
+        }
       }
     }
   } else if (matches(name, UNDERLINE_TAGS, NUM_UNDERLINE_TAGS)) {
@@ -1065,6 +1200,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     return;
   }
 
+  // Most block tags create this eagerly, but HTML allows bare text after a
+  // self-closing element such as <hr/>. Keep malformed/minimal XHTML from
+  // dereferencing a missing current block during recovery.
+  if (!self->currentTextBlock) {
+    LOG_ERR("EHP", "Missing text block before character data; starting a fallback body block");
+    self->startNewTextBlock(BlockStyle{});
+  }
+
   // Collect ruby text instead of normal word processing
   if (self->collectingRubyText) {
     self->rubyTextBuffer.append(s, len);
@@ -1184,11 +1327,22 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       for (int j = 0; j < charLen && j < 4; j++) {
         cjkWord[j] = s[i + j];
       }
+      // CJK is laid out as one character per word, but it remains inline
+      // content. Preserve the active emphasis rather than resetting it to
+      // Regular when splitting the input stream.
+      const bool cjkBold = self->boldUntilDepth < self->depth || self->effectiveBold;
+      const bool cjkItalic = self->italicUntilDepth < self->depth || self->effectiveItalic;
+      const bool cjkUnderline = self->underlineUntilDepth < self->depth || self->effectiveUnderline;
+      EpdFontFamily::Style cjkStyle = EpdFontFamily::REGULAR;
+      if (cjkBold) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::BOLD);
+      if (cjkItalic) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::ITALIC);
+      if (cjkUnderline) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::UNDERLINE);
       if (self->verticalMode) {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright);
+        self->currentTextBlock->addWord(cjkWord, cjkStyle, VerticalTextUtils::VerticalBehavior::Upright);
       } else {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR);
+        self->currentTextBlock->addWord(cjkWord, cjkStyle);
       }
+      self->noteEmptyBlockContent();
       i += charLen;
       continue;
     }
@@ -1311,6 +1465,16 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   self->depth -= 1;
 
+  const bool closedEmptyParagraph =
+      (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) && self->consumeEmptyBlockCandidate(self->depth);
+  if (closedEmptyParagraph && self->currentTextBlock && self->currentTextBlock->isEmpty()) {
+    // The explicit blank line is real content for any containing <div>, but
+    // it must not reset the consecutive-blank-line limit.
+    for (auto& candidate : self->emptyBlockCandidates) candidate.hasContent = true;
+    self->addExplicitBlankLine();
+    if (!self->currentTextBlock->isEmpty()) self->makePages();
+  }
+
   // Ruby closing tags
   if (strcmp(name, "rt") == 0) {
    self->collectingRubyText = false;
@@ -1321,6 +1485,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   if (strcmp(name, "rb") == 0) {
    self->flushPartWordBuffer();
    self->depth -= 1;
+   if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
+     self->inlineStyleStack.pop_back();
+     self->updateEffectiveInlineStyle();
+   }
    return;
   }
 
@@ -1373,6 +1541,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->rubyTextBuffer.clear();
 
     self->depth -= 1;
+    if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyTagStyle) {
+      self->inlineStyleStack.pop_back();
+      self->updateEffectiveInlineStyle();
+    }
     return;
   }
 
@@ -1563,8 +1735,10 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
     }
-    completePageFn(std::move(currentPage));
-    completedPageCount++;
+    if (currentPage && !currentPage->elements.empty()) {
+      completePageFn(std::move(currentPage));
+      completedPageCount++;
+    }
     currentPage.reset();
     currentTextBlock.reset();
   }
@@ -1817,20 +1991,47 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
-  if (!currentPage) {
-    currentPage.reset(new Page());
-    currentPageNextY = 0;
+  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
+                          currentTextBlock->getBlockStyle().lineHeightMultiplier;
+  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
+
+  const int horizontalInset = blockStyle.totalHorizontalInset();
+  const uint16_t effectiveWidth =
+      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+  const int layoutFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
+
+  const auto discardExplicitBlankLine = [&]() {
     if (verticalMode) {
-      const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
-      currentPageNextX = viewportWidth - lineHeight;
+      currentTextBlock->layoutVerticalColumns(renderer, layoutFontId, viewportHeight,
+                                               [](const std::shared_ptr<TextBlock>&) {});
+    } else {
+      currentTextBlock->layoutAndExtractLines(renderer, layoutFontId, effectiveWidth,
+                                              [](const std::shared_ptr<TextBlock>&) {});
+    }
+  };
+
+  // Keep a blank line at the tail of a page, but never create a new page or
+  // column headed only by that blank line. Its margins are discarded as well.
+  if (currentTextBlock->isExplicitBlankLine()) {
+    const bool pageHasContent = currentPage && !currentPage->elements.empty();
+    const bool wouldStartNewPage =
+        verticalMode ? !pageHasContent || currentPageNextX < 0
+                     : !pageHasContent || currentPageNextY + std::max(0, static_cast<int>(blockStyle.marginTop)) +
+                                               std::max(0, static_cast<int>(blockStyle.paddingTop)) + lineHeight >
+                                               viewportHeight;
+    if (wouldStartNewPage) {
+      discardExplicitBlankLine();
+      return;
     }
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
-                         currentTextBlock->getBlockStyle().lineHeightMultiplier;
+  if (!currentPage) {
+    currentPage.reset(new Page());
+    currentPageNextY = 0;
+    if (verticalMode) currentPageNextX = viewportWidth - lineHeight;
+  }
 
   // Apply top spacing before the paragraph (stored in pixels)
-  const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
   if (blockStyle.marginTop > 0) {
     currentPageNextY += blockStyle.marginTop;
   }
@@ -1838,12 +2039,6 @@ void ChapterHtmlSlimParser::makePages() {
     currentPageNextY += blockStyle.paddingTop;
   }
 
-  // Calculate effective width accounting for horizontal margins/padding
-  const int horizontalInset = blockStyle.totalHorizontalInset();
-  const uint16_t effectiveWidth =
-      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
-
-  const int layoutFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
   if (verticalMode) {
     currentTextBlock->layoutVerticalColumns(
         renderer, layoutFontId, viewportHeight,

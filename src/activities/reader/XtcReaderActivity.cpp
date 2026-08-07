@@ -305,9 +305,10 @@ void XtcReaderActivity::renderPage() {
     // Display BW with conditional refresh based on pagesUntilFullRefresh
     if (pagesUntilFullRefresh <= 1) {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      renderer.preconditionGrayscale();
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else {
-      renderer.displayBuffer();
+      renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
       pagesUntilFullRefresh--;
     }
 

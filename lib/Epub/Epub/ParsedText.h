@@ -54,6 +54,9 @@ class ParsedText {
   size_t size() const { return words.size(); }
   void setRubyForWordAt(size_t index, const std::string& ruby, size_t baseWordCount = 1);
   bool isEmpty() const { return words.empty(); }
+  bool isExplicitBlankLine() const {
+    return !blockStyle.isHtmlRule && words.size() == 1 && words.front() == "\xE2\x80\x8B";
+  }
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);

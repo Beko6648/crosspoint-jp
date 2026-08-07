@@ -66,12 +66,24 @@ class ChapterHtmlSlimParser {
   int imageCounter = 0;
   bool verticalMode = false;
 
+  struct EmptyBlockCandidate {
+    int depth = 0;
+    bool hasContent = false;
+    bool hasExplicitBreak = false;
+  };
+  std::vector<EmptyBlockCandidate> emptyBlockCandidates;
+  uint8_t consecutiveExplicitBlankLines = 0;
+
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
     int depth = 0;
     bool hasBold = false, bold = false;
     bool hasItalic = false, italic = false;
     bool hasUnderline = false, underline = false;
+    // Ruby tags use a dedicated end-element path with their own depth updates.
+    // Mark their entries so <rb> cannot accidentally pop a parent <ruby> style.
+    bool rubyTagStyle = false;
+    bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
   CssStyle currentCssStyle;
@@ -114,6 +126,10 @@ class ChapterHtmlSlimParser {
   void flushPartWordBuffer();
   void flushTextBlockForMemory();
   void ensureTextBlockCapacityForWord();
+  void noteEmptyBlockContent();
+  void noteEmptyBlockBreak();
+  bool addExplicitBlankLine();
+  bool consumeEmptyBlockCandidate(int depth);
   void makePages();
   void flushTableAsGrid();
   // XML callbacks

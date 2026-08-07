@@ -156,7 +156,6 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> readerSettings;
   std::vector<SettingInfo> controlsSettings;
   std::vector<SettingInfo> systemSettings;
-  std::vector<SettingInfo> rtcSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
   const std::function<void()> onGoHome;
@@ -165,7 +164,7 @@ class SettingsActivity final : public Activity {
   bool skipNextButtonCheck = false;
   bool editingValue = false;
 
-  static constexpr int MAX_CATEGORIES = 5;
+  static constexpr int MAX_CATEGORIES = 4;
   static const StrId categoryNames[MAX_CATEGORIES];
   int categoryCount = MAX_CATEGORIES;
 
