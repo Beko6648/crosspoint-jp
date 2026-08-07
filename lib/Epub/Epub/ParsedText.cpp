@@ -157,7 +157,9 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordStyles.reserve(800);
     wordContinues.reserve(800);
     rubyTexts.reserve(800);
-    inlineImages.reserve(16);  // インライン画像はまれ。十分な予約で十分
+    // inlineImages は words と完全並列（addWord のたびに空要素が push される）。
+    // words と同じ容量を予約しないと再alloc→ヒープ断片化の原因になる。
+    inlineImages.reserve(800);
   }
 
   words.push_back(std::move(word));
