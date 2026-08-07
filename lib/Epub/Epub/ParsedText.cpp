@@ -157,14 +157,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordStyles.reserve(800);
     wordContinues.reserve(800);
     rubyTexts.reserve(800);
-    // inlineImages は words と完全並列（addWord のたびに空要素が push される）。
-    // words と同じ容量を予約しないと再alloc→ヒープ断片化の原因になる。
-    inlineImages.reserve(800);
+    // sparse方式: inlineImages は画像のあるWordの情報だけを持ち（空要素を並列でpushしない）、
+    // 画像は稀なので予約不要。全Word分の空要素を保持する旧並列方式よりメモリ消費が大幅に小さい。
   }
 
   words.push_back(std::move(word));
   rubyTexts.push_back("");
-  inlineImages.push_back(InlineImage{});  // 並列: 通常文字は空
 
   EpdFontFamily::Style combinedStyle = fontStyle;
   if (underline) {
@@ -190,12 +188,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 static constexpr const char* INLINE_IMAGE_MARKER = "\xef\xbf\xbc";
 
 void ParsedText::addImage(std::string imagePath, const int16_t width, const int16_t height) {
-  const size_t idx = words.size();
-  addWord(INLINE_IMAGE_MARKER, EpdFontFamily::REGULAR);  // words と並列で inlineImages に空要素もpushされる
-  InlineImage& slot = inlineImages[idx];
-  slot.imagePath = std::move(imagePath);
-  slot.width = width;
-  slot.height = height;
+  addWord(INLINE_IMAGE_MARKER, EpdFontFamily::REGULAR);
+  InlineImage img;
+  img.imagePath = std::move(imagePath);
+  img.width = width;
+  img.height = height;
+  inlineImages.push_back(std::move(img));  // words 内のマーカー出現順に追加
 }
 
 void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const size_t baseWordCount) {
@@ -297,10 +295,8 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
       const size_t rtConsumed = std::min(consumed, rubyTexts.size());
       rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
     }
-    if (!inlineImages.empty()) {
-      const size_t iiConsumed = std::min(consumed, inlineImages.size());
-      inlineImages.erase(inlineImages.begin(), inlineImages.begin() + iiConsumed);
-    }
+    // inlineImages は sparse方式のため、ここでは消さない。各行の extractLine が、その行内の
+    // 画像マーカー分を先頭から消費している（words の消費と同期）。ここで消すと二重消費になる。
   }
 }
 
@@ -383,6 +379,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   const int sp = renderer.getVerticalCharSpacing();
   const int cjkSpacing = cjkCharAdvance * sp / 100;
 
+  size_t imgIdx = 0;  // words 内の画像マーカー出現順 = inlineImages の index
   for (size_t i = 0; i < words.size(); i++) {
     auto vb =
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
@@ -406,9 +403,10 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isHalfwidthKatakana(wordCp);
 
     uint16_t baseHeight;
-    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
+    if (words[i] == INLINE_IMAGE_MARKER && imgIdx < inlineImages.size()) {
       // インライン画像: 縦方向の送り = 表示高さ。画像は列内に収め、回転はしない。
-      baseHeight = inlineImages[i].height > 0 ? static_cast<uint16_t>(inlineImages[i].height) : 1;
+      baseHeight = inlineImages[imgIdx].height > 0 ? static_cast<uint16_t>(inlineImages[imgIdx].height) : 1;
+      imgIdx++;
     } else if (overlaysPreviousCharacter) {
       // The renderer overlays this mark on the preceding character in vertical
       // text, so it must not consume a separate character cell.
@@ -573,23 +571,20 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     } else {
       colRubyTexts.resize(count);
     }
-    // インライン画像（wordsと並列）。列に含まれる分だけ切り出す。
+    // インライン画像（sparse）: 列内の画像マーカー(U+FFFC)のWordの数だけ、inlineImages の先頭から
+    // 消費して TextBlock に渡す。words のマーカー出現順 = inlineImages の順なので、先頭から順に
+    // 取り出すことで対応が保たれる。画像の数だけ保持する。
     std::vector<TextBlock::InlineImage> colInlineImages;
-    if (inlineImages.size() >= end) {
-      for (size_t idx = start; idx < end; ++idx) {
-        const auto& src = inlineImages[idx];
-        if (src.imagePath.empty()) {
-          colInlineImages.emplace_back();
-          continue;
-        }
+    for (size_t idx = 0; idx < colWords.size(); ++idx) {
+      if (colWords[idx] == INLINE_IMAGE_MARKER && !inlineImages.empty()) {
+        // ParsedText::InlineImage → TextBlock::InlineImage へコピー（構造は同一、別型）。
         TextBlock::InlineImage dst;
-        dst.imagePath = src.imagePath;
-        dst.width = src.width;
-        dst.height = src.height;
+        dst.imagePath = inlineImages.front().imagePath;
+        dst.width = inlineImages.front().width;
+        dst.height = inlineImages.front().height;
         colInlineImages.push_back(std::move(dst));
+        inlineImages.erase(inlineImages.begin());
       }
-    } else {
-      colInlineImages.resize(count);
     }
     colYpos.reserve(count);
     colXpos.resize(count, 0);
@@ -621,10 +616,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       const size_t rtConsumed = std::min(emitStart, rubyTexts.size());
       rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
     }
-    if (!inlineImages.empty()) {
-      const size_t iiConsumed = std::min(emitStart, inlineImages.size());
-      inlineImages.erase(inlineImages.begin(), inlineImages.begin() + iiConsumed);
-    }
+    // inlineImages は sparse方式のため、ここでは消さない。列の processColumn が、その列内の
+    // 画像マーカー分を先頭から消費している（words の消費と同期）。ここで消すと二重消費になる。
   }
 }
 
@@ -632,11 +625,16 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   std::vector<uint16_t> wordWidths;
   wordWidths.reserve(words.size());
 
+  size_t imgIdx = 0;  // words 内の画像マーカーの出現順 = inlineImages の index
   for (size_t i = 0; i < words.size(); ++i) {
     // インライン画像のWordはマーカー文字ではなく、CSSで決めた表示幅を返す。
     // 幅計算と行分割を画像幅に乗せるため、フォントのグリフ幅は使わない。
-    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
-      wordWidths.push_back(inlineImages[i].width > 0 ? static_cast<uint16_t>(inlineImages[i].width) : 1);
+    if (words[i] == INLINE_IMAGE_MARKER) {
+      wordWidths.push_back(
+          imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0
+              ? static_cast<uint16_t>(inlineImages[imgIdx].width)
+              : 1);
+      imgIdx++;
       continue;
     }
     wordWidths.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i]));
@@ -939,23 +937,20 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineRubyTexts.resize(lineWordCount);
   }
 
-  // インライン画像（wordsと並列）。行に含まれる分だけ切り出す。
+  // インライン画像（sparse）: 行内の画像マーカー(U+FFFC)のWordの数だけ、inlineImages の先頭から
+  // 消費して TextBlock に渡す。words のマーカー出現順 = inlineImages の順なので、先頭から順に
+  // 取り出すことで対応が保たれる。画像の数だけ保持する（全Word分の空要素を持たない）。
   std::vector<TextBlock::InlineImage> lineInlineImages;
-  if (inlineImages.size() >= lineBreak) {
-    for (size_t idx = lastBreakAt; idx < lineBreak; ++idx) {
-      const auto& src = inlineImages[idx];
-      if (src.imagePath.empty()) {
-        lineInlineImages.emplace_back();  // 画像でないWordは空
-        continue;
-      }
+  for (size_t i = 0; i < lineWordCount; ++i) {
+    if (lineWords[i] == INLINE_IMAGE_MARKER && !inlineImages.empty()) {
+      // ParsedText::InlineImage → TextBlock::InlineImage へコピー（構造は同一、別型）。
       TextBlock::InlineImage dst;
-      dst.imagePath = src.imagePath;
-      dst.width = src.width;
-      dst.height = src.height;
+      dst.imagePath = inlineImages.front().imagePath;
+      dst.width = inlineImages.front().width;
+      dst.height = inlineImages.front().height;
       lineInlineImages.push_back(std::move(dst));
+      inlineImages.erase(inlineImages.begin());
     }
-  } else {
-    lineInlineImages.resize(lineWordCount);
   }
 
   for (auto& word : lineWords) {

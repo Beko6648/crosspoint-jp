@@ -8,6 +8,9 @@
 
 #include "ImageBlock.h"
 
+// U+FFFC (OBJECT REPLACEMENT CHARACTER) — インライン画像のダミー文字（ParsedText の addImage と同一）。
+static constexpr const char* INLINE_IMAGE_MARKER = "\xef\xbf\xbc";
+
 #include <algorithm>
 #include <climits>
 static std::vector<std::string> splitUtf8Chars(const std::string& text) {
@@ -149,6 +152,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   // Keep annotations in one vertical column from drawing over each other.
   // This adjusts only ruby glyphs; body-text positions remain unchanged.
   int nextVerticalRubyY = INT_MIN;
+  size_t imgIdx = 0;  // words 内の画像マーカー出現順 = inlineImages の index
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
 #if DEBUG_RUBY_RENDER
@@ -168,11 +172,15 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       isVertical ? 1 : 0
   );
 #endif
-    // インライン画像（本文中の文字として扱う画像）。words と並列の inlineImages に有効なパスがある
-    // Word を ImageBlock として描画する。画像は回転しない（縦書きでも横向きのまま列内に収める）。
-    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
-      const int imgW = inlineImages[i].width > 0 ? inlineImages[i].width : 1;
-      const int imgH = inlineImages[i].height > 0 ? inlineImages[i].height : 1;
+    // インライン画像（sparse）: words[i] が画像マーカー(U+FFFC)のとき、inlineImages の該当要素
+    // （マーカー出現順）を ImageBlock として描画する。画像は回転しない（縦書きでも横向きのまま列内に収める）。
+    if (words[i] == INLINE_IMAGE_MARKER) {
+      const int imgW = (imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0)
+                           ? inlineImages[imgIdx].width
+                           : 1;
+      const int imgH = (imgIdx < inlineImages.size() && inlineImages[imgIdx].height > 0)
+                           ? inlineImages[imgIdx].height
+                           : 1;
       int imgX = x + wordXpos[i];
       int imgY = y;
       if (isVertical && i < wordYpos.size()) {
@@ -184,8 +192,11 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int lineHeight = renderer.getLineHeight(effectiveFontId);
         imgY += (lineHeight - imgH) / 2;
       }
-      ImageBlock ib(inlineImages[i].imagePath, static_cast<int16_t>(imgW), static_cast<int16_t>(imgH));
-      ib.render(renderer, imgX, imgY);
+      if (imgIdx < inlineImages.size()) {
+        ImageBlock ib(inlineImages[imgIdx].imagePath, static_cast<int16_t>(imgW), static_cast<int16_t>(imgH));
+        ib.render(renderer, imgX, imgY);
+      }
+      imgIdx++;
       continue;
     }
     if (isVertical && i < wordYpos.size()) {
@@ -544,15 +555,12 @@ bool TextBlock::serialize(FsFile& file) const {
     serialization::writeString(file, (i < rubyTexts.size()) ? rubyTexts[i] : std::string());
   }
 
-  // Inline image data (parallel to words). For each word: bool hasImage + (path,width,height) if present.
-  for (size_t i = 0; i < words.size(); i++) {
-    const bool hasImg = (i < inlineImages.size()) && !inlineImages[i].imagePath.empty();
-    serialization::writePod(file, hasImg);
-    if (hasImg) {
-      serialization::writeString(file, inlineImages[i].imagePath);
-      serialization::writePod(file, inlineImages[i].width);
-      serialization::writePod(file, inlineImages[i].height);
-    }
+  // Inline image data (sparse): 画像の数と内容を書き込む（words 内のマーカー出現順に一致）。
+  serialization::writePod(file, static_cast<uint16_t>(inlineImages.size()));
+  for (const auto& img : inlineImages) {
+    serialization::writeString(file, img.imagePath);
+    serialization::writePod(file, img.width);
+    serialization::writePod(file, img.height);
   }
 
   return true;
@@ -614,16 +622,21 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   std::vector<std::string> rubyTexts(wc);
   for (auto& rt : rubyTexts) serialization::readString(file, rt);
 
-  // Inline image data (parallel to words)
-  std::vector<TextBlock::InlineImage> inlineImages(wc);
-  for (size_t i = 0; i < wc; i++) {
-    bool hasImg = false;
-    serialization::readPod(file, hasImg);
-    if (hasImg) {
-      serialization::readString(file, inlineImages[i].imagePath);
-      serialization::readPod(file, inlineImages[i].width);
-      serialization::readPod(file, inlineImages[i].height);
-    }
+  // Inline image data (sparse): 画像の数と内容を読み込む（words 内のマーカー出現順に一致）。
+  uint16_t imgCount = 0;
+  serialization::readPod(file, imgCount);
+  if (imgCount > 10000) {
+    LOG_ERR("TXB", "Deserialization failed: inline image count %u exceeds maximum", imgCount);
+    return nullptr;
+  }
+  std::vector<TextBlock::InlineImage> inlineImages;
+  inlineImages.reserve(imgCount);
+  for (uint16_t i = 0; i < imgCount; i++) {
+    TextBlock::InlineImage img;
+    serialization::readString(file, img.imagePath);
+    serialization::readPod(file, img.width);
+    serialization::readPod(file, img.height);
+    inlineImages.push_back(std::move(img));
   }
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),

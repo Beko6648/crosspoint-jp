@@ -129,7 +129,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 73: CSS emphasis on <ruby>/<rb> base text is preserved in word styles.
 // Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
 // Version 75: inline character-size images are stored as words (inlineImages parallel to words).
-constexpr uint8_t SECTION_FILE_VERSION = 75;
+// Version 76: inlineImages changed to sparse storage (only image words, not every word) to cut RAM.
+constexpr uint8_t SECTION_FILE_VERSION = 76;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

@@ -13,8 +13,8 @@
 // Represents a line of text on a page
 class TextBlock final : public Block {
  public:
-  // インライン画像（本文中の文字として扱う画像）。words と完全並列。
-  // words[i] が画像マーカー(U+FFFC)のとき inlineImages[i] がパスと寸法を持ち、それ以外は空。
+  // インライン画像（本文中の文字として扱う画像）。sparse方式: words 内の画像マーカー(U+FFFC)の
+  // Word の数だけを、マーカー出現順に保持する。画像でないWordの空要素は持たない（メモリ最小化）。
   struct InlineImage {
     std::string imagePath;
     int16_t width = 0;
@@ -29,7 +29,7 @@ class TextBlock final : public Block {
   std::vector<int16_t> wordYpos;  // vertical layout: y position within column
   bool isVertical = false;        // true when this block was laid out vertically
   std::vector<std::string> rubyTexts;
-  std::vector<InlineImage> inlineImages;  // words と完全並列
+  std::vector<InlineImage> inlineImages;  // sparse: words 内の画像マーカーの数だけ（出現順）
 
  public:
   explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
@@ -47,9 +47,8 @@ class TextBlock final : public Block {
     if (rubyTexts.size() < this->words.size()) {
       rubyTexts.resize(this->words.size());
     }
-    if (inlineImages.size() < this->words.size()) {
-      inlineImages.resize(this->words.size());
-    }
+    // inlineImages は sparse方式（画像の数だけ）なので、words と同数に resize しない。
+    // render では words[i] がマーカーかどうかで、inlineImages の該当要素を出現順に参照する。
     if (this->isVertical && wordYpos.size() < this->words.size()) {
       wordYpos.resize(this->words.size(), 0);
     }
