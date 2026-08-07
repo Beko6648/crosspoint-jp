@@ -157,10 +157,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordStyles.reserve(800);
     wordContinues.reserve(800);
     rubyTexts.reserve(800);
+    inlineImages.reserve(16);  // インライン画像はまれ。十分な予約で十分
   }
 
   words.push_back(std::move(word));
   rubyTexts.push_back("");
+  inlineImages.push_back(InlineImage{});  // 並列: 通常文字は空
 
   EpdFontFamily::Style combinedStyle = fontStyle;
   if (underline) {
@@ -178,6 +180,20 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordVerticalBehaviors.reserve(800);
   }
   wordVerticalBehaviors.push_back(vBehavior);
+}
+
+// U+FFFC (OBJECT REPLACEMENT CHARACTER) — インライン画像のダミー文字。1コードポイントなので
+// CJKの1文字分割に耐え、縦横どちらでも1セル幅を占める。フォントにグリフが無くても幅計算では
+// 画像幅を返すため描画に影響しない。
+static constexpr const char* INLINE_IMAGE_MARKER = "\xef\xbf\xbc";
+
+void ParsedText::addImage(std::string imagePath, const int16_t width, const int16_t height) {
+  const size_t idx = words.size();
+  addWord(INLINE_IMAGE_MARKER, EpdFontFamily::REGULAR);  // words と並列で inlineImages に空要素もpushされる
+  InlineImage& slot = inlineImages[idx];
+  slot.imagePath = std::move(imagePath);
+  slot.width = width;
+  slot.height = height;
 }
 
 void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const size_t baseWordCount) {
@@ -278,6 +294,10 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     if (!rubyTexts.empty()) {
       const size_t rtConsumed = std::min(consumed, rubyTexts.size());
       rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
+    }
+    if (!inlineImages.empty()) {
+      const size_t iiConsumed = std::min(consumed, inlineImages.size());
+      inlineImages.erase(inlineImages.begin(), inlineImages.begin() + iiConsumed);
     }
   }
 }
@@ -384,7 +404,10 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isHalfwidthKatakana(wordCp);
 
     uint16_t baseHeight;
-    if (overlaysPreviousCharacter) {
+    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
+      // インライン画像: 縦方向の送り = 表示高さ。画像は列内に収め、回転はしない。
+      baseHeight = inlineImages[i].height > 0 ? static_cast<uint16_t>(inlineImages[i].height) : 1;
+    } else if (overlaysPreviousCharacter) {
       // The renderer overlays this mark on the preceding character in vertical
       // text, so it must not consume a separate character cell.
       baseHeight = 0;
@@ -548,6 +571,24 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     } else {
       colRubyTexts.resize(count);
     }
+    // インライン画像（wordsと並列）。列に含まれる分だけ切り出す。
+    std::vector<TextBlock::InlineImage> colInlineImages;
+    if (inlineImages.size() >= end) {
+      for (size_t idx = start; idx < end; ++idx) {
+        const auto& src = inlineImages[idx];
+        if (src.imagePath.empty()) {
+          colInlineImages.emplace_back();
+          continue;
+        }
+        TextBlock::InlineImage dst;
+        dst.imagePath = src.imagePath;
+        dst.width = src.width;
+        dst.height = src.height;
+        colInlineImages.push_back(std::move(dst));
+      }
+    } else {
+      colInlineImages.resize(count);
+    }
     colYpos.reserve(count);
     colXpos.resize(count, 0);
 
@@ -558,7 +599,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     }
 
     processColumn(std::make_shared<TextBlock>(std::move(colWords), std::move(colXpos), std::move(colStyles), blockStyle,
-                                              std::move(colYpos), true, std::move(colRubyTexts)));
+                                              std::move(colYpos), true, std::move(colRubyTexts),
+                                              std::move(colInlineImages)));
     isFirstColumn = false;
     emitStart = end;
   }
@@ -577,6 +619,10 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       const size_t rtConsumed = std::min(emitStart, rubyTexts.size());
       rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
     }
+    if (!inlineImages.empty()) {
+      const size_t iiConsumed = std::min(emitStart, inlineImages.size());
+      inlineImages.erase(inlineImages.begin(), inlineImages.begin() + iiConsumed);
+    }
   }
 }
 
@@ -585,6 +631,12 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   wordWidths.reserve(words.size());
 
   for (size_t i = 0; i < words.size(); ++i) {
+    // インライン画像のWordはマーカー文字ではなく、CSSで決めた表示幅を返す。
+    // 幅計算と行分割を画像幅に乗せるため、フォントのグリフ幅は使わない。
+    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
+      wordWidths.push_back(inlineImages[i].width > 0 ? static_cast<uint16_t>(inlineImages[i].width) : 1);
+      continue;
+    }
     wordWidths.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i]));
   }
 
@@ -885,6 +937,25 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineRubyTexts.resize(lineWordCount);
   }
 
+  // インライン画像（wordsと並列）。行に含まれる分だけ切り出す。
+  std::vector<TextBlock::InlineImage> lineInlineImages;
+  if (inlineImages.size() >= lineBreak) {
+    for (size_t idx = lastBreakAt; idx < lineBreak; ++idx) {
+      const auto& src = inlineImages[idx];
+      if (src.imagePath.empty()) {
+        lineInlineImages.emplace_back();  // 画像でないWordは空
+        continue;
+      }
+      TextBlock::InlineImage dst;
+      dst.imagePath = src.imagePath;
+      dst.width = src.width;
+      dst.height = src.height;
+      lineInlineImages.push_back(std::move(dst));
+    }
+  } else {
+    lineInlineImages.resize(lineWordCount);
+  }
+
   for (auto& word : lineWords) {
     if (containsSoftHyphen(word)) {
       stripSoftHyphensInPlace(word);
@@ -892,5 +963,6 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   }
 
   processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
-                                          blockStyle, std::vector<int16_t>{}, false, std::move(lineRubyTexts)));
+                                          blockStyle, std::vector<int16_t>{}, false, std::move(lineRubyTexts),
+                                          std::move(lineInlineImages)));
 }

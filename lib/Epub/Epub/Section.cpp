@@ -128,7 +128,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 72: explicit blank lines at a page or column head are discarded.
 // Version 73: CSS emphasis on <ruby>/<rb> base text is preserved in word styles.
 // Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
-constexpr uint8_t SECTION_FILE_VERSION = 74;
+// Version 75: inline character-size images are stored as words (inlineImages parallel to words).
+constexpr uint8_t SECTION_FILE_VERSION = 75;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

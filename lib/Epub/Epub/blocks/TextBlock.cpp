@@ -6,6 +6,8 @@
 #include <Utf8.h>
 #include <VerticalTextUtils.h>
 
+#include "ImageBlock.h"
+
 #include <algorithm>
 #include <climits>
 static std::vector<std::string> splitUtf8Chars(const std::string& text) {
@@ -101,7 +103,7 @@ int TextBlock::getHorizontalRubyTopInset(const GfxRenderer& renderer, const int 
   return std::max(0, rubyViewportSafety - naturalRubyY);
 }
 
-void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
+void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, const int y,
                        const int viewportWidth, const int viewportHeight, const int viewportLeft,
                        const int viewportTop, const int rubyOffsetX, const int rubyOffsetY) const {
   // Validate iterator bounds before rendering
@@ -166,6 +168,26 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       isVertical ? 1 : 0
   );
 #endif
+    // インライン画像（本文中の文字として扱う画像）。words と並列の inlineImages に有効なパスがある
+    // Word を ImageBlock として描画する。画像は回転しない（縦書きでも横向きのまま列内に収める）。
+    if (i < inlineImages.size() && !inlineImages[i].imagePath.empty()) {
+      const int imgW = inlineImages[i].width > 0 ? inlineImages[i].width : 1;
+      const int imgH = inlineImages[i].height > 0 ? inlineImages[i].height : 1;
+      int imgX = x + wordXpos[i];
+      int imgY = y;
+      if (isVertical && i < wordYpos.size()) {
+        imgY = y + wordYpos[i];
+        // 縦書き: 列セル内に中央配置（画像は回転しない）
+        imgX += (columnWidth - imgW) / 2;
+      } else {
+        // 横書き: 行内で縦中央寄せ
+        const int lineHeight = renderer.getLineHeight(effectiveFontId);
+        imgY += (lineHeight - imgH) / 2;
+      }
+      ImageBlock ib(inlineImages[i].imagePath, static_cast<int16_t>(imgW), static_cast<int16_t>(imgH));
+      ib.render(renderer, imgX, imgY);
+      continue;
+    }
     if (isVertical && i < wordYpos.size()) {
       // 縦書きモード: VerticalBehaviorに応じて描画方法を分岐
       const char* w = words[i].c_str();
@@ -522,6 +544,17 @@ bool TextBlock::serialize(FsFile& file) const {
     serialization::writeString(file, (i < rubyTexts.size()) ? rubyTexts[i] : std::string());
   }
 
+  // Inline image data (parallel to words). For each word: bool hasImage + (path,width,height) if present.
+  for (size_t i = 0; i < words.size(); i++) {
+    const bool hasImg = (i < inlineImages.size()) && !inlineImages[i].imagePath.empty();
+    serialization::writePod(file, hasImg);
+    if (hasImg) {
+      serialization::writeString(file, inlineImages[i].imagePath);
+      serialization::writePod(file, inlineImages[i].width);
+      serialization::writePod(file, inlineImages[i].height);
+    }
+  }
+
   return true;
 }
 
@@ -581,6 +614,19 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   std::vector<std::string> rubyTexts(wc);
   for (auto& rt : rubyTexts) serialization::readString(file, rt);
 
+  // Inline image data (parallel to words)
+  std::vector<TextBlock::InlineImage> inlineImages(wc);
+  for (size_t i = 0; i < wc; i++) {
+    bool hasImg = false;
+    serialization::readPod(file, hasImg);
+    if (hasImg) {
+      serialization::readString(file, inlineImages[i].imagePath);
+      serialization::readPod(file, inlineImages[i].width);
+      serialization::readPod(file, inlineImages[i].height);
+    }
+  }
+
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
-                                                  blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts)));
+                                                  blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
+                                                  std::move(inlineImages)));
 }

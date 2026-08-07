@@ -19,6 +19,14 @@ class ParsedText {
   std::vector<bool> wordContinues;     // true = word attaches to previous (no space before it)
   std::vector<std::string> rubyTexts;  // words と並列、ルビなしは空文字列
   std::vector<VerticalTextUtils::VerticalBehavior> wordVerticalBehaviors;
+  // インライン画像（本文中の文字として扱う画像）。words と完全並列。
+  // words[i] が画像マーカー(U+FFFC)のとき inlineImages[i] がパスと寸法を持ち、それ以外は空。
+  struct InlineImage {
+    std::string imagePath;
+    int16_t width = 0;
+    int16_t height = 0;
+  };
+  std::vector<InlineImage> inlineImages;
   BlockStyle blockStyle;
   bool firstLineIndent;
   bool hyphenationEnabled;
@@ -49,6 +57,9 @@ class ParsedText {
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false);
   void addWord(std::string word, EpdFontFamily::Style fontStyle, VerticalTextUtils::VerticalBehavior vBehavior,
                bool underline = false, bool attachToPrevious = false);
+  // 本文中の文字として扱うインライン画像を追加する。words にダミー文字 U+FFFC を1Wordとして積み、
+  // 対応する inlineImages にパスと表示寸法を記録する（words と完全並列を維持）。
+  void addImage(std::string imagePath, int16_t width, int16_t height);
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }

@@ -599,11 +599,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = (self->cssParser && self->bookStyle == 1)
+                CssStyle imgStyle = (self->cssParser && self->bookStyle != 0)
                                         ? self->cssParser->resolveStyle("img", classAttr)
                                         : CssStyle{};
                 // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty() && self->bookStyle == 1) {
+                if (!styleAttr.empty() && self->bookStyle != 0) {
                   imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
                 }
                 const bool hasCssHeight = imgStyle.hasImageHeight();
@@ -704,6 +704,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 if (self->partWordBufferIndex > 0) {
                   self->flushPartWordBuffer();
                 }
+
+                // インライン画像（文字の代替）判定: CSS指定の表示サイズが文字セル1つ分以内なら、
+                // ブロック図版（専用ページ化）ではなく本文中の文字（Word）として扱う。
+                // bookStyle 1(書籍優先)・2(バランス)で有効。0(CrossPoint優先)はCSSを無視するため対象外。
+                if (self->bookStyle != 0 && self->currentTextBlock && (hasCssHeight || hasCssWidth) &&
+                    !hasClassToken(classAttr, "fit")) {
+                  const bool fitsInline = self->verticalMode
+                                              ? (displayWidth <= self->renderer.getTextAdvanceX(
+                                                                     self->fontId, "\xe4\xb8\x80",
+                                                                     EpdFontFamily::REGULAR))
+                                              : (displayHeight <= self->renderer.getLineHeight(self->fontId));
+                  if (fitsInline) {
+                    self->currentTextBlock->addImage(cachedImagePath, displayWidth, displayHeight);
+                    self->depth += 1;
+                    return;
+                  }
+                }
+
                 if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
                   const BlockStyle parentBlockStyle = self->currentTextBlock->getBlockStyle();
                   self->startNewTextBlock(parentBlockStyle);
