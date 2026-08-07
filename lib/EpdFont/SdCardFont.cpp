@@ -928,6 +928,17 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
   return 0;
 }
 
+uint16_t SdCardFont::getAdvanceOrLoad(const uint32_t codepoint, const uint8_t style) {
+  if (const uint16_t advance = getAdvance(codepoint, style); advance != 0) return advance;
+
+  // The compact table intentionally has a memory bound.  A missing entry must
+  // not become a zero-width glyph in layout: load its metadata through the
+  // existing overflow path, which also supplies the later render operation.
+  const uint8_t resolvedStyle = resolveStyle(style);
+  const EpdGlyph* glyph = onGlyphMiss(&overflowCtx_[resolvedStyle], codepoint);
+  return glyph ? glyph->advanceX : 0;
+}
+
 int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
   if (!loaded_) return -1;
 

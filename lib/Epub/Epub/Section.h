@@ -18,6 +18,11 @@ class Section {
   GfxRenderer& renderer;
   std::string filePath;
   FsFile file;
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  // Set only by the full-cache callers that supply page-ready work.  The
+  // compile-time switch removes this state from normal firmware builds.
+  bool cacheGenerationDiagnosticsActive = false;
+#endif
 
  void writeSectionFileHeader(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,

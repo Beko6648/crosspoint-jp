@@ -45,6 +45,7 @@ class TextBlock final : public Block {
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   const BlockStyle& getBlockStyle() const { return blockStyle; }
   const std::vector<std::string>& getWords() const { return words; }
+  const std::vector<int16_t>& getWordXpos() const { return wordXpos; }
   const std::vector<int16_t>& getWordYpos() const { return wordYpos; }
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;

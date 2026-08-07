@@ -128,7 +128,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 72: explicit blank lines at a page or column head are discarded.
 // Version 73: CSS emphasis on <ruby>/<rb> base text is preserved in word styles.
 // Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
-constexpr uint8_t SECTION_FILE_VERSION = 74;
+// Version 75: SD-font advance-table misses retain their measured width instead
+// of persisting overlapping vertical glyph positions after the table is full.
+constexpr uint8_t SECTION_FILE_VERSION = 75;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -274,6 +276,87 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
 }
 }  // namespace
 
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+namespace {
+constexpr uint16_t kCacheDiagnosticsPageStart =
+#ifdef CACHE_DIAGNOSTICS_PAGE_START
+    CACHE_DIAGNOSTICS_PAGE_START;
+#else
+    60;
+#endif
+constexpr uint16_t kCacheDiagnosticsPageEnd =
+#ifdef CACHE_DIAGNOSTICS_PAGE_END
+    CACHE_DIAGNOSTICS_PAGE_END;
+#else
+    72;
+#endif
+
+bool isCacheDiagnosticsPage(const uint16_t page) {
+  return page >= kCacheDiagnosticsPageStart && page <= kCacheDiagnosticsPageEnd;
+}
+
+struct PageLayoutStats {
+  uint16_t textBlocks = 0;
+  uint32_t characterCount = 0;
+};
+
+uint32_t utf8CodepointCount(const std::string& text) {
+  uint32_t count = 0;
+  for (const unsigned char byte : text) {
+    if ((byte & 0xC0) != 0x80) ++count;
+  }
+  return count;
+}
+
+struct VerticalWordPosition {
+  int x;
+  int y;
+  uint16_t block;
+  uint16_t word;
+  const char* text;
+};
+
+PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIndex, const uint16_t pageIndex) {
+  PageLayoutStats stats;
+  // A page has a bounded number of glyphs.  Avoid allocating a coordinate map
+  // while inspecting it: this diagnostic runs only in the debug cache build.
+  std::vector<VerticalWordPosition> positions;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& block = static_cast<const PageLine&>(*element).getBlock();
+    if (!block) continue;
+    ++stats.textBlocks;
+
+    const auto& words = block->getWords();
+    for (const auto& word : words) stats.characterCount += utf8CodepointCount(word);
+    if (!block->getIsVertical()) continue;
+
+    const auto& xs = block->getWordXpos();
+    const auto& ys = block->getWordYpos();
+    if (xs.size() != words.size() || ys.size() != words.size()) {
+      LOG_ERR("CDIAG", "VERT_SIZE_MISMATCH spine=%d page=%u words=%u x=%u y=%u", spineIndex, pageIndex,
+              static_cast<unsigned>(words.size()), static_cast<unsigned>(xs.size()), static_cast<unsigned>(ys.size()));
+      continue;
+    }
+    for (size_t i = 0; i < words.size(); ++i) {
+      const int x = element->xPos + xs[i];
+      const int y = element->yPos + ys[i];
+      for (const auto& previous : positions) {
+        if (x != previous.x || y != previous.y) continue;
+        LOG_ERR("CDIAG", "VERT_DUPLICATE spine=%d page=%u block=%u word=%u previousBlock=%u previousWord=%u x=%d y=%d text=%s prev=%s",
+                spineIndex, pageIndex, static_cast<unsigned>(stats.textBlocks - 1), static_cast<unsigned>(i),
+                previous.block, previous.word, x, y, words[i].c_str(), previous.text);
+        break;
+      }
+      positions.push_back({x, y, static_cast<uint16_t>(stats.textBlocks - 1), static_cast<uint16_t>(i),
+                           words[i].c_str()});
+    }
+  }
+  return stats;
+}
+}  // namespace
+#endif
+
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
@@ -281,11 +364,26 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   }
 
   const uint32_t position = file.position();
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  PageLayoutStats layoutStats;
+  const bool logPage = cacheGenerationDiagnosticsActive && isCacheDiagnosticsPage(pageCount);
+  if (logPage) layoutStats = logVerticalLayoutDiagnostics(*page, spineIndex, pageCount);
+#endif
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", pageCount);
     return 0;
   }
   LOG_DBG("SCT", "Page %d processed", pageCount);
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  if (logPage) {
+    LOG_DBG("CDIAG",
+            "PAGE spine=%d page=%u range=%lu..%lu record=%lu charsUtf8=%lu textBlocks=%u elements=%u free=%u min=%u maxAlloc=%u",
+            spineIndex, pageCount, static_cast<unsigned long>(position), static_cast<unsigned long>(file.position()),
+            static_cast<unsigned long>(file.position() - position), static_cast<unsigned long>(layoutStats.characterCount),
+            layoutStats.textBlocks, static_cast<unsigned>(page->elements.size()), ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+            ESP.getMaxAllocHeap());
+  }
+#endif
 
   pageCount++;
   return position;
@@ -541,6 +639,14 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  cacheGenerationDiagnosticsActive = static_cast<bool>(pageReadyFn);
+  if (cacheGenerationDiagnosticsActive) {
+    LOG_DBG("CDIAG", "BEGIN spine=%d href=%s cache=%s pageWindow=%u..%u free=%u min=%u maxAlloc=%u", spineIndex,
+            localPath.c_str(), filePath.c_str(), kCacheDiagnosticsPageStart, kCacheDiagnosticsPageEnd,
+            ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+  }
+#endif
 
   // Create cache directory if it doesn't exist
   {
