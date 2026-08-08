@@ -34,15 +34,15 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
 
-          if [[ ! "${TAG}" =~ ^yomuka-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+          if [[ ! "${TAG}" =~ ^yomuka-v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
             echo "Invalid Yomuka release tag: ${TAG}"
-            echo "Expected format: yomuka-vX.Y.Z or yomuka-vX.Y.Z-suffix"
+            echo "Expected format: yomuka-vX.Y.Z, yomuka-vX.Y.Z.W, or either with a suffix"
             exit 1
           fi
 
           VERSION="${TAG#yomuka-}"
 
-          if [[ "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             PRERELEASE=false
           else
             PRERELEASE=true
