@@ -353,6 +353,10 @@ void XtcReaderActivity::renderPage() {
     // Cleanup grayscale buffers with current frame buffer
     renderer.cleanupGrayscaleWithFrameBuffer();
 
+    // A grayscale overlay can leave residual charge that a following fast
+    // differential update does not clear.  Re-sync before the next XTCH page.
+    pagesUntilFullRefresh = 1;
+
     free(pageBuffer);
 
     LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
