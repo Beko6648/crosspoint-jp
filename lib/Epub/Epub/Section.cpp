@@ -130,7 +130,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
 // Version 75: inline character-size images are stored as words (inlineImages parallel to words).
 // Version 76: inlineImages changed to sparse storage (only image words, not every word) to cut RAM.
-constexpr uint8_t SECTION_FILE_VERSION = 76;
+// Version 77: vertical EPUB layout persists ordinary HTML whitespace between
+// Latin words instead of treating it as only a word boundary (upstream v0.3.8.1).
+constexpr uint8_t SECTION_FILE_VERSION = 77;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
