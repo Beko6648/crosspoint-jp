@@ -132,7 +132,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 76: inlineImages changed to sparse storage (only image words, not every word) to cut RAM.
 // Version 77: vertical EPUB layout persists ordinary HTML whitespace between
 // Latin words instead of treating it as only a word boundary (upstream v0.3.8.1).
-constexpr uint8_t SECTION_FILE_VERSION = 77;
+// Version 78: U+3000 ideographic spaces are kept as visible text (previously
+// skipped as whitespace, losing leading full-width spaces) (upstream v0.3.8.2).
+// ⚠️ フォークの78は上流の78(インライン画像+U+3000+矢印)とは意味が異なる。
+// ※ 上流v0.3.8.2の矢印直立化(U+2190-2193)は、Kindle版と表示を一致させるため意図的に取り込まない。
+constexpr uint8_t SECTION_FILE_VERSION = 78;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
