@@ -248,8 +248,12 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   // CJK fallback: when firstLineIndent is ON but CSS doesn't define text-indent,
   // calculate a 1-character CJK indent width and inject it as textIndent for layout.
   // Skip when textIndent is explicitly negative (hanging indent for <li> bullets).
+  // Also skip when the paragraph already begins with an ideographic space (U+3000):
+  // the book uses it as its own indent, so injecting another would double the gap.
+  const bool startsWithIdeographicSpace = !words.empty() && firstCodepoint(words.front()) == 0x3000;
   if (firstLineIndent && blockStyle.textIndent == 0 && !blockStyle.textIndentDefined &&
-      (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)) {
+      (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left) &&
+      !startsWithIdeographicSpace) {
     const int cjkCharWidth = renderer.getTextWidth(fontId, "\xe5\xad\x97", EpdFontFamily::REGULAR);
     blockStyle.textIndent = static_cast<int16_t>(cjkCharWidth > 0 ? cjkCharWidth : spaceWidth * 3);
   }
@@ -483,8 +487,13 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   
   // Compute first-line indent for vertical mode (same conditions as horizontal).
   int verticalIndent = 0;
+  // Skip the auto-indent when the paragraph already begins with an ideographic
+  // space (U+3000): the book uses it as its own first-line indent, so adding
+  // another cell would double the gap (2 cells). Match Kindle.
+  const bool startsWithIdeographicSpace = !words.empty() && firstCodepoint(words.front()) == 0x3000;
   if (firstLineIndent && blockStyle.textIndent == 0 && !blockStyle.textIndentDefined &&
-      (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)) {
+      (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left) &&
+      !startsWithIdeographicSpace) {
     verticalIndent = cjkCharAdvance > 0 ? cjkCharAdvance : lineHeight;
     // Halfwidth kana at the beginning of a vertical paragraph use the same
     // measured fullwidth body cell as their run, keeping line heads consistent
