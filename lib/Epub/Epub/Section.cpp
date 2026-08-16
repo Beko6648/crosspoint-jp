@@ -132,7 +132,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // of persisting overlapping vertical glyph positions after the table is full.
 // Version 76: vertical EPUB layout persists ordinary HTML whitespace between
 // Latin words instead of treating it as only a word boundary.
-// Version 77: U+3000 ideographic spaces are retained as visible CJK cells.
+// Version 77: U+3000 ideographic spaces and basic directional arrows have
+// updated vertical layout semantics.
 constexpr uint8_t SECTION_FILE_VERSION = 77;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
