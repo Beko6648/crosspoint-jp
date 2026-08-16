@@ -132,7 +132,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // of persisting overlapping vertical glyph positions after the table is full.
 // Version 76: vertical EPUB layout persists ordinary HTML whitespace between
 // Latin words instead of treating it as only a word boundary.
-constexpr uint8_t SECTION_FILE_VERSION = 76;
+// Version 77: basic directional arrows stay upright in vertical text.
+constexpr uint8_t SECTION_FILE_VERSION = 77;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

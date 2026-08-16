@@ -128,6 +128,8 @@ inline bool isUprightInVertical(uint32_t cp) {
   if (cp >= 0x3040 && cp <= 0x309F) return true;  // Hiragana
   if (cp >= 0x30A0 && cp <= 0x30FF) return true;  // Katakana
   if (cp >= 0x3000 && cp <= 0x303F) return true;  // CJK Symbols and Punctuation
+  // Keep the basic directional arrows readable as their literal directions.
+  if (cp >= 0x2190 && cp <= 0x2193) return true;  // ← ↑ → ↓
   if (cp >= 0xFF00 && cp <= 0xFFEF) return true;  // Fullwidth Forms
   if (cp >= 0xF900 && cp <= 0xFAFF) return true;  // CJK Compatibility Ideographs
   if (cp >= 0x3200 && cp <= 0x32FF) return true;  // Enclosed CJK Letters
