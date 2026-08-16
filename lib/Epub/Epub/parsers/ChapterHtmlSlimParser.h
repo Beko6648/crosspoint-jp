@@ -161,7 +161,7 @@ class ChapterHtmlSlimParser {
         fontId(fontId),
         lineCompression(lineCompression),
         extraParagraphSpacing(extraParagraphSpacing),
-        paragraphAlignment(paragraphAlignment),
+        paragraphAlignment(verticalMode ? static_cast<uint8_t>(CssTextAlign::Justify) : paragraphAlignment),
         viewportWidth(viewportWidth),
         viewportHeight(viewportHeight),
         hyphenationEnabled(hyphenationEnabled),

@@ -139,7 +139,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // U+FF70 use rotated vertical punctuation cells instead of kana metrics.
 // Version 80: standalone voiced and semi-voiced marks occupy and center in
 // their own vertical cells instead of attaching to an earlier base glyph.
-constexpr uint8_t SECTION_FILE_VERSION = 80;
+// Version 81: vertical paragraph alignment is forced to justify (両端揃え) so
+// first-line indent works regardless of the (otherwise ignored) setting.
+constexpr uint8_t SECTION_FILE_VERSION = 81;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
