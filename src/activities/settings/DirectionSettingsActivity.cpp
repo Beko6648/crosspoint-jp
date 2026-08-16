@@ -43,13 +43,18 @@ void DirectionSettingsActivity::buildItems() {
                      {0, 8, 15, 30, 50}});
   }
 
-  // Paragraph Alignment
-  items.push_back(
-      {StrId::STR_PARA_ALIGNMENT,
-       Item::Type::ENUM,
-       &DirectionSettings::paragraphAlignment,
-       {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
-       {}});
+  // Paragraph Alignment (horizontal only). In vertical mode the column
+  // position is fixed right-to-left and paragraphAlignment is only consulted
+  // for first-line indent eligibility, so the setting is forced to Justify
+  // (see ChapterHtmlSlimParser ctor) and the UI entry is hidden.
+  if (!isVertical) {
+    items.push_back(
+        {StrId::STR_PARA_ALIGNMENT,
+         Item::Type::ENUM,
+         &DirectionSettings::paragraphAlignment,
+         {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
+         {}});
+  }
 
   // Extra Paragraph Spacing
   items.push_back({StrId::STR_EXTRA_SPACING, Item::Type::PRESET, &DirectionSettings::extraParagraphSpacing, {}, {},
