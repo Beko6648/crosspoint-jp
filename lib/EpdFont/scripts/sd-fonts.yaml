@@ -203,7 +203,7 @@ families:
 
   - name: NotoSansJp
     description: "Sans-serif Japanese (JIS X 0213)"
-    intervals: ascii,latin1,punctuation,cjk
+    intervals: ascii,latin1,punctuation,arrows,cjk
     codepoints_file: codepoints/japanese_jis0213.txt
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
@@ -212,7 +212,7 @@ families:
 
   - name: BIZUDGothic
     description: "UD Gothic Japanese (MORISAWA, optimized for readability)"
-    intervals: ascii,latin1,punctuation,cjk
+    intervals: ascii,latin1,punctuation,arrows,cjk
     codepoints_file: codepoints/japanese_jis0213.txt
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
@@ -221,7 +221,7 @@ families:
 
   - name: NotoSerifJp
     description: "Serif Japanese (JIS X 0213)"
-    intervals: ascii,latin1,punctuation,cjk
+    intervals: ascii,latin1,punctuation,arrows,cjk
     codepoints_file: codepoints/japanese_jis0213.txt
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
@@ -230,7 +230,7 @@ families:
 
   - name: BIZUDMincho
     description: "UD Mincho Japanese (MORISAWA, optimized for readability)"
-    intervals: ascii,latin1,punctuation,cjk
+    intervals: ascii,latin1,punctuation,arrows,cjk
     codepoints_file: codepoints/japanese_jis0213.txt
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
