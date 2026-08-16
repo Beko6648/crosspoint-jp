@@ -1327,16 +1327,6 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       continue;
     }
 
-    // Treat ideographic space (U+3000) as whitespace - flush buffer and skip
-    if (cp == 0x3000) {
-      if (self->partWordBufferIndex > 0) {
-        self->flushPartWordBuffer();
-      }
-      self->nextWordContinues = false;
-      i += charLen;
-      continue;
-    }
-
     if (isCjkCodepointForSplit(cp)) {
       // CJK character: flush any buffered content first
       if (self->partWordBufferIndex > 0) {
