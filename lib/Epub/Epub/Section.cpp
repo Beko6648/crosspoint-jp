@@ -136,7 +136,10 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // skipped as whitespace, losing leading full-width spaces) (upstream v0.3.8.2).
 // ⚠️ フォークの78は上流の78(インライン画像+U+3000+矢印)とは意味が異なる。
 // ※ 上流v0.3.8.2の矢印直立化(U+2190-2193)は、Kindle版と表示を一致させるため意図的に取り込まない。
-constexpr uint8_t SECTION_FILE_VERSION = 78;
+// Version 79: 縦書きの段落配置(paragraphAlignment)をJustify(両端揃え)に固定。縦書きは列位置が
+// 右詰め固定でalignmentが描画に反映されず、インデント判定(Justify||Left)のみに使われるため、
+// Center/Right設定だと行頭インデントが機能しない不整合を解消。設定UIから縦書きの段落配置項目も削除。
+constexpr uint8_t SECTION_FILE_VERSION = 79;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
