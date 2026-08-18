@@ -33,9 +33,14 @@ jobs:
           DEV_TAG=$(gh api "repos/${REPO}/releases" --jq '[.[] | select(.prerelease == true and (.tag_name | startswith("dev-")))] | first | .tag_name // empty')
           if [ -n "${DEV_TAG}" ]; then
             echo "Downloading dev assets: ${DEV_TAG}"
-            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "bootloader.bin" --dir _site/dev
-            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "partitions.bin" --dir _site/dev
-            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "firmware.bin" --dir _site/dev
+            # アセット名は "Yomuka-<version>-<kind>.bin" 形式（プレフィックス付き）のため、
+            # 部分一致グロブで取得し、マニフェストが参照する固定名へリネームする。
+            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*bootloader.bin" --dir _site/dev
+            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*partitions.bin" --dir _site/dev
+            gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*firmware.bin" --dir _site/dev
+            mv -f _site/dev/*bootloader.bin _site/dev/bootloader.bin
+            mv -f _site/dev/*partitions.bin _site/dev/partitions.bin
+            mv -f _site/dev/*firmware.bin _site/dev/firmware.bin
 
             cat > _site/manifest_dev.json <<MANIFEST
           {
@@ -62,9 +67,14 @@ jobs:
           STABLE_TAG=$(gh api "repos/${REPO}/releases" --jq '[.[] | select(.prerelease == false and .draft == false and (.tag_name | startswith("sd-") | not))] | first | .tag_name // empty')
           if [ -n "${STABLE_TAG}" ]; then
             echo "Downloading stable assets: ${STABLE_TAG}"
-            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "bootloader.bin" --dir _site/stable
-            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "partitions.bin" --dir _site/stable
-            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "firmware.bin" --dir _site/stable
+            # アセット名は "Yomuka-<version>-<kind>.bin" 形式（プレフィックス付き）のため、
+            # 部分一致グロブで取得し、マニフェストが参照する固定名へリネームする。
+            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*bootloader.bin" --dir _site/stable
+            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*partitions.bin" --dir _site/stable
+            gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*firmware.bin" --dir _site/stable
+            mv -f _site/stable/*bootloader.bin _site/stable/bootloader.bin
+            mv -f _site/stable/*partitions.bin _site/stable/partitions.bin
+            mv -f _site/stable/*firmware.bin _site/stable/firmware.bin
 
             cat > _site/manifest_stable.json <<MANIFEST
           {
