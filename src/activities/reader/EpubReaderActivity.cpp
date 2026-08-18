@@ -9,6 +9,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Issue18Diagnostics.h>
 #include <Logging.h>
 #include <esp_system.h>
 
@@ -54,6 +55,10 @@ constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 constexpr int STATUS_BAR_CONTENT_GUARD = 8;
 constexpr size_t MAX_BOOKMARKS_PER_BOOK = 24;
 constexpr float BOOKMARK_PROGRESS_EPSILON = 0.0001f;
+// Small, short EPUBs are quick to build lazily as the reader reaches each
+// section. Avoid interrupting their first open with a full-cache prompt.
+constexpr size_t SMALL_BOOK_CACHE_PROMPT_MAX_TEXT_BYTES = 256 * 1024;
+constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 15;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -69,6 +74,13 @@ int clampPercent(int percent) {
     return 100;
   }
   return percent;
+}
+
+bool shouldSkipInitialCachePrompt(const Epub& epub) {
+  const int spineCount = epub.getSpineItemsCount();
+  const size_t textSize = epub.getBookSize();
+  return spineCount > 0 && spineCount <= SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS && textSize > 0 &&
+         textSize <= SMALL_BOOK_CACHE_PROMPT_MAX_TEXT_BYTES;
 }
 
 struct ProgressRange { float start; float end; };
@@ -274,6 +286,8 @@ void EpubReaderActivity::onEnter() {
     return;
   }
 
+  Issue18Diagnostics::logMemory("reader-enter", epub->getPath().c_str());
+
   // ルビフォントIDはrender()内でフォントロード後に設定
 
   // Screen orientation (both renderer and input) is already set by
@@ -313,7 +327,8 @@ void EpubReaderActivity::onEnter() {
   RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
 
   const std::string noCachePromptPath = epub->getCachePath() + "/.no_cache_prompt";
-  if (!epub->isFullCacheGenerated() && !Storage.exists(noCachePromptPath.c_str())) {
+  if (!epub->isFullCacheGenerated() && !shouldSkipInitialCachePrompt(*epub) &&
+      !Storage.exists(noCachePromptPath.c_str())) {
     auto handler = [this, noCachePromptPath](const ActivityResult& res) {
       if (!res.isCancelled) {
         pregenerateCache();
@@ -444,7 +459,8 @@ void EpubReaderActivity::loop() {
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), menuCurrentPage, menuTotalPages,
-                               bookProgressPercent, SETTINGS.orientation, verticalMode, !cachedBookmarks.empty()),
+                               bookProgressPercent, SETTINGS.orientation, verticalMode, !cachedBookmarks.empty(),
+                               epub->getCacheGenerationStatus()),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -765,6 +781,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       onGoHome();
       return;
     }
+    case EpubReaderMenuActivity::MenuAction::GENERATE_CACHE:
+      pregenerateCache();
+      requestUpdate();
+      break;
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
       const bool hasProgress = epub && section;
       const uint16_t savedSpineIndex = hasProgress ? currentSpineIndex : 0;

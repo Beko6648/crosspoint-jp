@@ -215,14 +215,12 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         // precomposed form (for example, 阿゛). In vertical text it belongs in
         // the same cell as that preceding character, not on its own line.
         bool renderedAsOverlay = false;
-        size_t baseIndex = i;
-        while (baseIndex > 0) {
-          --baseIndex;
+        if (i > 0) {
+          const size_t baseIndex = i - 1;
           const auto* basePtr = reinterpret_cast<const unsigned char*>(words[baseIndex].c_str());
           const uint32_t baseCp = utf8NextCodepoint(&basePtr);
-          if (!(baseCp != 0 && *basePtr == '\0' && utf8IsJapaneseVoicingMark(baseCp))) {
-            if (baseCp != 0 && *basePtr == '\0' && VerticalTextUtils::isUprightInVertical(baseCp) &&
-                baseIndex < wordYpos.size()) {
+          if (baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
+              VerticalTextUtils::isUprightInVertical(baseCp) && baseIndex < wordYpos.size()) {
               const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : currentStyle;
               const auto baseFontStyle =
                   static_cast<EpdFontFamily::Style>(baseStyle & EpdFontFamily::BOLD_ITALIC);
@@ -280,18 +278,30 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
               const int markY = y + wordYpos[baseIndex] - anchorCell / 8;
               renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
               renderedAsOverlay = true;
-            }
-            break;
           }
         }
         if (renderedAsOverlay) continue;
+
+        // A voicing mark without an immediately preceding base character is
+        // its own visible character. Center its narrow glyph inside the CJK
+        // column instead of using the font's left side bearing as the origin.
+        int markMinX = 0;
+        int markMaxX = 0;
+        int bodyMinX = 0;
+        int bodyMaxX = 0;
+        renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, currentStyle);
+        renderer.getTextVisibleBoundsX(
+            effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
+        const int centerOffset = (bodyMinX + bodyMaxX - markMinX - markMaxX) / 2;
+        renderer.drawTextVertical(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
+        continue;
       }
 
-      // 縦書きでは「＝」と半角長音符「ｰ」を90度回転する。
+      // 縦書きでは「＝」を90度回転する。半角長音符「ｰ」は
+      // drawTextVertical() の句読点経路で回転・配置する。
       const bool forceSidewaysSymbol =
           isSingleCodepoint &&
-          (firstCp == 0xFF1D ||  // ＝ FULLWIDTH EQUALS SIGN
-           firstCp == 0xFF70);   // ｰ HALFWIDTH KATAKANA-HIRAGANA PROLONGED SOUND MARK
+          firstCp == 0xFF1D;  // ＝ FULLWIDTH EQUALS SIGN
 
       const bool isSingleCjk =
           isSingleCodepoint &&

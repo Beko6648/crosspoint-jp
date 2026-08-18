@@ -177,7 +177,7 @@ void XtcReaderActivity::loop() {
       saveProgress(true);
     }
     requestUpdate();
-    } else if (nextTriggered) {
+  } else if (nextTriggered) {
     if (currentPage >= static_cast<uint32_t>(skipAmount)) {
       currentPage -= skipAmount;
     } else {
@@ -406,7 +406,6 @@ void XtcReaderActivity::renderPage() {
   }
 }
 
-
 void XtcReaderActivity::saveProgress(bool isFinished) const {
   FsFile f;
   if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
@@ -419,7 +418,6 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
     f.write(data, 5);
     f.close();
   }
-
 }
 
 void XtcReaderActivity::loadProgress() {

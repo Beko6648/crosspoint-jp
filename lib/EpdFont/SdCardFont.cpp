@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Issue18Diagnostics.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -54,15 +55,19 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniBitmap = nullptr;
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
+  memset(&s.miniData, 0, sizeof(s.miniData));
+  s.epdFont.data = &s.stubData;
+}
+
+void SdCardFont::freeStyleVertData(PerStyle& s) {
   delete[] s.vertCodepoints;
   s.vertCodepoints = nullptr;
   delete[] s.vertGlyphs;
   s.vertGlyphs = nullptr;
   delete[] s.vertBitmap;
   s.vertBitmap = nullptr;
+  s.vertCount = 0;
   s.vertLoaded = false;
-  memset(&s.miniData, 0, sizeof(s.miniData));
-  s.epdFont.data = &s.stubData;
 }
 
 void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
@@ -79,6 +84,7 @@ void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
 
 void SdCardFont::freeStyleAll(PerStyle& s) {
   freeStyleMiniData(s);
+  freeStyleVertData(s);
   delete[] s.fullIntervals;
   s.fullIntervals = nullptr;
   freeStyleKernLigatureData(s);
@@ -782,6 +788,7 @@ bool SdCardFont::loadVertData(uint8_t style) {
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
     LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
+    Issue18Diagnostics::logMemory("vert-load-skipped", filePath_);
     return false;
   }
 
@@ -880,6 +887,7 @@ bool SdCardFont::loadVertData(uint8_t style) {
   file.close();
   s.vertLoaded = true;
   LOG_DBG("SDCF", "Vert loaded: style=%u, count=%u, bitmaps=%u bytes", style, s.vertCount, totalVertBitmapSize);
+  Issue18Diagnostics::logMemory("vert-load-success", filePath_);
   return true;
 }
 

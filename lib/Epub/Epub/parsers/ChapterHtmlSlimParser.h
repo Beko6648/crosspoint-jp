@@ -53,7 +53,7 @@ class ChapterHtmlSlimParser {
   std::string rubyTextBuffer;
   int fontId;
   int headingFontIds[6] = {0, 0, 0, 0, 0, 0};  // per heading level (h1-h6), 0 = use page fontId
-  int cssBodyFontIds[4] = {0, 0, 0, 0};         // reader family at each supported body size
+  int cssBodyFontIds[4] = {0, 0, 0, 0};        // reader family at each supported body size
   float lineCompression;
   uint8_t extraParagraphSpacing;
   uint8_t paragraphAlignment;
@@ -161,7 +161,7 @@ class ChapterHtmlSlimParser {
         fontId(fontId),
         lineCompression(lineCompression),
         extraParagraphSpacing(extraParagraphSpacing),
-        // Vertical layout always uses justified (両端揃え) alignment: the
+// Vertical layout always uses justified (両端揃え) alignment: the
         // column position is fixed right-to-left and paragraphAlignment is
         // only consulted for first-line indent eligibility. Force Justify so
         // indent works regardless of the (otherwise ignored) setting. The UI

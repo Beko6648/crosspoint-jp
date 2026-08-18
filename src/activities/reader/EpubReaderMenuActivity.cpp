@@ -14,9 +14,10 @@
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool verticalMode, const bool hasBookmarks)
+                                               const bool verticalMode, const bool hasBookmarks,
+                                               const Epub::CacheGenerationStatus cacheStatus)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasBookmarks)),
+      menuItems(buildMenuItems(hasBookmarks, cacheStatus)),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -24,7 +25,8 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       bookProgressPercent(bookProgressPercent),
       verticalMode(verticalMode) {}
 
-std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(const bool hasBookmarks) {
+std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(
+    const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
   std::vector<MenuItem> items;
   items.reserve(10);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
@@ -37,6 +39,12 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET});
   items.push_back({MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
+  if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
+    const StrId label = cacheStatus == Epub::CacheGenerationStatus::Resumable
+                            ? StrId::STR_GENERATE_REMAINING_BOOK_CACHE
+                            : StrId::STR_GENERATE_BOOK_CACHE;
+    items.push_back({MenuAction::GENERATE_CACHE, label});
+  }
   items.push_back({MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS});
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   return items;
