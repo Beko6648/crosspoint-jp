@@ -113,6 +113,10 @@ class SdCardFont {
   // Used to generate deterministic font IDs for section cache invalidation.
   uint32_t contentHash() const { return contentHash_; }
 
+  // Original SD-card path. Used only for narrowly scoped rendering workarounds
+  // where a font family's bitmap design differs from its metrics.
+  const char* getFilePath() const { return filePath_; }
+
  private:
   // Per-style metadata (parsed from file header/TOC)
   struct CpFontHeader {
