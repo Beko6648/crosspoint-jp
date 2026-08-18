@@ -58,7 +58,7 @@ constexpr float BOOKMARK_PROGRESS_EPSILON = 0.0001f;
 // Small, short EPUBs are quick to build lazily as the reader reaches each
 // section. Avoid interrupting their first open with a full-cache prompt.
 constexpr size_t SMALL_BOOK_CACHE_PROMPT_MAX_TEXT_BYTES = 256 * 1024;
-constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 5;
+constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 15;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
