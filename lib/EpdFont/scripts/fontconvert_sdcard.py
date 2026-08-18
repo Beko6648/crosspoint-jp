@@ -47,6 +47,7 @@ INTERVAL_PRESETS = {
     "vietnamese":  [(0x01A0, 0x01B0), (0x1EA0, 0x1EF9)],
     "punctuation": [(0x2000, 0x206F)],
     "arrows":      [(0x2190, 0x21FF)],
+    "cjk_exta":    [(0x3400, 0x4DBF)],
     "symbols": [
         (0x00D7, 0x00D7),  # ×
         (0x00F7, 0x00F7),  # ÷
