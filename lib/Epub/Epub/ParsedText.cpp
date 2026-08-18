@@ -108,10 +108,8 @@ bool isSingleCjkWord(const std::string& word) {
 // line-head character avoids extending text beyond the configured viewport.
 // Continuation tokens include the remaining base characters of a ruby group,
 // so every adjustment also keeps those groups on one line.
-size_t adjustHorizontalKinsokuBreak(const std::vector<std::string>& words,
-                                    const std::vector<bool>& continuesVec,
-                                    const size_t lineStart,
-                                    size_t breakAt) {
+size_t adjustHorizontalKinsokuBreak(const std::vector<std::string>& words, const std::vector<bool>& continuesVec,
+                                    const size_t lineStart, size_t breakAt) {
   auto keepContinuationTogether = [&]() {
     while (breakAt > lineStart + 1 && breakAt < continuesVec.size() && continuesVec[breakAt]) {
       --breakAt;
@@ -131,8 +129,7 @@ size_t adjustHorizontalKinsokuBreak(const std::vector<std::string>& words,
       adjusted = true;
     }
 
-    if (breakAt > lineStart + 1 &&
-        VerticalTextUtils::isKinsokuTail(lastCodepoint(words[breakAt - 1]))) {
+    if (breakAt > lineStart + 1 && VerticalTextUtils::isKinsokuTail(lastCodepoint(words[breakAt - 1]))) {
       --breakAt;
       keepContinuationTogether();
       adjusted = true;
@@ -352,8 +349,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       if (VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
         const int kanaAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
         const auto bodyStyle = static_cast<EpdFontFamily::Style>(wordStyles[i] & EpdFontFamily::BOLD_ITALIC);
-        const int fullwidthAdvance =
-            renderer.getTextAdvanceX(fontId, "\xE4\xB8\x80", bodyStyle);  // U+4E00
+        const int fullwidthAdvance = renderer.getTextAdvanceX(fontId, "\xE4\xB8\x80", bodyStyle);  // U+4E00
         if (fullwidthAdvance > 0) {
           cjkCharAdvance = std::max(kanaAdvance, fullwidthAdvance);
         }
@@ -365,7 +361,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   // Calculate word heights for vertical layout
   std::vector<uint16_t> wordHeights;
   wordHeights.reserve(words.size());
-    auto utf8CodepointCount = [](const std::string& s) -> int {
+  auto utf8CodepointCount = [](const std::string& s) -> int {
     int count = 0;
     const auto* p = reinterpret_cast<const unsigned char*>(s.c_str());
     while (utf8NextCodepoint(&p) != 0) {
@@ -420,22 +416,22 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       // fullwidth body cell when one exists, or the natural halfwidth pitch in
       // a kana-only paragraph. The sideways prolonged mark uses its own short
       // advance so it does not leave a full-cell gap before the next kana.
-      baseHeight = wordCp == 0xFF70
-                       ? renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i])
-                       : static_cast<uint16_t>(cjkCharAdvance);
-    } else switch (vb) {
-      case VerticalTextUtils::VerticalBehavior::Sideways:
-        baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
-        break;
+      baseHeight = wordCp == 0xFF70 ? renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i])
+                                    : static_cast<uint16_t>(cjkCharAdvance);
+    } else
+      switch (vb) {
+        case VerticalTextUtils::VerticalBehavior::Sideways:
+          baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
+          break;
 
-      case VerticalTextUtils::VerticalBehavior::TateChuYoko:
-        baseHeight = static_cast<uint16_t>(cjkCharAdvance);
-        break;
+        case VerticalTextUtils::VerticalBehavior::TateChuYoko:
+          baseHeight = static_cast<uint16_t>(cjkCharAdvance);
+          break;
 
-      default:
-        baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
-        break;
-    }
+        default:
+          baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
+          break;
+      }
 
     uint16_t finalHeight;
     if (overlaysPreviousCharacter) {
@@ -445,7 +441,6 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     } else {
       finalHeight = baseHeight + cjkSpacing;
     }
-
 
     wordHeights.push_back(finalHeight);
   }
@@ -484,7 +479,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       rubyFitHeights.push_back(fitHeight);
     }
   }
-  
+
   // Compute first-line indent for vertical mode (same conditions as horizontal).
   int verticalIndent = 0;
   // Skip the auto-indent when the paragraph already begins with an ideographic
@@ -639,10 +634,9 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
     // インライン画像のWordはマーカー文字ではなく、CSSで決めた表示幅を返す。
     // 幅計算と行分割を画像幅に乗せるため、フォントのグリフ幅は使わない。
     if (words[i] == INLINE_IMAGE_MARKER) {
-      wordWidths.push_back(
-          imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0
-              ? static_cast<uint16_t>(inlineImages[imgIdx].width)
-              : 1);
+      wordWidths.push_back(imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0
+                               ? static_cast<uint16_t>(inlineImages[imgIdx].width)
+                               : 1);
       imgIdx++;
       continue;
     }
