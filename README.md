@@ -231,9 +231,17 @@ CrossPoint Yomuka（ponto1216版）は、GitHub Releasesで配布しているフ
 
 ### 初めて導入する場合
 
-初回導入手順は現在整理中です。
+ブラウザから書き込む場合は、Webフラッシャーをご利用ください。
 
-今後、必要なファイル、PCからの書き込み方法、SDカード更新手順をまとめたインストールガイドを追加する予定です。
+1. Chrome / Edge など、Web Serial対応のブラウザで `https://beko6648.github.io/crosspoint-jp/` を開きます。
+2. X3本体をPCにUSB接続します。
+3. ページ内のインストールボタンから書き込むファームウェア（Stable / Dev）を選択し、インストールを実行します。
+4. 書き込みが完了するまでUSBケーブルを抜かないでください。
+
+> [!NOTE]
+> 初回書き込み時は `bootloader.bin` / `partitions.bin` / `firmware.bin` がまとめて書き込まれます。Web Serial非対応のブラウザでは書き込めないため、Chrome / Edgeをご利用ください。
+
+すでにCrossPoint Yomukaをお使いでSDカードで更新したい場合は、上記「既にCrossPoint Yomukaを使用している場合」を参照してください。
 
 ## フォント
 
