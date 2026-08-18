@@ -184,8 +184,8 @@ class BaseTheme {
   // bookmark cluster so it never overlaps them (same left-cluster layout as
   // drawStatusBar). Drawn as a vector shape (drawLine) so it does not depend on
   // any font glyph. paddingBottom aligns with the preview.
-  virtual void drawPageTurnIndicator(const GfxRenderer& renderer, bool pointingLeft = true,
-                                     const int paddingBottom = 0, const bool isPageBookmarked = false) const;
+  virtual void drawPageTurnIndicator(const GfxRenderer& renderer, bool pointingLeft = true, const int paddingBottom = 0,
+                                     const bool isPageBookmarked = false) const;
   virtual void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const;
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;
