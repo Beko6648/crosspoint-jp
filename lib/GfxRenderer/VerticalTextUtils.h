@@ -34,9 +34,14 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0xFF1B, 0, 0, true},  // ； fullwidth semicolon
     {0xFF1C, 0, 0, true},  // fullwidth less-than sign
     {0xFF1E, 0, 0, true},  // fullwidth greater-than sign
+    {0xFF61, 0, 0, true},  // ｡ halfwidth ideographic period
+    {0xFF64, 0, 0, true},  // ､ halfwidth ideographic comma
+    {0xFF65, 0, -2, true}, // ･ halfwidth katakana middle dot (raise in cell)
     // Brackets - rotate so opening/closing direction matches vertical flow
     {0x300C, 0, 0, true},  // 「 left corner bracket
     {0x300D, 0, 0, true},  // 」 right corner bracket
+    {0xFF62, 0, 0, true},  // ｢ halfwidth left corner bracket
+    {0xFF63, 0, 0, true},  // ｣ halfwidth right corner bracket
     {0x300E, 0, 0, true},  // 『 left white corner bracket
     {0x300F, 0, 0, true},  // 』 right white corner bracket
     {0x3010, 0, 0, true},  // 【 left black lenticular bracket
@@ -51,6 +56,7 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0x3015, 0, 0, true},  // 〕 right tortoise shell bracket
     // Long marks - rotate to vertical orientation
     {0x30FC, 0, 0, true},  // ー katakana long vowel mark
+    {0xFF70, 0, 0, true},  // ｰ halfwidth katakana-hiragana prolonged sound mark
     {0x2014, 0, 0, true},  // — em dash
     {0x2015, 0, 0, true},  // ― horizontal bar
     {0x2026, 0, 0, true},  // … ellipsis
@@ -71,7 +77,9 @@ inline const PunctuationOffset* getVerticalPunctuationOffset(uint32_t cp) {
 // Halfwidth katakana are narrow horizontal glyphs, but in vertical Japanese
 // text each one occupies a normal character cell.
 inline bool isHalfwidthKatakana(uint32_t cp) {
-  return cp >= 0xFF65 && cp <= 0xFF9D;
+  // U+FF65 (･) and U+FF70 (ｰ) are punctuation/long marks. They use the
+  // rotated punctuation path below; only actual katakana keep kana metrics.
+  return (cp >= 0xFF66 && cp <= 0xFF6F) || (cp >= 0xFF71 && cp <= 0xFF9D);
 }
 
 // Keep a two-character ASCII !/? sequence in one vertical cell. A single
@@ -165,6 +173,8 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   // Fullwidth !/? use the rotated normal glyph below. Some SD fonts carry
   // horizontal-looking vert alternates for these two punctuation marks.
   if (cp == 0xFF08 || cp == 0xFF09) return true;  // （）
+  if (cp == 0xFF62 || cp == 0xFF63) return true;  // ｢｣
+  if (cp == 0xFF61 || cp == 0xFF64) return true;  // ｡､
   if (cp == 0xFF0C || cp == 0xFF0E) return true;  // ，．
   if (cp == 0xFF1A || cp == 0xFF1B) return true;  // ：；
   if (cp == 0xFF3B || cp == 0xFF3D) return true;  // ［］
@@ -173,7 +183,7 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   if (cp == 0xFF5E) return true;                  // ～
   if (cp == 0xFF1C || cp == 0xFF1E) return true;
   // Long marks and dashes
-  if (cp == 0x30FC) return true;                  // ー
+  if (cp == 0x30FC || cp == 0xFF70) return true;  // ーｰ
   if (cp == 0x2014 || cp == 0x2015) return true;  // —―
   if (cp == 0x2025 || cp == 0x2026) return true;  // ‥…
   if (cp == 0x22EF) return true;                  // ⋯
@@ -185,6 +195,7 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
 inline bool isKinsokuHead(uint32_t cp) {
   // Closing brackets and punctuation (行頭禁止)
   if (cp == 0x3001 || cp == 0x3002) return true;                                  // 、。
+  if (cp == 0xFF61 || cp == 0xFF63 || cp == 0xFF64) return true;                  // ｡｣､
   if (cp == 0x300D || cp == 0x300F || cp == 0x3011) return true;                  // 」』】
   if (cp == 0x3015 || cp == 0x3017 || cp == 0x3019 || cp == 0x301B) return true;  // 〕〗〙〛
   if (cp == 0xFF09 || cp == 0xFF3D || cp == 0xFF5D) return true;                  // ）］｝
@@ -197,7 +208,7 @@ inline bool isKinsokuHead(uint32_t cp) {
   if (cp == 0x3063 || cp == 0x3083 || cp == 0x3085 || cp == 0x3087) return true;                  // っゃゅょ
   if (cp == 0x30A1 || cp == 0x30A3 || cp == 0x30A5 || cp == 0x30A7 || cp == 0x30A9) return true;  // ァィゥェォ
   if (cp == 0x30C3 || cp == 0x30E3 || cp == 0x30E5 || cp == 0x30E7) return true;                  // ッャュョ
-  if (cp == 0x30FC) return true;                                                                  // ー
+  if (cp == 0x30FC || cp == 0xFF70) return true;                                                  // ーｰ
   return false;
 }
 
@@ -205,6 +216,7 @@ inline bool isKinsokuHead(uint32_t cp) {
 inline bool isKinsokuTail(uint32_t cp) {
   // Opening brackets (行末禁止)
   if (cp == 0x300C || cp == 0x300E || cp == 0x3010) return true;                  // 「『【
+  if (cp == 0xFF62) return true;                                                    // ｢
   if (cp == 0x3014 || cp == 0x3016 || cp == 0x3018 || cp == 0x301A) return true;  // 〔〖〘〚
   if (cp == 0xFF08 || cp == 0xFF3B || cp == 0xFF5B) return true;                  // （［｛
   if (cp == 0x3008 || cp == 0x300A) return true;                                  // 〈《

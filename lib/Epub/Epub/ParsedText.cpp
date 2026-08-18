@@ -388,15 +388,15 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     const uint32_t wordCp = utf8NextCodepoint(&wordPtr);
     const bool isStandaloneVoicingMark = wordCp != 0 && *wordPtr == '\0' && utf8IsJapaneseVoicingMark(wordCp);
     bool overlaysPreviousCharacter = false;
-    if (isStandaloneVoicingMark) {
-      for (size_t baseIndex = i; baseIndex > 0;) {
-        --baseIndex;
-        const auto* basePtr = reinterpret_cast<const unsigned char*>(words[baseIndex].c_str());
-        const uint32_t baseCp = utf8NextCodepoint(&basePtr);
-        if (baseCp != 0 && *basePtr == '\0' && utf8IsJapaneseVoicingMark(baseCp)) continue;
-        overlaysPreviousCharacter = baseCp != 0 && *basePtr == '\0' && VerticalTextUtils::isUprightInVertical(baseCp);
-        break;
-      }
+    if (isStandaloneVoicingMark && i > 0) {
+      // Only the immediately preceding base character may receive a voiced
+      // mark. Skipping preceding marks made a standalone ﾞ/ﾟ attach to an
+      // unrelated earlier character and gave it a zero-height cell.
+      const auto* basePtr = reinterpret_cast<const unsigned char*>(words[i - 1].c_str());
+      const uint32_t baseCp = utf8NextCodepoint(&basePtr);
+      overlaysPreviousCharacter =
+          baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
+          VerticalTextUtils::isUprightInVertical(baseCp);
     }
 
     const bool isUprightHalfwidthKana =

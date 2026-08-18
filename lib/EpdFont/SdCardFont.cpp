@@ -54,15 +54,19 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniBitmap = nullptr;
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
+  memset(&s.miniData, 0, sizeof(s.miniData));
+  s.epdFont.data = &s.stubData;
+}
+
+void SdCardFont::freeStyleVertData(PerStyle& s) {
   delete[] s.vertCodepoints;
   s.vertCodepoints = nullptr;
   delete[] s.vertGlyphs;
   s.vertGlyphs = nullptr;
   delete[] s.vertBitmap;
   s.vertBitmap = nullptr;
+  s.vertCount = 0;
   s.vertLoaded = false;
-  memset(&s.miniData, 0, sizeof(s.miniData));
-  s.epdFont.data = &s.stubData;
 }
 
 void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
@@ -79,6 +83,7 @@ void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
 
 void SdCardFont::freeStyleAll(PerStyle& s) {
   freeStyleMiniData(s);
+  freeStyleVertData(s);
   delete[] s.fullIntervals;
   s.fullIntervals = nullptr;
   freeStyleKernLigatureData(s);

@@ -47,7 +47,9 @@ class SdCardFont {
   // buildAdvanceTable() calls then grow one shared table for that section.
   void resetAdvanceTable() { clearAdvanceTables(); }
 
-  // Free mini data for all styles, restore stub EpdFontData.
+  // Free transient prewarm/advance data for all styles and restore stub
+  // EpdFontData. Vertical substitution data stays resident until the font is
+  // unloaded so routine cache clears cannot degrade vertical punctuation.
   void clearCache();
 
   // Free kern/ligature data for all styles (reclaim memory before heavy operations).
@@ -215,6 +217,7 @@ class SdCardFont {
 
   // Per-style helpers
   void freeStyleMiniData(PerStyle& s);
+  void freeStyleVertData(PerStyle& s);
   void freeStyleAll(PerStyle& s);
   void freeStyleKernLigatureData(PerStyle& s);
   bool loadStyleKernLigatureData(PerStyle& s);

@@ -135,7 +135,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 78: U+3000 ideographic spaces and basic directional arrows have
 // updated vertical layout semantics. Inline character-size images are stored
 // as sparse U+FFFC marker words, so their serialized layout also changed.
-constexpr uint8_t SECTION_FILE_VERSION = 78;
+// Version 79: halfwidth punctuation U+FF61/U+FF64/U+FF65 and long mark
+// U+FF70 use rotated vertical punctuation cells instead of kana metrics.
+// Version 80: standalone voiced and semi-voiced marks occupy and center in
+// their own vertical cells instead of attaching to an earlier base glyph.
+constexpr uint8_t SECTION_FILE_VERSION = 80;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
