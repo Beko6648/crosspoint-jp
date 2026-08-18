@@ -951,8 +951,8 @@ void BaseTheme::drawPageTurnIndicator(const GfxRenderer& renderer, const bool po
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  const int textY = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom -
-                    paddingBottom;
+  const int textY =
+      renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom;
   const int centerY = textY + 6;
 
   // Clear the left-side battery / bookmark cluster so the arrow never overlaps.
