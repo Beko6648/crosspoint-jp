@@ -4,8 +4,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include <cstdio>
 #include <algorithm>
+#include <cstdio>
 
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
@@ -34,33 +34,41 @@ void DirectionSettingsActivity::buildItems() {
                    {}});
 
   // Line Spacing opens its own detailed adjustment screen.
-  items.push_back({StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {},
-                   {90, 120, 155, 185, 220}});
+  items.push_back(
+      {StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {}, {90, 120, 155, 185, 220}});
 
   // Character Spacing (vertical only — horizontal char spacing is not supported by renderer)
   if (isVertical) {
-    items.push_back({StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {},
-                     {0, 8, 15, 30, 50}});
+    items.push_back(
+        {StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {}, {0, 8, 15, 30, 50}});
   }
 
-  // Paragraph Alignment
-  items.push_back(
-      {StrId::STR_PARA_ALIGNMENT,
-       Item::Type::ENUM,
-       &DirectionSettings::paragraphAlignment,
-       {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
-       {}});
+  // Paragraph Alignment (horizontal only). In vertical mode the column
+  // position is fixed right-to-left and paragraphAlignment is only consulted
+  // for first-line indent eligibility, so the setting is forced to Justify
+  // (see ChapterHtmlSlimParser ctor) and the UI entry is hidden.
+  if (!isVertical) {
+    items.push_back({StrId::STR_PARA_ALIGNMENT,
+                     Item::Type::ENUM,
+                     &DirectionSettings::paragraphAlignment,
+                     {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
+                     {}});
+  }
 
   // Extra Paragraph Spacing
-  items.push_back({StrId::STR_EXTRA_SPACING, Item::Type::PRESET, &DirectionSettings::extraParagraphSpacing, {}, {},
+  items.push_back({StrId::STR_EXTRA_SPACING,
+                   Item::Type::PRESET,
+                   &DirectionSettings::extraParagraphSpacing,
+                   {},
+                   {},
                    {0, 1, 2, 3, 4}});
 
   // Hyphenation
   items.push_back({StrId::STR_HYPHENATION, Item::Type::TOGGLE, &DirectionSettings::hyphenationEnabled, {}, {}});
 
   // Screen Margin
-  items.push_back({StrId::STR_SCREEN_MARGIN, Item::Type::PRESET, &DirectionSettings::screenMargin, {}, {},
-                   {5, 8, 10, 20, 40}});
+  items.push_back(
+      {StrId::STR_SCREEN_MARGIN, Item::Type::PRESET, &DirectionSettings::screenMargin, {}, {}, {5, 8, 10, 20, 40}});
 
   // First Line Indent
   items.push_back({StrId::STR_FIRST_LINE_INDENT, Item::Type::TOGGLE, &DirectionSettings::firstLineIndent, {}, {}});
@@ -112,7 +120,8 @@ void DirectionSettingsActivity::changeCurrentItem(const int delta, const bool ac
       int closest = 0;
       for (int i = 1; i < static_cast<int>(item.presetValues.size()); ++i) {
         if (std::abs(static_cast<int>(item.presetValues[i]) - current) <
-            std::abs(static_cast<int>(item.presetValues[closest]) - current)) closest = i;
+            std::abs(static_cast<int>(item.presetValues[closest]) - current))
+          closest = i;
       }
       const int next = std::clamp(closest + delta, 0, static_cast<int>(item.presetValues.size()) - 1);
       ds().*(item.valuePtr) = item.presetValues[next];
@@ -170,19 +179,18 @@ void DirectionSettingsActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (items[selectedIndex].nameId == StrId::STR_LINE_SPACING) {
-      startActivityForResult(
-          std::make_unique<LineSpacingSelectionActivity>(
-              renderer, mappedInput, ds().lineSpacing,
-              [this](const int selectedValue) {
-                ds().lineSpacing = static_cast<uint8_t>(selectedValue);
-                SETTINGS.saveToFile();
-                finish();
-              },
-              [this] { finish(); }),
-          [this](const ActivityResult&) {
-            skipNextButtonCheck = true;
-            requestUpdate();
-          });
+      startActivityForResult(std::make_unique<LineSpacingSelectionActivity>(
+                                 renderer, mappedInput, ds().lineSpacing,
+                                 [this](const int selectedValue) {
+                                   ds().lineSpacing = static_cast<uint8_t>(selectedValue);
+                                   SETTINGS.saveToFile();
+                                   finish();
+                                 },
+                                 [this] { finish(); }),
+                             [this](const ActivityResult&) {
+                               skipNextButtonCheck = true;
+                               requestUpdate();
+                             });
       return;
     }
     if (currentItemIsEditable()) {
@@ -246,10 +254,11 @@ void DirectionSettingsActivity::render(RenderLock&&) {
             int closest = 0;
             for (int index = 1; index < static_cast<int>(item.presetValues.size()); ++index) {
               if (std::abs(static_cast<int>(item.presetValues[index]) - value) <
-                  std::abs(static_cast<int>(item.presetValues[closest]) - value)) closest = index;
+                  std::abs(static_cast<int>(item.presetValues[closest]) - value))
+                closest = index;
             }
-            constexpr StrId labels[] = {StrId::STR_MINIMUM, StrId::STR_TIGHT, StrId::STR_STANDARD,
-                                        StrId::STR_WIDE, StrId::STR_MAXIMUM};
+            constexpr StrId labels[] = {StrId::STR_MINIMUM, StrId::STR_TIGHT, StrId::STR_STANDARD, StrId::STR_WIDE,
+                                        StrId::STR_MAXIMUM};
             return std::string(I18N.get(labels[closest]));
           }
           case Item::Type::FONT_FAMILY: {
