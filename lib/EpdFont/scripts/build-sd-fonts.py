@@ -240,7 +240,7 @@ def main():
         print(f"ERROR: Config not found: {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     families = config.get("families", [])
