@@ -23,6 +23,7 @@ jobs:
           sudo ./llvm.sh 21
           sudo apt-get update
           sudo apt-get install -y clang-format-21
+          rm -f llvm.sh
 
       - name: Check formatting of changed lines
         env:
@@ -38,14 +39,13 @@ jobs:
           echo "Formatting check against: ${BASE_SHA}"
           export PATH="/usr/lib/llvm-21/bin:$PATH"
           python3 bin/fork-clang-format-fix "$BASE_SHA"
-          git add -A
-          if ! git diff --cached --quiet; then
+          if ! git diff --exit-code --quiet; then
             echo "=============================================="
             echo "Formatting issues found in changed lines."
             echo "Please run: ./bin/fork-clang-format-fix"
             echo "from the repository root, then commit the result."
             echo "=============================================="
-            git diff --cached --stat
+            git diff --stat
             exit 1
           fi
           echo "All changed lines are properly formatted."
