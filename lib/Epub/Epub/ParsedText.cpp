@@ -394,9 +394,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       // unrelated earlier character and gave it a zero-height cell.
       const auto* basePtr = reinterpret_cast<const unsigned char*>(words[i - 1].c_str());
       const uint32_t baseCp = utf8NextCodepoint(&basePtr);
-      overlaysPreviousCharacter =
-          baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
-          VerticalTextUtils::isUprightInVertical(baseCp);
+      overlaysPreviousCharacter = baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
+                                  VerticalTextUtils::isUprightInVertical(baseCp);
     }
 
     const bool isUprightHalfwidthKana =
