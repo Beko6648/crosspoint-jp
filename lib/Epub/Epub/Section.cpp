@@ -1,11 +1,12 @@
 #include "Section.h"
 
 #include <Arduino.h>
-#include <algorithm>
-#include <HalStorage.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
+
+#include <algorithm>
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
@@ -146,16 +147,16 @@ constexpr uint8_t SECTION_FILE_VERSION = 81;
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
 // Keep small XHTML files usable while still requiring more headroom for larger chapters.
-constexpr size_t MIN_FREE_HEAP_FOR_TINY_SECTION_BUILD = 30 * 1024;   // 30KB
-constexpr size_t MIN_FREE_HEAP_FOR_SMALL_SECTION_BUILD = 36 * 1024;  // 36KB
-constexpr size_t MIN_FREE_HEAP_FOR_MEDIUM_SECTION_BUILD = 48 * 1024; // 48KB
-constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;  // 64KB
+constexpr size_t MIN_FREE_HEAP_FOR_TINY_SECTION_BUILD = 30 * 1024;    // 30KB
+constexpr size_t MIN_FREE_HEAP_FOR_SMALL_SECTION_BUILD = 36 * 1024;   // 36KB
+constexpr size_t MIN_FREE_HEAP_FOR_MEDIUM_SECTION_BUILD = 48 * 1024;  // 48KB
+constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;   // 64KB
 // Keep additional room for page objects, font metrics, and parser buffers when
 // deciding whether a loaded external stylesheet can remain resident.
-constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;              // 32KB
+constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;  // 32KB
 // XHTML size alone cannot predict a single long text block or a large glyph
 // advance table.  Below this floor, release external rules and use inline CSS.
-constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;        // 96KB
+constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;  // 96KB
 // ZIP inflate streaming needs a 32KB sliding window plus a little room for file and temp allocations.
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
@@ -186,9 +187,7 @@ bool readPodChecked(FsFile& file, T& value) {
   return file.read(&value, sizeof(value)) == static_cast<int>(sizeof(value));
 }
 
-double msToSeconds(const uint32_t elapsedMs) {
-  return static_cast<double>(elapsedMs) / 1000.0;
-}
+double msToSeconds(const uint32_t elapsedMs) { return static_cast<double>(elapsedMs) / 1000.0; }
 
 bool hasEnoughHeapForSectionStream() {
   const uint32_t freeHeap = ESP.getFreeHeap();
@@ -241,8 +240,8 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
 
   uint32_t lutOffset = 0;
   uint32_t anchorMapOffset = 0;
-  if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) ||
-      !readPodChecked(file, anchorMapOffset) || file.position() != HEADER_SIZE) {
+  if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) || !readPodChecked(file, anchorMapOffset) ||
+      file.position() != HEADER_SIZE) {
     return false;
   }
 
@@ -354,13 +353,15 @@ PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIn
       const int y = element->yPos + ys[i];
       for (const auto& previous : positions) {
         if (x != previous.x || y != previous.y) continue;
-        LOG_ERR("CDIAG", "VERT_DUPLICATE spine=%d page=%u block=%u word=%u previousBlock=%u previousWord=%u x=%d y=%d text=%s prev=%s",
+        LOG_ERR("CDIAG",
+                "VERT_DUPLICATE spine=%d page=%u block=%u word=%u previousBlock=%u previousWord=%u x=%d y=%d text=%s "
+                "prev=%s",
                 spineIndex, pageIndex, static_cast<unsigned>(stats.textBlocks - 1), static_cast<unsigned>(i),
                 previous.block, previous.word, x, y, words[i].c_str(), previous.text);
         break;
       }
-      positions.push_back({x, y, static_cast<uint16_t>(stats.textBlocks - 1), static_cast<uint16_t>(i),
-                           words[i].c_str()});
+      positions.push_back(
+          {x, y, static_cast<uint16_t>(stats.textBlocks - 1), static_cast<uint16_t>(i), words[i].c_str()});
     }
   }
   return stats;
@@ -388,10 +389,12 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
   if (logPage) {
     LOG_DBG("CDIAG",
-            "PAGE spine=%d page=%u range=%lu..%lu record=%lu charsUtf8=%lu textBlocks=%u elements=%u free=%u min=%u maxAlloc=%u",
+            "PAGE spine=%d page=%u range=%lu..%lu record=%lu charsUtf8=%lu textBlocks=%u elements=%u free=%u min=%u "
+            "maxAlloc=%u",
             spineIndex, pageCount, static_cast<unsigned long>(position), static_cast<unsigned long>(file.position()),
-            static_cast<unsigned long>(file.position() - position), static_cast<unsigned long>(layoutStats.characterCount),
-            layoutStats.textBlocks, static_cast<unsigned>(page->elements.size()), ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+            static_cast<unsigned long>(file.position() - position),
+            static_cast<unsigned long>(layoutStats.characterCount), layoutStats.textBlocks,
+            static_cast<unsigned>(page->elements.size()), ESP.getFreeHeap(), ESP.getMinFreeHeap(),
             ESP.getMaxAllocHeap());
   }
 #endif
@@ -462,13 +465,12 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
       extraParagraphSpacing == header.extraParagraphSpacing && paragraphAlignment == header.paragraphAlignment &&
       viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
       hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
-      bookStyle == header.bookStyle && imageRendering == header.imageRendering &&
-      verticalMode == header.verticalMode && charSpacing == header.charSpacing;
+      bookStyle == header.bookStyle && imageRendering == header.imageRendering && verticalMode == header.verticalMode &&
+      charSpacing == header.charSpacing;
   if (!parametersMatch) {
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
     if (fontId != header.fontId)
-      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId,
-              header.fontId);
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId, header.fontId);
     if (lineCompression != header.lineCompression)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=lineCompression current=%.3f cached=%.3f", spineIndex,
               static_cast<double>(lineCompression), static_cast<double>(header.lineCompression));
@@ -649,8 +651,7 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   SectionHeader validatedHeader;
   uint16_t validatedPageCount = 0;
   if (!Storage.openFileForRead("SCT", tmpSectionPath, validationFile) ||
-      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) ||
-      validatedPageCount != pageCount) {
+      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) || validatedPageCount != pageCount) {
     validationFile.close();
     LOG_ERR("SCT", "Generated section cache failed validation");
     Storage.remove(tmpSectionPath.c_str());
@@ -685,8 +686,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
                                 const bool verticalMode, const uint8_t charSpacing,
-                                const std::function<void()>& popupFn, const int* headingFontIds,
-                                const int tableFontId, const int* cssBodyFontIds,
+                                const std::function<void()>& popupFn, const int* headingFontIds, const int tableFontId,
+                                const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
                                 const std::function<bool()>& cancelFn) {
@@ -736,8 +737,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return false;
   }
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering,
-                         verticalMode, charSpacing);
+                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering, verticalMode,
+                         charSpacing);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
@@ -760,8 +761,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     LOG_ERR("SCT",
             "Insufficient heap for section build (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu), "
             "aborting gracefully",
-            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild,
-            MIN_MAX_ALLOC_FOR_SECTION_STREAM, static_cast<unsigned long>(fileSize));
+            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild, MIN_MAX_ALLOC_FOR_SECTION_STREAM,
+            static_cast<unsigned long>(fileSize));
     file.close();
     Storage.remove(tmpSectionPath.c_str());
     Storage.remove(tmpHtmlPath.c_str());
@@ -830,9 +831,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   return true;
 }
 
-std::unique_ptr<Page> Section::loadPageFromSectionFile() {
-  return loadPageFromSectionFile(currentPage);
-}
+std::unique_ptr<Page> Section::loadPageFromSectionFile() { return loadPageFromSectionFile(currentPage); }
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile(const uint16_t pageNumber) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
