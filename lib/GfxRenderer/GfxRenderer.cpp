@@ -2043,9 +2043,7 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     sdFont = sdIt->second;
     if (sdFont && sdFont->hasVertData()) {
       const uint8_t styleIndex = static_cast<uint8_t>(style);
-      if (!sdFont->loadVertData(styleIndex)) {
-        sdFont->loadVertData(styleIndex);
-      }
+      sdFont->loadVertData(styleIndex);
     }
   }
 
