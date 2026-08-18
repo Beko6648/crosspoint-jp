@@ -35,7 +35,7 @@ class SdCardFont {
   // Returns the 12.4 fixed-point advance, or 0 if not found.
   uint16_t getAdvance(uint32_t codepoint, uint8_t style) const;
 
-// Look up an advance-table entry, loading one glyph's metrics on demand when
+  // Look up an advance-table entry, loading one glyph's metrics on demand when
   // the bounded table does not contain the codepoint.  This keeps layout
   // correct after a long CJK section reaches the advance-table capacity.
   uint16_t getAdvanceOrLoad(uint32_t codepoint, uint8_t style);
