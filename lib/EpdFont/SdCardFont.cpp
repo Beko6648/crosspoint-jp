@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Issue18Diagnostics.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -787,6 +788,7 @@ bool SdCardFont::loadVertData(uint8_t style) {
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
     LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
+    Issue18Diagnostics::logMemory("vert-load-skipped", filePath_);
     return false;
   }
 
@@ -885,6 +887,7 @@ bool SdCardFont::loadVertData(uint8_t style) {
   file.close();
   s.vertLoaded = true;
   LOG_DBG("SDCF", "Vert loaded: style=%u, count=%u, bitmaps=%u bytes", style, s.vertCount, totalVertBitmapSize);
+  Issue18Diagnostics::logMemory("vert-load-success", filePath_);
   return true;
 }
 

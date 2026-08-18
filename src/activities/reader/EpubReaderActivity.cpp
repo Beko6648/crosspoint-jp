@@ -9,6 +9,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Issue18Diagnostics.h>
 #include <Logging.h>
 #include <esp_system.h>
 
@@ -273,6 +274,8 @@ void EpubReaderActivity::onEnter() {
   if (!epub) {
     return;
   }
+
+  Issue18Diagnostics::logMemory("reader-enter", epub->getPath().c_str());
 
   // ルビフォントIDはrender()内でフォントロード後に設定
 
