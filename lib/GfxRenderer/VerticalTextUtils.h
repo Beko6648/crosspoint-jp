@@ -173,7 +173,6 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   // Fullwidth !/? use the rotated normal glyph below. Some SD fonts carry
   // horizontal-looking vert alternates for these two punctuation marks.
   if (cp == 0xFF08 || cp == 0xFF09) return true;  // （）
-  if (cp == 0xFF62 || cp == 0xFF63) return true;  // ｢｣
   if (cp == 0xFF61 || cp == 0xFF64) return true;  // ｡､
   if (cp == 0xFF0C || cp == 0xFF0E) return true;  // ，．
   if (cp == 0xFF1A || cp == 0xFF1B) return true;  // ：；
@@ -183,7 +182,7 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   if (cp == 0xFF5E) return true;                  // ～
   if (cp == 0xFF1C || cp == 0xFF1E) return true;
   // Long marks and dashes
-  if (cp == 0x30FC || cp == 0xFF70) return true;  // ーｰ
+  if (cp == 0x30FC) return true;                  // ー
   if (cp == 0x2014 || cp == 0x2015) return true;  // —―
   if (cp == 0x2025 || cp == 0x2026) return true;  // ‥…
   if (cp == 0x22EF) return true;                  // ⋯
