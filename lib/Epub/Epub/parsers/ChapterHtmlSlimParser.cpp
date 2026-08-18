@@ -723,7 +723,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
                 // インライン画像（文字の代替）判定: CSS指定の表示サイズが文字セル1つ分以内なら、
                 // ブロック図版（専用ページ化）ではなく本文中の文字（Word）として扱う。
-// bookStyle 1(書籍優先)・2(バランス)で有効。0(CrossPoint優先)はCSSを無視するため対象外。
+                // bookStyle 1(書籍優先)・2(バランス)で有効。0(CrossPoint優先)はCSSを無視するため対象外。
                 if (self->bookStyle != 0 && self->currentTextBlock && (hasCssHeight || hasCssWidth) &&
                     !hasClassToken(classAttr, "fit")) {
                   const bool fitsInline = self->verticalMode

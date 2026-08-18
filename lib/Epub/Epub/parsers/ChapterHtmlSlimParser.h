@@ -161,7 +161,7 @@ class ChapterHtmlSlimParser {
         fontId(fontId),
         lineCompression(lineCompression),
         extraParagraphSpacing(extraParagraphSpacing),
-// Vertical layout always uses justified (両端揃え) alignment: the
+        // Vertical layout always uses justified (両端揃え) alignment: the
         // column position is fixed right-to-left and paragraphAlignment is
         // only consulted for first-line indent eligibility. Force Justify so
         // indent works regardless of the (otherwise ignored) setting. The UI
