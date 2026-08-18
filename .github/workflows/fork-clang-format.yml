@@ -18,24 +18,25 @@ jobs:
 
       - name: Install clang-format-21
         run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
           sudo apt-get update
           sudo apt-get install -y clang-format-21
 
       - name: Check formatting of changed lines
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -e
           # Choose the base revision so that ONLY the fork's own changes are checked,
           # never upstream's pre-existing (non-conforming) code.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE_SHA="${GITHUB_EVENT_BEFORE}"
-          fi
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             BASE_SHA="$(git merge-base HEAD origin/main 2>/dev/null || true)"
             [ -n "$BASE_SHA" ] || BASE_SHA="HEAD~1"
           fi
           echo "Formatting check against: ${BASE_SHA}"
+          export PATH="/usr/lib/llvm-21/bin:$PATH"
           python3 bin/fork-clang-format-fix "$BASE_SHA"
           git add -A
           if ! git diff --cached --quiet; then
