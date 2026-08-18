@@ -872,14 +872,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
-  int batteryClusterWidth = 0;
-  if (SETTINGS.statusBarBattery) {
-    batteryClusterWidth = metrics.batteryWidth;
-    if (showBatteryPercentage) {
-      const auto batteryText = std::to_string(powerManager.getBatteryPercentage()) + "%";
-      batteryClusterWidth += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, batteryText.c_str());
-    }
-  }
+  const int batteryClusterWidth = getStatusBarBatteryClusterWidth(renderer);
   if (SETTINGS.statusBarBattery) {
     GUI.drawBatteryLeft(renderer,
                         Rect{metrics.statusBarHorizontalMargin + orientedMarginLeft + 1, textY, metrics.batteryWidth,
@@ -930,6 +923,60 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                       titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());
+  }
+}
+
+int BaseTheme::getStatusBarBatteryClusterWidth(const GfxRenderer& renderer) const {
+  auto metrics = UITheme::getInstance().getMetrics();
+  const bool showBatteryPercentage =
+      SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+  int batteryClusterWidth = 0;
+  if (SETTINGS.statusBarBattery) {
+    batteryClusterWidth = metrics.batteryWidth;
+    if (showBatteryPercentage) {
+      const auto batteryText = std::to_string(powerManager.getBatteryPercentage()) + "%";
+      batteryClusterWidth += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, batteryText.c_str());
+    }
+  }
+  return batteryClusterWidth;
+}
+
+void BaseTheme::drawPageTurnIndicator(const GfxRenderer& renderer, const bool pointingLeft, const int paddingBottom,
+                                      const bool isPageBookmarked) const {
+  // Draw a compact direction arrow in the status-bar band, positioned just after
+  // the left-side battery / bookmark cluster so it never overlaps them. The arrow
+  // is drawn symmetrically about its center so left and right indicators occupy
+  // the same horizontal slot (positions stay aligned between forward/back turns).
+  auto metrics = UITheme::getInstance().getMetrics();
+  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
+  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
+                                   &orientedMarginLeft);
+  const int textY = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom -
+                    paddingBottom;
+  const int centerY = textY + 6;
+
+  // Clear the left-side battery / bookmark cluster so the arrow never overlaps.
+  constexpr int bookmarkWidth = 8;
+  constexpr int bookmarkGap = 6;
+  const int clusterRight = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 +
+                           getStatusBarBatteryClusterWidth(renderer) +
+                           (isPageBookmarked ? bookmarkGap + bookmarkWidth : 0);
+
+  constexpr int headLen = 9;
+  constexpr int headHalf = 6;
+  constexpr int shaftLen = 8;
+  const int centerX = clusterRight + 6 + headLen;  // clear gap + arrow extends from center
+
+  if (pointingLeft) {
+    // Left-pointing arrow ◀ — head at centerX-headLen, shaft to the right.
+    renderer.drawLine(centerX - headLen, centerY, centerX, centerY - headHalf);
+    renderer.drawLine(centerX - headLen, centerY, centerX, centerY + headHalf);
+    renderer.drawLine(centerX - headLen, centerY, centerX - headLen + shaftLen, centerY);
+  } else {
+    // Right-pointing arrow ▶ — head at centerX+headLen, shaft to the left.
+    renderer.drawLine(centerX + headLen, centerY, centerX, centerY - headHalf);
+    renderer.drawLine(centerX + headLen, centerY, centerX, centerY + headHalf);
+    renderer.drawLine(centerX + headLen, centerY, centerX + headLen - shaftLen, centerY);
   }
 }
 

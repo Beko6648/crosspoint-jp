@@ -181,6 +181,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                         StrId::STR_CUSTOMISE_STATUS_BAR),
       SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                           StrId::STR_CUSTOMISE_STATUS_BAR),
+      SettingInfo::Toggle(StrId::STR_PAGE_TURN_INDICATOR, &CrossPointSettings::statusBarPageTurn,
+                          "statusBarPageTurn", StrId::STR_CUSTOMISE_STATUS_BAR),
   };
   // X3 only — show tilt page turn setting when the QMI8658 IMU is present.
   if (halTiltSensor.isAvailable()) {

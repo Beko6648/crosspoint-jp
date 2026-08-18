@@ -11,7 +11,7 @@
 #include "FsHelpers.h"
 
 namespace {
-constexpr uint8_t BOOK_CACHE_VERSION = 7;
+constexpr uint8_t BOOK_CACHE_VERSION = 8;
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpBookBinFile[] = "/book.bin.tmp";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
@@ -551,6 +551,18 @@ void BookMetadataCache::createTocEntry(const std::string& title, const std::stri
                                        const uint8_t level) {
   if (!buildMode || !tocFile || !spineFile) {
     LOG_DBG("BMC", "createTocEntry called but not in build mode");
+    return;
+  }
+
+  // Skip TOC entries that point into the middle of a spine file (i.e. carry a
+  // fragment anchor). These are footnotes, endnotes and section markers that
+  // happen to live inside a larger XHTML file. Treating them as chapters would
+  // crowd the chapter list with spurious entries (and, since chapter selection
+  // jumps per-file, would jump to the wrong place). Only entries that name a
+  // whole spine file are real chapters. This mirrors how the original Kindle
+  // build exposes its table of contents.
+  if (!anchor.empty()) {
+    LOG_DBG("BMC", "createTocEntry: skipping in-file TOC entry '%s' (anchor '%s')", title.c_str(), anchor.c_str());
     return;
   }
 

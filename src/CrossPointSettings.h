@@ -206,6 +206,9 @@ class CrossPointSettings {
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
   uint8_t statusBarTitle = 0;
   uint8_t statusBarBattery = 0;
+  // Show a brief page-turn indicator in the status bar while turning pages
+  // (0=OFF, 1=ON). EPUB reader only; XTC pages embed the status bar in the image.
+  uint8_t statusBarPageTurn = 0;
   // Direction-specific reader settings
   DirectionSettings horizontal;
   DirectionSettings vertical = {0, "", 1, 155, 15, 0, 0, 0, 10, 1, 1};  // charSpacing=15 for vertical, rubyEnabled=1

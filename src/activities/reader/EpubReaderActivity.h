@@ -28,6 +28,12 @@ class EpubReaderActivity final : public Activity {
   int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  // Set when a page-turn was accepted so the next render briefly flashes a
+  // status-bar arrow before drawing the new page. Cleared at the start of render.
+  bool pageTurnIndicatorPending = false;
+  // Direction for the page-turn arrow (true = left, false = right). Resolved from
+  // verticalMode + turn direction when a page turn is accepted.
+  bool pageTurnIndicatorPointingLeft = true;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
