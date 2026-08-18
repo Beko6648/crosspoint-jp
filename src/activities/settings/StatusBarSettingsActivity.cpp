@@ -12,13 +12,14 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int MENU_ITEMS = 6;
+constexpr int MENU_ITEMS = 7;
 const StrId menuNames[MENU_ITEMS] = {StrId::STR_CHAPTER_PAGE_COUNT,
                                      StrId::STR_BOOK_PROGRESS_PERCENTAGE,
                                      StrId::STR_PROGRESS_BAR,
                                      StrId::STR_PROGRESS_BAR_THICKNESS,
                                      StrId::STR_TITLE,
-                                     StrId::STR_BATTERY};
+                                     StrId::STR_BATTERY,
+                                     StrId::STR_PAGE_TURN_INDICATOR};
 constexpr int PROGRESS_BAR_ITEMS = 3;
 const StrId progressBarNames[PROGRESS_BAR_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
 
@@ -127,6 +128,8 @@ void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool
         static_cast<uint8_t>(std::clamp(static_cast<int>(SETTINGS.statusBarTitle) + delta, 0, TITLE_ITEMS - 1));
   } else if (selectedIndex == 5) {
     SETTINGS.statusBarBattery = toggleValue ? !SETTINGS.statusBarBattery : (delta < 0 ? 0 : 1);
+  } else if (selectedIndex == 6) {
+    SETTINGS.statusBarPageTurn = toggleValue ? !SETTINGS.statusBarPageTurn : (delta < 0 ? 0 : 1);
   }
   SETTINGS.saveToFile();
 }
@@ -163,6 +166,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
           return I18N.get(titleNames[SETTINGS.statusBarTitle]);
         } else if (index == 5) {
           return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
+        } else if (index == 6) {
+          return SETTINGS.statusBarPageTurn ? tr(STR_SHOW) : tr(STR_HIDE);
         } else {
           return tr(STR_HIDE);
         }
@@ -181,6 +186,14 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   }
 
   GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding);
+
+  // Show a page-turn arrow in the preview when the option is enabled, matching
+  // how the reader flashes it on each page turn (vertical RTL → left-pointing).
+  // Position clears the battery cluster exactly as in the reader (isPageBookmarked
+  // is false in this preview).
+  if (SETTINGS.statusBarPageTurn) {
+    GUI.drawPageTurnIndicator(renderer, true, verticalPreviewPadding);
+  }
 
   renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding,
                     renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -

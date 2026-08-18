@@ -178,6 +178,14 @@ class BaseTheme {
                              const int pageCount, std::string title, const int paddingBottom = 0,
                              const int textYOffset = 0, const bool rtlProgress = false,
                              const bool isPageBookmarked = false) const;
+  // Draw a compact direction arrow in the status-bar band to signal a page turn
+  // was accepted. pointingLeft=true draws "◀" (left), false draws "▶" (right),
+  // matching the actual page-turn direction. Positioned after the battery /
+  // bookmark cluster so it never overlaps them (same left-cluster layout as
+  // drawStatusBar). Drawn as a vector shape (drawLine) so it does not depend on
+  // any font glyph. paddingBottom aligns with the preview.
+  virtual void drawPageTurnIndicator(const GfxRenderer& renderer, bool pointingLeft = true,
+                                     const int paddingBottom = 0, const bool isPageBookmarked = false) const;
   virtual void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const;
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;
@@ -190,4 +198,9 @@ class BaseTheme {
   static constexpr int batteryPercentSpacing = 4;
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
+  // Width of the battery cluster (icon + optional %) shown at the left of the
+  // status bar. Shared by drawStatusBar() and drawPageTurnIndicator() so the
+  // page-turn arrow always clears the battery. Bookmark offset is added by each
+  // caller since drawStatusBar applies its own fixed bookmark spacing.
+  int getStatusBarBatteryClusterWidth(const GfxRenderer& renderer) const;
 };
