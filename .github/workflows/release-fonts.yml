@@ -7,7 +7,7 @@ name: Build & Publish SD Card Fonts
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - 'lib/EpdFont/scripts/sd-fonts.yaml'
 
