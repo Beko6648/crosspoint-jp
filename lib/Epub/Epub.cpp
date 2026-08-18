@@ -20,6 +20,8 @@ constexpr char sourceFingerprintTmpFile[] = "/source.fingerprint.tmp";
 constexpr uint8_t FULL_CACHE_MARKER_VERSION = 1;
 constexpr char fullCacheMarkerFile[] = "/.full_cache_complete";
 constexpr char fullCacheMarkerTmpFile[] = "/.full_cache_complete.tmp";
+constexpr char cachePromptSeenMarkerFile[] = "/.cache_prompt_seen";
+constexpr char legacyNoCachePromptMarkerFile[] = "/.no_cache_prompt";
 }  // namespace
 
 bool Epub::prepareSourceFingerprint(const uint64_t fingerprint, bool& markerNeedsWrite) {
@@ -114,6 +116,11 @@ Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
 void Epub::clearFullCacheGeneratedMarker() const {
   Storage.remove((cachePath + fullCacheMarkerTmpFile).c_str());
   Storage.remove((cachePath + fullCacheMarkerFile).c_str());
+}
+
+void Epub::clearCachePromptSeenMarker() const {
+  Storage.remove((cachePath + cachePromptSeenMarkerFile).c_str());
+  Storage.remove((cachePath + legacyNoCachePromptMarkerFile).c_str());
 }
 
 bool Epub::markFullCacheGenerated() const {

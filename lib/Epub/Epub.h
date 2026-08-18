@@ -61,6 +61,7 @@ class Epub {
   // no completion marker are resumable.
   CacheGenerationStatus getCacheGenerationStatus() const;
   void clearFullCacheGeneratedMarker() const;
+  void clearCachePromptSeenMarker() const;
   bool markFullCacheGenerated() const;
   const std::string& getCachePath() const;
   const std::string& getPath() const;

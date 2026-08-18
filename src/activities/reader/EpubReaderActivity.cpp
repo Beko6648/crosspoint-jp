@@ -326,23 +326,30 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
 
-  const std::string noCachePromptPath = epub->getCachePath() + "/.no_cache_prompt";
+  // Showing the prompt once is enough.  A cancelled generation remains resumable
+  // from the Reader menu, so reopening the book must not interrupt reading again.
+  const std::string cachePromptSeenPath = epub->getCachePath() + "/.cache_prompt_seen";
+  const std::string legacyNoCachePromptPath = epub->getCachePath() + "/.no_cache_prompt";
   if (!epub->isFullCacheGenerated() && !shouldSkipInitialCachePrompt(*epub) &&
-      !Storage.exists(noCachePromptPath.c_str())) {
-    auto handler = [this, noCachePromptPath](const ActivityResult& res) {
+      !Storage.exists(cachePromptSeenPath.c_str()) && !Storage.exists(legacyNoCachePromptPath.c_str())) {
+    FsFile promptMarker;
+    if (!Storage.openFileForWrite("ERS", cachePromptSeenPath, promptMarker)) {
+      LOG_ERR("ERS", "Could not record initial cache prompt");
+    } else {
+      promptMarker.close();
+    }
+
+    auto handler = [this](const ActivityResult& res) {
       if (!res.isCancelled) {
         pregenerateCache();
         requestUpdate();
-      } else if (auto* menu = std::get_if<MenuResult>(&res.data)) {
-        if (menu->action == ConfirmationActivity::RESULT_NEVER) {
-          FsFile f;
-          if (Storage.openFileForWrite("ERS", noCachePromptPath, f)) {
-            f.close();
-          }
-          requestUpdate();
-        }
       } else {
-        onGoHome();
+        // Left means "Later". Back keeps the existing close-book behavior.
+        if (std::holds_alternative<MenuResult>(res.data)) {
+          requestUpdate();
+        } else {
+          onGoHome();
+        }
       }
     };
     startActivityForResult(

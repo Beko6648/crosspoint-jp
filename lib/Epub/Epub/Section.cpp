@@ -453,12 +453,14 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
   if (!validateSectionCache(file, header, validatedPageCount)) {
     file.close();
     LOG_ERR("SCT", "Section cache validation failed");
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
   if (header.version != SECTION_FILE_VERSION) {
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Unknown version %u", header.version);
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
@@ -510,6 +512,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 #endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
