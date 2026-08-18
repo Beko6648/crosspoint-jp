@@ -1,0 +1,50 @@
+name: "Fork Clang-Format"
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!main'
+  pull_request:
+
+jobs:
+  clang-format:
+    name: clang-format (changed lines)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format-21
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-21
+
+      - name: Check formatting of changed lines
+        run: |
+          set -e
+          # Choose the base revision so that ONLY the fork's own changes are checked,
+          # never upstream's pre-existing (non-conforming) code.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${GITHUB_EVENT_BEFORE}"
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+            [ -n "$BASE_SHA" ] || BASE_SHA="HEAD~1"
+          fi
+          echo "Formatting check against: ${BASE_SHA}"
+          python3 bin/fork-clang-format-fix "$BASE_SHA"
+          git add -A
+          if ! git diff --cached --quiet; then
+            echo "=============================================="
+            echo "Formatting issues found in changed lines."
+            echo "Please run: ./bin/fork-clang-format-fix"
+            echo "from the repository root, then commit the result."
+            echo "=============================================="
+            git diff --cached --stat
+            exit 1
+          fi
+          echo "All changed lines are properly formatted."

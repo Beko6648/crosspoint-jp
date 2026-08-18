@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""
+Fork-specific clang-format helper: formats ONLY the changed lines.
+
+Unlike bin/clang-format-fix (which formats whole files touched by a diff),
+this script limits formatting to the hunks that actually changed, so
+upstream's pre-existing non-conforming code is never rewritten.
+New untracked files are formatted entirely (all their lines are "changed").
+
+Usage:
+  ./bin/fork-clang-format-fix [BASE_REV]
+    BASE_REV defaults to the merge-base of HEAD with origin/main
+    (falls back to HEAD~1 when origin/main is unavailable).
+"""
+import re
+import subprocess
+import sys
+
+EXCLUDE_PREFIXES = (
+    "lib/EpdFont/builtinFonts/",
+    "lib/Epub/Epub/hyphenation/generated/",
+    "lib/GfxRenderer/cjk_ui_font",
+    "lib/uzlib/",
+)
+EXCLUDE_EXACT = (
+    "lib/Txt/Cp932Table.generated.h",
+)
+
+CPP_SUFFIXES = (".c", ".cpp", ".h", ".hpp")
+
+
+def run(cmd, check=True):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        sys.exit(proc.returncode)
+    return proc.stdout
+
+
+def find_clang_format():
+    for name in ("clang-format-21", "clang-format"):
+        try:
+            subprocess.run([name, "--version"], capture_output=True, check=True)
+            return name
+        except FileNotFoundError:
+            continue
+    sys.stderr.write("clang-format-21 or clang-format not found\n")
+    sys.exit(1)
+
+
+def is_excluded(path):
+    if path in EXCLUDE_EXACT:
+        return True
+    return any(path.startswith(p) for p in EXCLUDE_PREFIXES)
+
+
+def changed_hunk_ranges(base, path):
+    """Return list of (start, end) line ranges in the NEW file that changed."""
+    diff = run(["git", "diff", "-U0", base, "--", path], check=False)
+    ranges = []
+    for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
+        start = int(m.group(1))
+        count = int(m.group(2) or 1)
+        if count > 0:
+            ranges.append((start, start + count - 1))
+    return ranges
+
+
+def main():
+    base = sys.argv[1] if len(sys.argv) > 1 else None
+    if base is None:
+        mb = run(["git", "merge-base", "HEAD", "origin/main"], check=False).strip()
+        base = mb if mb else "HEAD~1"
+
+    changed = run(["git", "diff", "--name-only", "--diff-filter=ACMR", base]).splitlines()
+    untracked = run(["git", "ls-files", "--others", "--exclude-standard"]).splitlines()
+    files = changed + untracked
+
+    clang = find_clang_format()
+    formatted = []
+    for path in files:
+        if not path.endswith(CPP_SUFFIXES) or is_excluded(path):
+            continue
+        if path in untracked:
+            # New file: format the whole file
+            run([clang, "-style=file", "-i", path])
+        else:
+            ranges = changed_hunk_ranges(base, path)
+            if not ranges:
+                continue
+            args = [clang, "-style=file"]
+            for start, end in ranges:
+                args.append(f"--lines={start}:{end}")
+            args += ["-i", path]
+            run(args)
+        formatted.append(path)
+
+    if formatted:
+        print("Formatted (changed lines only):")
+        for p in formatted:
+            print(f"  {p}")
+    else:
+        print("No C/C++ files with changes to format.")
+
+    print(f"(diff base: {base})")
+
+
+if __name__ == "__main__":
+    main()
