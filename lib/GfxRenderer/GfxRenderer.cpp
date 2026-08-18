@@ -9,6 +9,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "FontCacheManager.h"
 #include "VerticalTextUtils.h"
@@ -2139,8 +2140,50 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(displayCp);
       if (punctuation && punctuation->rotate) {
         const int columnWidth = getLineHeight(effectiveFontId);
-        const int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
-        const int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+        int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
+        int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+
+        // drawTextSideways uses a horizontal glyph's left bearing as its
+        // vertical origin. That differs substantially between BIZUD and Noto
+        // for halfwidth brackets and the halfwidth prolonged sound mark.
+        // Anchor their visible ink to the vertical cell instead of trusting
+        // that horizontal-font bearing.
+        if (cp == 0xFF62 || cp == 0xFF63 || cp == 0xFF70) {
+          int inkMinX = 0;
+          int inkMaxX = 0;
+          getTextVisibleBoundsX(effectiveFontId, charBuf, &inkMinX, &inkMaxX, style);
+          if (cp == 0xFF70) {
+            // ｰ: center the vertical line in its own cell.
+            drawY = yPos + verticalAdvance / 2 - (inkMinX + inkMaxX) / 2;
+          } else if (cp == 0xFF63) {
+            // ｣: closing bracket belongs at the head of its cell.
+            drawY = yPos + verticalAdvance / 8 - inkMinX;
+          } else {
+            // ｢: opening bracket belongs at the tail of its cell.
+            drawY = yPos + verticalAdvance - verticalAdvance / 8 - inkMaxX;
+          }
+
+          // The Noto-family halfwidth ｰ, ｣, and ･ bitmap designs need a
+          // separate optical placement from BIZUD. Keep this adjustment
+          // font-scoped so BIZUD's verified placement remains unchanged.
+          if ((cp == 0xFF63 || cp == 0xFF70) && sdFont != nullptr &&
+              std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
+            if (cp == 0xFF70) {       // ｰ: slightly right and lower
+              drawX -= 7;
+              drawY += 9;
+            } else {                  // ｣: retain the verified offset
+              drawX -= 10;
+              drawY += 5;
+            }
+          }
+        }
+
+        // U+FF65 has no OpenType vertical substitute by design, so this is
+        // its actual rendering path. Keep the optical correction Noto-only.
+        if (cp == 0xFF65 && sdFont != nullptr && std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
+          drawX -= 3;
+          drawY += 2;
+        }
         drawTextSideways(effectiveFontId, drawX, drawY, charBuf, black, style, columnWidth);
       } else {
         drawText(effectiveFontId, x, yPos, charBuf, black, style);
