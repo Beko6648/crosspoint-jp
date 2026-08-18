@@ -12,6 +12,7 @@
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
 #include "DirectionSettingsActivity.h"
+#include "DiagnosticsActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectActivity.h"
 #include "FontSelectionActivity.h"
@@ -84,6 +85,7 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_GENERATE_ALL_CACHE, SettingAction::GenerateAllCache));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
   // Direction-specific settings submenus at the top
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_HORIZONTAL_SETTINGS, SettingAction::HorizontalSettings));
@@ -399,6 +401,9 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
                                  rebuildSettingsLists();
                                  requestUpdate();
                                });
+        break;
+      case SettingAction::Diagnostics:
+        startActivityForResult(std::make_unique<DiagnosticsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing

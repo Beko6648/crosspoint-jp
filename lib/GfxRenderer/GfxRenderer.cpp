@@ -9,6 +9,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "FontCacheManager.h"
 #include "VerticalTextUtils.h"
@@ -83,6 +84,19 @@ bool isAsciiDigit(const uint32_t cp) { return cp >= '0' && cp <= '9'; }
 bool isAsciiLetter(const uint32_t cp) { return (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z'); }
 
 int clampExternalAdvance(const int baseWidth, const int spacing) { return std::max(1, baseWidth + spacing); }
+
+// Halfwidth Japanese full stop and comma have horizontal-font side bearings
+// that do not describe a vertical cell. Render these two presentation forms
+// through the corresponding standard Japanese glyphs, while retaining the source
+// character's advance for layout. This also lets existing SD-font `vert` data
+// for 、。 provide its designed vertical position without regenerating fonts.
+uint32_t verticalPresentationCodepoint(const uint32_t cp) {
+  switch (cp) {
+    case 0xFF61: return 0x3002;  // ｡ -> 。
+    case 0xFF64: return 0x3001;  // ､ -> 、
+    default: return cp;
+  }
+}
 
 bool hasUiGlyphForText(const char* text) {
   if (text == nullptr || *text == '\0') {
@@ -2028,7 +2042,10 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
   if (sdIt != sdCardFonts_.end()) {
     sdFont = sdIt->second;
     if (sdFont && sdFont->hasVertData()) {
-      sdFont->loadVertData(static_cast<uint8_t>(style));
+      const uint8_t styleIndex = static_cast<uint8_t>(style);
+      if (!sdFont->loadVertData(styleIndex)) {
+        sdFont->loadVertData(styleIndex);
+      }
     }
   }
 
@@ -2038,6 +2055,8 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
   while (*ptr) {
     uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
     if (cp == 0) break;
+
+    const uint32_t displayCp = verticalPresentationCodepoint(cp);
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
     if (!glyph) continue;
@@ -2068,8 +2087,8 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     // full shaping engine.
     const EpdGlyph* vertGlyph = nullptr;
     const uint8_t* vertBitmap = nullptr;
-    if (sdFont && VerticalTextUtils::shouldUseVertGlyph(cp)) {
-      vertGlyph = sdFont->getVertGlyph(cp, static_cast<uint8_t>(style));
+    if (sdFont && VerticalTextUtils::shouldUseVertGlyph(displayCp)) {
+      vertGlyph = sdFont->getVertGlyph(displayCp, static_cast<uint8_t>(style));
       if (vertGlyph) {
         vertBitmap = sdFont->getVertBitmap(vertGlyph, static_cast<uint8_t>(style));
       }
@@ -2108,21 +2127,63 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       // substitute (including U+301C in older SD-card fonts) still needs a
       // rotated horizontal glyph in vertical text.
       char charBuf[5] = {};
-      if (cp < 0x80) {
-        charBuf[0] = static_cast<char>(cp);
-      } else if (cp < 0x800) {
-        charBuf[0] = static_cast<char>(0xC0 | (cp >> 6));
-        charBuf[1] = static_cast<char>(0x80 | (cp & 0x3F));
-      } else if (cp < 0x10000) {
-        charBuf[0] = static_cast<char>(0xE0 | (cp >> 12));
-        charBuf[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-        charBuf[2] = static_cast<char>(0x80 | (cp & 0x3F));
+      if (displayCp < 0x80) {
+        charBuf[0] = static_cast<char>(displayCp);
+      } else if (displayCp < 0x800) {
+        charBuf[0] = static_cast<char>(0xC0 | (displayCp >> 6));
+        charBuf[1] = static_cast<char>(0x80 | (displayCp & 0x3F));
+      } else if (displayCp < 0x10000) {
+        charBuf[0] = static_cast<char>(0xE0 | (displayCp >> 12));
+        charBuf[1] = static_cast<char>(0x80 | ((displayCp >> 6) & 0x3F));
+        charBuf[2] = static_cast<char>(0x80 | (displayCp & 0x3F));
       }
-      const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(cp);
+      const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(displayCp);
       if (punctuation && punctuation->rotate) {
         const int columnWidth = getLineHeight(effectiveFontId);
-        const int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
-        const int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+        int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
+        int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+
+        // drawTextSideways uses a horizontal glyph's left bearing as its
+        // vertical origin. That differs substantially between BIZUD and Noto
+        // for halfwidth brackets and the halfwidth prolonged sound mark.
+        // Anchor their visible ink to the vertical cell instead of trusting
+        // that horizontal-font bearing.
+        if (cp == 0xFF62 || cp == 0xFF63 || cp == 0xFF70) {
+          int inkMinX = 0;
+          int inkMaxX = 0;
+          getTextVisibleBoundsX(effectiveFontId, charBuf, &inkMinX, &inkMaxX, style);
+          if (cp == 0xFF70) {
+            // ｰ: center the vertical line in its own cell.
+            drawY = yPos + verticalAdvance / 2 - (inkMinX + inkMaxX) / 2;
+          } else if (cp == 0xFF63) {
+            // ｣: closing bracket belongs at the head of its cell.
+            drawY = yPos + verticalAdvance / 8 - inkMinX;
+          } else {
+            // ｢: opening bracket belongs at the tail of its cell.
+            drawY = yPos + verticalAdvance - verticalAdvance / 8 - inkMaxX;
+          }
+
+          // The Noto-family halfwidth ｰ, ｣, and ･ bitmap designs need a
+          // separate optical placement from BIZUD. Keep this adjustment
+          // font-scoped so BIZUD's verified placement remains unchanged.
+          if ((cp == 0xFF63 || cp == 0xFF70) && sdFont != nullptr &&
+              std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
+            if (cp == 0xFF70) {       // ｰ: slightly right and lower
+              drawX -= 7;
+              drawY += 9;
+            } else {                  // ｣: retain the verified offset
+              drawX -= 10;
+              drawY += 5;
+            }
+          }
+        }
+
+        // U+FF65 has no OpenType vertical substitute by design, so this is
+        // its actual rendering path. Keep the optical correction Noto-only.
+        if (cp == 0xFF65 && sdFont != nullptr && std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
+          drawX -= 3;
+          drawY += 2;
+        }
         drawTextSideways(effectiveFontId, drawX, drawY, charBuf, black, style, columnWidth);
       } else {
         drawText(effectiveFontId, x, yPos, charBuf, black, style);

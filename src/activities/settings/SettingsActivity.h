@@ -25,6 +25,7 @@ enum class SettingAction {
   AozoraBunko,
   HorizontalSettings,
   VerticalSettings,
+  Diagnostics,
 };
 
 struct SettingInfo {

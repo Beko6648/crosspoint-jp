@@ -1,11 +1,12 @@
 #include "Section.h"
 
 #include <Arduino.h>
-#include <algorithm>
-#include <HalStorage.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
+
+#include <algorithm>
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
@@ -128,35 +129,37 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 72: explicit blank lines at a page or column head are discarded.
 // Version 73: CSS emphasis on <ruby>/<rb> base text is preserved in word styles.
 // Version 74: ruby parent and rb-specific emphasis have independent lifetimes.
-// Version 75: inline character-size images are stored as words (inlineImages parallel to words).
-// Version 76: inlineImages changed to sparse storage (only image words, not every word) to cut RAM.
-// Version 77: vertical EPUB layout persists ordinary HTML whitespace between
-// Latin words instead of treating it as only a word boundary (upstream v0.3.8.1).
-// Version 78: U+3000 ideographic spaces are kept as visible text (previously
-// skipped as whitespace, losing leading full-width spaces) (upstream v0.3.8.2).
-// ⚠️ フォークの78は上流の78(インライン画像+U+3000+矢印)とは意味が異なる。
-// ※ 上流v0.3.8.2の矢印直立化(U+2190-2193)は、Kindle版と表示を一致させるため意図的に取り込まない。
-// Version 79: 縦書きの段落配置(paragraphAlignment)をJustify(両端揃え)に固定。縦書きは列位置が
-// 右詰め固定でalignmentが描画に反映されず、インデント判定(Justify||Left)のみに使われるため、
-// Center/Right設定だと行頭インデントが機能しない不整合を解消。設定UIから縦書きの段落配置項目も削除。
-// Version 80: 段落先頭が全角空白(U+3000)で始まるときは自動インデントを適用しない。
-// 書籍が全角空白でインデント表現している場合にリーダーの自動インデントと重複して2文字分
-// 空くのを防ぐ(Kindle相当)。縦書き verticalIndent・横書き textIndent注入の両方に適用。
-constexpr uint8_t SECTION_FILE_VERSION = 80;
+// Version 75: SD-font advance-table misses retain their measured width instead
+// of persisting overlapping vertical glyph positions after the table is full.
+// Version 76: vertical EPUB layout persists ordinary HTML whitespace between
+// Latin words instead of treating it as only a word boundary.
+// Version 78: U+3000 ideographic spaces and basic directional arrows have
+// updated vertical layout semantics. Inline character-size images are stored
+// as sparse U+FFFC marker words, so their serialized layout also changed.
+// Version 79: halfwidth punctuation U+FF61/U+FF64/U+FF65 and long mark
+// U+FF70 use rotated vertical punctuation cells instead of kana metrics.
+// Version 80: standalone voiced and semi-voiced marks occupy and center in
+// their own vertical cells instead of attaching to an earlier base glyph.
+// Version 81: vertical paragraph alignment is forced to justify (両端揃え) so
+// first-line indent works regardless of the (otherwise ignored) setting.
+// Version 82: skip auto first-line indent when a paragraph starts with an
+// ideographic space (U+3000), so a book-encoded full-width-space indent is not
+// doubled by the reader's own indent (applies to vertical + horizontal).
+constexpr uint8_t SECTION_FILE_VERSION = 82;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
 // Keep small XHTML files usable while still requiring more headroom for larger chapters.
-constexpr size_t MIN_FREE_HEAP_FOR_TINY_SECTION_BUILD = 30 * 1024;   // 30KB
-constexpr size_t MIN_FREE_HEAP_FOR_SMALL_SECTION_BUILD = 36 * 1024;  // 36KB
-constexpr size_t MIN_FREE_HEAP_FOR_MEDIUM_SECTION_BUILD = 48 * 1024; // 48KB
-constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;  // 64KB
+constexpr size_t MIN_FREE_HEAP_FOR_TINY_SECTION_BUILD = 30 * 1024;    // 30KB
+constexpr size_t MIN_FREE_HEAP_FOR_SMALL_SECTION_BUILD = 36 * 1024;   // 36KB
+constexpr size_t MIN_FREE_HEAP_FOR_MEDIUM_SECTION_BUILD = 48 * 1024;  // 48KB
+constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;   // 64KB
 // Keep additional room for page objects, font metrics, and parser buffers when
 // deciding whether a loaded external stylesheet can remain resident.
-constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;              // 32KB
+constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;  // 32KB
 // XHTML size alone cannot predict a single long text block or a large glyph
 // advance table.  Below this floor, release external rules and use inline CSS.
-constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;        // 96KB
+constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;  // 96KB
 // ZIP inflate streaming needs a 32KB sliding window plus a little room for file and temp allocations.
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
@@ -187,9 +190,7 @@ bool readPodChecked(FsFile& file, T& value) {
   return file.read(&value, sizeof(value)) == static_cast<int>(sizeof(value));
 }
 
-double msToSeconds(const uint32_t elapsedMs) {
-  return static_cast<double>(elapsedMs) / 1000.0;
-}
+double msToSeconds(const uint32_t elapsedMs) { return static_cast<double>(elapsedMs) / 1000.0; }
 
 bool hasEnoughHeapForSectionStream() {
   const uint32_t freeHeap = ESP.getFreeHeap();
@@ -242,8 +243,8 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
 
   uint32_t lutOffset = 0;
   uint32_t anchorMapOffset = 0;
-  if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) ||
-      !readPodChecked(file, anchorMapOffset) || file.position() != HEADER_SIZE) {
+  if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) || !readPodChecked(file, anchorMapOffset) ||
+      file.position() != HEADER_SIZE) {
     return false;
   }
 
@@ -288,6 +289,89 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
 }
 }  // namespace
 
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+namespace {
+constexpr uint16_t kCacheDiagnosticsPageStart =
+#ifdef CACHE_DIAGNOSTICS_PAGE_START
+    CACHE_DIAGNOSTICS_PAGE_START;
+#else
+    60;
+#endif
+constexpr uint16_t kCacheDiagnosticsPageEnd =
+#ifdef CACHE_DIAGNOSTICS_PAGE_END
+    CACHE_DIAGNOSTICS_PAGE_END;
+#else
+    72;
+#endif
+
+bool isCacheDiagnosticsPage(const uint16_t page) {
+  return page >= kCacheDiagnosticsPageStart && page <= kCacheDiagnosticsPageEnd;
+}
+
+struct PageLayoutStats {
+  uint16_t textBlocks = 0;
+  uint32_t characterCount = 0;
+};
+
+uint32_t utf8CodepointCount(const std::string& text) {
+  uint32_t count = 0;
+  for (const unsigned char byte : text) {
+    if ((byte & 0xC0) != 0x80) ++count;
+  }
+  return count;
+}
+
+struct VerticalWordPosition {
+  int x;
+  int y;
+  uint16_t block;
+  uint16_t word;
+  const char* text;
+};
+
+PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIndex, const uint16_t pageIndex) {
+  PageLayoutStats stats;
+  // A page has a bounded number of glyphs.  Avoid allocating a coordinate map
+  // while inspecting it: this diagnostic runs only in the debug cache build.
+  std::vector<VerticalWordPosition> positions;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& block = static_cast<const PageLine&>(*element).getBlock();
+    if (!block) continue;
+    ++stats.textBlocks;
+
+    const auto& words = block->getWords();
+    for (const auto& word : words) stats.characterCount += utf8CodepointCount(word);
+    if (!block->getIsVertical()) continue;
+
+    const auto& xs = block->getWordXpos();
+    const auto& ys = block->getWordYpos();
+    if (xs.size() != words.size() || ys.size() != words.size()) {
+      LOG_ERR("CDIAG", "VERT_SIZE_MISMATCH spine=%d page=%u words=%u x=%u y=%u", spineIndex, pageIndex,
+              static_cast<unsigned>(words.size()), static_cast<unsigned>(xs.size()), static_cast<unsigned>(ys.size()));
+      continue;
+    }
+    for (size_t i = 0; i < words.size(); ++i) {
+      const int x = element->xPos + xs[i];
+      const int y = element->yPos + ys[i];
+      for (const auto& previous : positions) {
+        if (x != previous.x || y != previous.y) continue;
+        LOG_ERR("CDIAG",
+                "VERT_DUPLICATE spine=%d page=%u block=%u word=%u previousBlock=%u previousWord=%u x=%d y=%d text=%s "
+                "prev=%s",
+                spineIndex, pageIndex, static_cast<unsigned>(stats.textBlocks - 1), static_cast<unsigned>(i),
+                previous.block, previous.word, x, y, words[i].c_str(), previous.text);
+        break;
+      }
+      positions.push_back(
+          {x, y, static_cast<uint16_t>(stats.textBlocks - 1), static_cast<uint16_t>(i), words[i].c_str()});
+    }
+  }
+  return stats;
+}
+}  // namespace
+#endif
+
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
@@ -295,11 +379,28 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   }
 
   const uint32_t position = file.position();
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  PageLayoutStats layoutStats;
+  const bool logPage = cacheGenerationDiagnosticsActive && isCacheDiagnosticsPage(pageCount);
+  if (logPage) layoutStats = logVerticalLayoutDiagnostics(*page, spineIndex, pageCount);
+#endif
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", pageCount);
     return 0;
   }
   LOG_DBG("SCT", "Page %d processed", pageCount);
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  if (logPage) {
+    LOG_DBG("CDIAG",
+            "PAGE spine=%d page=%u range=%lu..%lu record=%lu charsUtf8=%lu textBlocks=%u elements=%u free=%u min=%u "
+            "maxAlloc=%u",
+            spineIndex, pageCount, static_cast<unsigned long>(position), static_cast<unsigned long>(file.position()),
+            static_cast<unsigned long>(file.position() - position),
+            static_cast<unsigned long>(layoutStats.characterCount), layoutStats.textBlocks,
+            static_cast<unsigned>(page->elements.size()), ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+            ESP.getMaxAllocHeap());
+  }
+#endif
 
   pageCount++;
   return position;
@@ -352,24 +453,66 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
   if (!validateSectionCache(file, header, validatedPageCount)) {
     file.close();
     LOG_ERR("SCT", "Section cache validation failed");
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
   if (header.version != SECTION_FILE_VERSION) {
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Unknown version %u", header.version);
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
 
-  if (fontId != header.fontId || lineCompression != header.lineCompression ||
-      extraParagraphSpacing != header.extraParagraphSpacing || paragraphAlignment != header.paragraphAlignment ||
-      viewportWidth != header.viewportWidth || viewportHeight != header.viewportHeight ||
-      hyphenationEnabled != header.hyphenationEnabled || firstLineIndent != header.firstLineIndent ||
-      bookStyle != header.bookStyle || imageRendering != header.imageRendering ||
-      verticalMode != header.verticalMode || charSpacing != header.charSpacing) {
+  const bool parametersMatch =
+      fontId == header.fontId && lineCompression == header.lineCompression &&
+      extraParagraphSpacing == header.extraParagraphSpacing && paragraphAlignment == header.paragraphAlignment &&
+      viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
+      hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
+      bookStyle == header.bookStyle && imageRendering == header.imageRendering && verticalMode == header.verticalMode &&
+      charSpacing == header.charSpacing;
+  if (!parametersMatch) {
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+    if (fontId != header.fontId)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId, header.fontId);
+    if (lineCompression != header.lineCompression)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=lineCompression current=%.3f cached=%.3f", spineIndex,
+              static_cast<double>(lineCompression), static_cast<double>(header.lineCompression));
+    if (extraParagraphSpacing != header.extraParagraphSpacing)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=extraParagraphSpacing current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(extraParagraphSpacing), static_cast<unsigned>(header.extraParagraphSpacing));
+    if (paragraphAlignment != header.paragraphAlignment)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=paragraphAlignment current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(paragraphAlignment), static_cast<unsigned>(header.paragraphAlignment));
+    if (viewportWidth != header.viewportWidth)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=viewportWidth current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(viewportWidth), static_cast<unsigned>(header.viewportWidth));
+    if (viewportHeight != header.viewportHeight)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=viewportHeight current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(viewportHeight), static_cast<unsigned>(header.viewportHeight));
+    if (hyphenationEnabled != header.hyphenationEnabled)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=hyphenationEnabled current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(hyphenationEnabled), static_cast<unsigned>(header.hyphenationEnabled));
+    if (firstLineIndent != header.firstLineIndent)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=firstLineIndent current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(firstLineIndent), static_cast<unsigned>(header.firstLineIndent));
+    if (bookStyle != header.bookStyle)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=bookStyle current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(bookStyle), static_cast<unsigned>(header.bookStyle));
+    if (imageRendering != header.imageRendering)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=imageRendering current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(imageRendering), static_cast<unsigned>(header.imageRendering));
+    if (verticalMode != header.verticalMode)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=verticalMode current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(verticalMode), static_cast<unsigned>(header.verticalMode));
+    if (charSpacing != header.charSpacing)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=charSpacing current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(charSpacing), static_cast<unsigned>(header.charSpacing));
+#endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
+    epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
   }
@@ -382,6 +525,10 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 
 // Your updated class method (assuming you are using the 'SD' object, which is a wrapper for a specific filesystem)
 bool Section::clearCache() const {
+  // Removing or discovering a missing section makes the book-level completion
+  // marker stale. A later successful full-cache run will publish it again.
+  epub->clearFullCacheGeneratedMarker();
+
   if (!Storage.exists(filePath.c_str())) {
     LOG_DBG("SCT", "Cache does not exist, no action needed");
     return true;
@@ -510,8 +657,7 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   SectionHeader validatedHeader;
   uint16_t validatedPageCount = 0;
   if (!Storage.openFileForRead("SCT", tmpSectionPath, validationFile) ||
-      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) ||
-      validatedPageCount != pageCount) {
+      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) || validatedPageCount != pageCount) {
     validationFile.close();
     LOG_ERR("SCT", "Generated section cache failed validation");
     Storage.remove(tmpSectionPath.c_str());
@@ -546,8 +692,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
                                 const bool verticalMode, const uint8_t charSpacing,
-                                const std::function<void()>& popupFn, const int* headingFontIds,
-                                const int tableFontId, const int* cssBodyFontIds,
+                                const std::function<void()>& popupFn, const int* headingFontIds, const int tableFontId,
+                                const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
                                 const std::function<bool()>& cancelFn) {
@@ -555,6 +701,14 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+  cacheGenerationDiagnosticsActive = static_cast<bool>(pageReadyFn);
+  if (cacheGenerationDiagnosticsActive) {
+    LOG_DBG("CDIAG", "BEGIN spine=%d href=%s cache=%s pageWindow=%u..%u free=%u min=%u maxAlloc=%u", spineIndex,
+            localPath.c_str(), filePath.c_str(), kCacheDiagnosticsPageStart, kCacheDiagnosticsPageEnd,
+            ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+  }
+#endif
 
   // Create cache directory if it doesn't exist
   {
@@ -589,8 +743,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return false;
   }
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering,
-                         verticalMode, charSpacing);
+                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering, verticalMode,
+                         charSpacing);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
@@ -613,8 +767,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     LOG_ERR("SCT",
             "Insufficient heap for section build (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu), "
             "aborting gracefully",
-            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild,
-            MIN_MAX_ALLOC_FOR_SECTION_STREAM, static_cast<unsigned long>(fileSize));
+            freeHeapBeforeBuild, maxAllocHeapBeforeBuild, requiredHeapBeforeBuild, MIN_MAX_ALLOC_FOR_SECTION_STREAM,
+            static_cast<unsigned long>(fileSize));
     file.close();
     Storage.remove(tmpSectionPath.c_str());
     Storage.remove(tmpHtmlPath.c_str());
@@ -683,9 +837,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   return true;
 }
 
-std::unique_ptr<Page> Section::loadPageFromSectionFile() {
-  return loadPageFromSectionFile(currentPage);
-}
+std::unique_ptr<Page> Section::loadPageFromSectionFile() { return loadPageFromSectionFile(currentPage); }
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile(const uint16_t pageNumber) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {

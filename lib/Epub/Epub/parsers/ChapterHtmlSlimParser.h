@@ -53,7 +53,7 @@ class ChapterHtmlSlimParser {
   std::string rubyTextBuffer;
   int fontId;
   int headingFontIds[6] = {0, 0, 0, 0, 0, 0};  // per heading level (h1-h6), 0 = use page fontId
-  int cssBodyFontIds[4] = {0, 0, 0, 0};         // reader family at each supported body size
+  int cssBodyFontIds[4] = {0, 0, 0, 0};        // reader family at each supported body size
   float lineCompression;
   uint8_t extraParagraphSpacing;
   uint8_t paragraphAlignment;

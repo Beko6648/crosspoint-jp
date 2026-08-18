@@ -35,9 +35,9 @@ class SdCardFont {
   // Returns the 12.4 fixed-point advance, or 0 if not found.
   uint16_t getAdvance(uint32_t codepoint, uint8_t style) const;
 
-  // Returns the advance for layout.  A codepoint missing from the compact
-  // advance table is looked up through the glyph overflow path (loading real
-  // glyph metadata) so it never becomes a zero-width (overlapping) glyph.
+  // Look up an advance-table entry, loading one glyph's metrics on demand when
+  // the bounded table does not contain the codepoint.  This keeps layout
+  // correct after a long CJK section reaches the advance-table capacity.
   uint16_t getAdvanceOrLoad(uint32_t codepoint, uint8_t style);
 
   // Returns true if advance table is populated for at least one style.
@@ -47,7 +47,9 @@ class SdCardFont {
   // buildAdvanceTable() calls then grow one shared table for that section.
   void resetAdvanceTable() { clearAdvanceTables(); }
 
-  // Free mini data for all styles, restore stub EpdFontData.
+  // Free transient prewarm/advance data for all styles and restore stub
+  // EpdFontData. Vertical substitution data stays resident until the font is
+  // unloaded so routine cache clears cannot degrade vertical punctuation.
   void clearCache();
 
   // Free kern/ligature data for all styles (reclaim memory before heavy operations).
@@ -110,6 +112,10 @@ class SdCardFont {
   // Content hash of the file header + style TOC entries (computed during load).
   // Used to generate deterministic font IDs for section cache invalidation.
   uint32_t contentHash() const { return contentHash_; }
+
+  // Original SD-card path. Used only for narrowly scoped rendering workarounds
+  // where a font family's bitmap design differs from its metrics.
+  const char* getFilePath() const { return filePath_; }
 
  private:
   // Per-style metadata (parsed from file header/TOC)
@@ -215,6 +221,7 @@ class SdCardFont {
 
   // Per-style helpers
   void freeStyleMiniData(PerStyle& s);
+  void freeStyleVertData(PerStyle& s);
   void freeStyleAll(PerStyle& s);
   void freeStyleKernLigatureData(PerStyle& s);
   bool loadStyleKernLigatureData(PerStyle& s);
