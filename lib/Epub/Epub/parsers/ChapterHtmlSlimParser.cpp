@@ -726,10 +726,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // bookStyle 1(書籍優先)・2(バランス)で有効。0(CrossPoint優先)はCSSを無視するため対象外。
                 if (self->bookStyle != 0 && self->currentTextBlock && (hasCssHeight || hasCssWidth) &&
                     !hasClassToken(classAttr, "fit")) {
+                  // 縦書きの比較基準は「文字セル1つ分（フォントサイズ=emSize）」を使う。
+                  // 実グリフ幅(一)基準はフォントファミリ依存（サンセリフはグリフが狭い）で、
+                  // CSS 1em相当の画像が溢れてブロック図版化してしまうため、フォント非依存に揃える。
                   const bool fitsInline = self->verticalMode
-                                              ? (displayWidth <= self->renderer.getTextAdvanceX(
-                                                                     self->fontId, "\xe4\xb8\x80",
-                                                                     EpdFontFamily::REGULAR))
+                                              ? (displayWidth <= static_cast<int>(emSize))
                                               : (displayHeight <= self->renderer.getLineHeight(self->fontId));
                   if (fitsInline) {
                     self->currentTextBlock->addImage(cachedImagePath, displayWidth, displayHeight);
