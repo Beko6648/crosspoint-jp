@@ -455,12 +455,52 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     return false;
   }
 
-  if (fontId != header.fontId || lineCompression != header.lineCompression ||
-      extraParagraphSpacing != header.extraParagraphSpacing || paragraphAlignment != header.paragraphAlignment ||
-      viewportWidth != header.viewportWidth || viewportHeight != header.viewportHeight ||
-      hyphenationEnabled != header.hyphenationEnabled || firstLineIndent != header.firstLineIndent ||
-      bookStyle != header.bookStyle || imageRendering != header.imageRendering ||
-      verticalMode != header.verticalMode || charSpacing != header.charSpacing) {
+  const bool parametersMatch =
+      fontId == header.fontId && lineCompression == header.lineCompression &&
+      extraParagraphSpacing == header.extraParagraphSpacing && paragraphAlignment == header.paragraphAlignment &&
+      viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
+      hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
+      bookStyle == header.bookStyle && imageRendering == header.imageRendering &&
+      verticalMode == header.verticalMode && charSpacing == header.charSpacing;
+  if (!parametersMatch) {
+#if defined(CACHE_GENERATION_DIAGNOSTICS)
+    if (fontId != header.fontId)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId,
+              header.fontId);
+    if (lineCompression != header.lineCompression)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=lineCompression current=%.3f cached=%.3f", spineIndex,
+              static_cast<double>(lineCompression), static_cast<double>(header.lineCompression));
+    if (extraParagraphSpacing != header.extraParagraphSpacing)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=extraParagraphSpacing current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(extraParagraphSpacing), static_cast<unsigned>(header.extraParagraphSpacing));
+    if (paragraphAlignment != header.paragraphAlignment)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=paragraphAlignment current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(paragraphAlignment), static_cast<unsigned>(header.paragraphAlignment));
+    if (viewportWidth != header.viewportWidth)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=viewportWidth current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(viewportWidth), static_cast<unsigned>(header.viewportWidth));
+    if (viewportHeight != header.viewportHeight)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=viewportHeight current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(viewportHeight), static_cast<unsigned>(header.viewportHeight));
+    if (hyphenationEnabled != header.hyphenationEnabled)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=hyphenationEnabled current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(hyphenationEnabled), static_cast<unsigned>(header.hyphenationEnabled));
+    if (firstLineIndent != header.firstLineIndent)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=firstLineIndent current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(firstLineIndent), static_cast<unsigned>(header.firstLineIndent));
+    if (bookStyle != header.bookStyle)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=bookStyle current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(bookStyle), static_cast<unsigned>(header.bookStyle));
+    if (imageRendering != header.imageRendering)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=imageRendering current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(imageRendering), static_cast<unsigned>(header.imageRendering));
+    if (verticalMode != header.verticalMode)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=verticalMode current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(verticalMode), static_cast<unsigned>(header.verticalMode));
+    if (charSpacing != header.charSpacing)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=charSpacing current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(charSpacing), static_cast<unsigned>(header.charSpacing));
+#endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
     clearCache();
@@ -475,6 +515,10 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 
 // Your updated class method (assuming you are using the 'SD' object, which is a wrapper for a specific filesystem)
 bool Section::clearCache() const {
+  // Removing or discovering a missing section makes the book-level completion
+  // marker stale. A later successful full-cache run will publish it again.
+  epub->clearFullCacheGeneratedMarker();
+
   if (!Storage.exists(filePath.c_str())) {
     LOG_DBG("SCT", "Cache does not exist, no action needed");
     return true;
