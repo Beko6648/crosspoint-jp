@@ -181,6 +181,18 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
   }
 }
 
+bool GfxRenderer::ensureSdCardVerticalGlyphsReady(const int fontId, const EpdFontFamily::Style style) const {
+  const auto it = sdCardFonts_.find(fontId);
+  if (it == sdCardFonts_.end() || it->second == nullptr || !it->second->hasVertData()) {
+    return false;
+  }
+
+  const bool loaded = it->second->loadVertData(static_cast<uint8_t>(style));
+  LOG_INF("GFX", "Vertical glyph preload: font=%d style=%u loaded=%d free=%u maxAlloc=%u", fontId,
+          static_cast<unsigned>(style), loaded ? 1 : 0, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  return loaded;
+}
+
 void GfxRenderer::resetSdCardAdvanceBuildTiming() const {
   for (const auto& entry : sdCardFonts_) {
     if (entry.second) entry.second->resetAdvanceTable();

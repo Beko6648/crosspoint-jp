@@ -1014,6 +1014,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // so we reload here with the correct direction after resolution.
     ensureSdFontLoaded(verticalMode);
 
+    // Load the OpenType 'vert' punctuation data while the reader has not yet
+    // allocated page/render buffers. After a large file transfer the heap can
+    // be fragmented enough that the former lazy load during drawTextVertical()
+    // is skipped, leaving 、 and brackets on the horizontal fallback path.
+    if (verticalMode) {
+      if (auto* fcm = renderer.getFontCacheManager()) {
+        fcm->clearCache();
+        fcm->freeKernLigatureData();
+      }
+      renderer.ensureSdCardVerticalGlyphsReady(SETTINGS.getReaderFontId(verticalMode));
+    }
+
      // ルビ用フォント: フォントロード後に8ptフォントを取得
     // rubyEnabled が OFF の場合は rubyFontId=0 でルビ描画をスキップ
     {
