@@ -38,9 +38,13 @@ jobs:
             gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*bootloader.bin" --dir _site/dev
             gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*partitions.bin" --dir _site/dev
             gh release download "${DEV_TAG}" --repo "${REPO}" --pattern "*firmware.bin" --dir _site/dev
-            mv -f _site/dev/*bootloader.bin _site/dev/bootloader.bin
-            mv -f _site/dev/*partitions.bin _site/dev/partitions.bin
-            mv -f _site/dev/*firmware.bin _site/dev/firmware.bin
+            # アセットが既に固定名(bootloader.bin等)で落ちてくる場合があるため、同名のmvは行わない
+            for base in bootloader partitions firmware; do
+              for src in _site/dev/*${base}.bin; do
+                [ -e "$src" ] || continue
+                [ "$(basename "$src")" = "${base}.bin" ] || mv -f "$src" "_site/dev/${base}.bin"
+              done
+            done
 
             cat > _site/manifest_dev.json <<MANIFEST
           {
@@ -72,9 +76,13 @@ jobs:
             gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*bootloader.bin" --dir _site/stable
             gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*partitions.bin" --dir _site/stable
             gh release download "${STABLE_TAG}" --repo "${REPO}" --pattern "*firmware.bin" --dir _site/stable
-            mv -f _site/stable/*bootloader.bin _site/stable/bootloader.bin
-            mv -f _site/stable/*partitions.bin _site/stable/partitions.bin
-            mv -f _site/stable/*firmware.bin _site/stable/firmware.bin
+            # アセットが既に固定名(bootloader.bin等)で落ちてくる場合があるため、同名のmvは行わない
+            for base in bootloader partitions firmware; do
+              for src in _site/stable/*${base}.bin; do
+                [ -e "$src" ] || continue
+                [ "$(basename "$src")" = "${base}.bin" ] || mv -f "$src" "_site/stable/${base}.bin"
+              done
+            done
 
             cat > _site/manifest_stable.json <<MANIFEST
           {
