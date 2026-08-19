@@ -375,9 +375,8 @@ void ChapterHtmlSlimParser::flushTextBlockForMemory() {
         [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, false);
   } else {
     const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
-    const uint16_t effectiveWidth = (horizontalInset < viewportWidth)
-                                        ? static_cast<uint16_t>(viewportWidth - horizontalInset)
-                                        : viewportWidth;
+    const uint16_t effectiveWidth =
+        (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
     currentTextBlock->layoutAndExtractLines(
         renderer, fontId, effectiveWidth,
         [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); }, false);
@@ -641,8 +640,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   // Both CSS height and width set: resolve both as max bounds, then fit image
                   // within those bounds preserving the original aspect ratio. Image decoders use
                   // a single scale factor for both axes; non-uniform scaling causes diagonal distortion.
-                  int maxW = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
+                  int maxW =
+                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
                   int maxH = static_cast<int>(
                       imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
 
@@ -687,8 +686,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
                 } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
                   // Use CSS width (resolve % against container width) and derive height from aspect ratio
-                  displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
+                  displayWidth =
+                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
                   if (displayWidth > containerWidth) displayWidth = containerWidth;
                   if (displayWidth < 1) displayWidth = 1;
                   displayHeight =
@@ -787,8 +786,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   return;
                 }
                 int xPos = (self->viewportWidth - displayWidth) / 2;
-                const int imageY = pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2)
-                                                : self->currentPageNextY;
+                const int imageY =
+                    pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2) : self->currentPageNextY;
                 auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, imageY);
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");
@@ -989,10 +988,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   auto bodyBlockStyle = userAlignmentBlockStyle;
   if (self->bookStyle == 1 && cssStyle.hasFontSize()) {
-    const float targetEmSize = emSize * std::clamp(cssFontScale(cssStyle.fontSize, emSize), MIN_CSS_FONT_SCALE,
-                                                    MAX_CSS_FONT_SCALE);
+    const float targetEmSize =
+        emSize * std::clamp(cssFontScale(cssStyle.fontSize, emSize), MIN_CSS_FONT_SCALE, MAX_CSS_FONT_SCALE);
     int closestFontId = self->fontId;
-    float closestDistance = std::abs(static_cast<float>(self->renderer.getFontAscenderSize(closestFontId)) - targetEmSize);
+    float closestDistance =
+        std::abs(static_cast<float>(self->renderer.getFontAscenderSize(closestFontId)) - targetEmSize);
     for (const int candidateFontId : self->cssBodyFontIds) {
       if (candidateFontId == 0) continue;
       const float candidateDistance =
@@ -1511,62 +1511,59 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   // Ruby closing tags
   if (strcmp(name, "rt") == 0) {
-   self->collectingRubyText = false;
-   self->depth -= 1;
+    self->collectingRubyText = false;
+    self->depth -= 1;
     return;
   }
 
   if (strcmp(name, "rb") == 0) {
-   self->flushPartWordBuffer();
-   self->depth -= 1;
-   if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
-     self->inlineStyleStack.pop_back();
-     self->updateEffectiveInlineStyle();
-   }
-   return;
+    self->flushPartWordBuffer();
+    self->depth -= 1;
+    if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
+      self->inlineStyleStack.pop_back();
+      self->updateEffectiveInlineStyle();
+    }
+    return;
   }
 
   if (strcmp(name, "rp") == 0) {
-   self->depth -= 1;
-   return;
+    self->depth -= 1;
+    return;
   }
 
   if (strcmp(name, "ruby") == 0 && self->inRuby && self->currentTextBlock) {
-   self->flushPartWordBuffer();
+    self->flushPartWordBuffer();
 
-   const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
-   const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
+    const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
+    const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
 
-   if (baseWordCount > 0 && !self->rubyTextBuffer.empty()) {
-     // Count UTF-8 characters in ruby text
+    if (baseWordCount > 0 && !self->rubyTextBuffer.empty()) {
+      // Count UTF-8 characters in ruby text
       std::vector<size_t> charOffsets;
       const char* p = self->rubyTextBuffer.c_str();
 
       while (*p) {
-       charOffsets.push_back(p - self->rubyTextBuffer.c_str());
+        charOffsets.push_back(p - self->rubyTextBuffer.c_str());
 
-       if ((*p & 0x80) == 0) {
-         p += 1;
-       } else if ((*p & 0xE0) == 0xC0) {
+        if ((*p & 0x80) == 0) {
+          p += 1;
+        } else if ((*p & 0xE0) == 0xC0) {
           p += 2;
-       } else if ((*p & 0xF0) == 0xE0) {
-         p += 3;
-       } else {
-         p += 4;
+        } else if ((*p & 0xF0) == 0xE0) {
+          p += 3;
+        } else {
+          p += 4;
         }
-     }
+      }
 
       charOffsets.push_back(self->rubyTextBuffer.size());
       const int rubyCharCount = static_cast<int>(charOffsets.size() - 1);
 
-     // ルビを親文字ごとに分割せず、親文字の先頭にまとめて付ける。
-     // 分割方式だと「スター」が「ス」「タ」のように欠けたり、
-     // 親文字数とのズレで一部ルビが表示されないことがある。
-     self->currentTextBlock->setRubyForWordAt(
-         self->rubyStartWordIndex,
-         self->rubyTextBuffer,
-         static_cast<size_t>(baseWordCount)
-     );
+      // ルビを親文字ごとに分割せず、親文字の先頭にまとめて付ける。
+      // 分割方式だと「スター」が「ス」「タ」のように欠けたり、
+      // 親文字数とのズレで一部ルビが表示されないことがある。
+      self->currentTextBlock->setRubyForWordAt(self->rubyStartWordIndex, self->rubyTextBuffer,
+                                               static_cast<size_t>(baseWordCount));
     }
 
     self->collectingRubyText = false;
@@ -1782,8 +1779,8 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int effectiveFontId = (line->getBlockStyle().fontId != 0) ? line->getBlockStyle().fontId : fontId;
-  const int lineHeight = renderer.getLineHeight(effectiveFontId) * lineCompression *
-                         line->getBlockStyle().lineHeightMultiplier;
+  const int lineHeight =
+      renderer.getLineHeight(effectiveFontId) * lineCompression * line->getBlockStyle().lineHeightMultiplier;
 
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
@@ -2025,8 +2022,8 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression *
-                          currentTextBlock->getBlockStyle().lineHeightMultiplier;
+  const int lineHeight =
+      renderer.getLineHeight(fontId) * lineCompression * currentTextBlock->getBlockStyle().lineHeightMultiplier;
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
 
   const int horizontalInset = blockStyle.totalHorizontalInset();
@@ -2037,7 +2034,7 @@ void ChapterHtmlSlimParser::makePages() {
   const auto discardExplicitBlankLine = [&]() {
     if (verticalMode) {
       currentTextBlock->layoutVerticalColumns(renderer, layoutFontId, viewportHeight,
-                                               [](const std::shared_ptr<TextBlock>&) {});
+                                              [](const std::shared_ptr<TextBlock>&) {});
     } else {
       currentTextBlock->layoutAndExtractLines(renderer, layoutFontId, effectiveWidth,
                                               [](const std::shared_ptr<TextBlock>&) {});
@@ -2051,8 +2048,8 @@ void ChapterHtmlSlimParser::makePages() {
     const bool wouldStartNewPage =
         verticalMode ? !pageHasContent || currentPageNextX < 0
                      : !pageHasContent || currentPageNextY + std::max(0, static_cast<int>(blockStyle.marginTop)) +
-                                               std::max(0, static_cast<int>(blockStyle.paddingTop)) + lineHeight >
-                                               viewportHeight;
+                                                  std::max(0, static_cast<int>(blockStyle.paddingTop)) + lineHeight >
+                                              viewportHeight;
     if (wouldStartNewPage) {
       discardExplicitBlankLine();
       return;
@@ -2096,8 +2093,8 @@ void ChapterHtmlSlimParser::makePages() {
   // In vertical mode, h1/h2 advance through columns right-to-left. Apply their
   // existing after-block spacing to that axis so the following body column does
   // not sit immediately beside a chapter heading.
-  const int blockBottomSpacing = std::max(0, static_cast<int>(blockStyle.marginBottom)) +
-                                 std::max(0, static_cast<int>(blockStyle.paddingBottom));
+  const int blockBottomSpacing =
+      std::max(0, static_cast<int>(blockStyle.marginBottom)) + std::max(0, static_cast<int>(blockStyle.paddingBottom));
   if (verticalMode && blockStyle.drawSeparatorBelow && blockBottomSpacing > 0) {
     currentPageNextX -= blockBottomSpacing;
   }
