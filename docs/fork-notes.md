@@ -44,6 +44,10 @@ Xteink X3用に、本家`v0.4.0`(コミット`2590620`)をベースに統合し�
 - **binファイル（ファームウェア）を本一覧に表示**(2026-08-19):本のファイル一覧(SDカード画面)に `.bin`(FW) も表示できるようにした。従来は本一覧に表示されず整理できなかった。
 - **ファイル転送モード待機中の電池消費を削減**(2026-08-19):ファイル転送モード（ネットワーク参加=STA）で接続・転送が無いアイドル時に、WiFiモデムスリープを復活させポーリングを削減して電池を節約。転送・接続が始まると自動で通常性能（スリープ無効・フルポーリング）に復帰。`hasActiveTraffic()`で判定（WebSocket接続中 or 直近5秒以内のHTTP/UDP/WS活動）。APモードは常時応答のため対象外。commit `b219ae4`。
 
+### シリアル/USB
+
+- **バッテリー満充電時にUSB Serialが有効化されない問題の修正**(2026-08-20):上流 zrn-ns crosspoint-jp PR#69 を移植。`main.cpp` の `ENABLE_SERIAL_LOG` ブロックで `Serial.begin()` を `gpio.isUsbConnected()` でゲートしていたが、X3 では `HalGPIO::isUsbConnected()` が BQ27220 の充電電流(充電中=電流>0)で USB 接続を推測するため、バッテリー100%で充電電流0mAになると USB 接続時でも `Serial.begin()` が呼ばれず、フラッシュ・シリアル監視が不能になる副次作用があった(crosspoint-reader/#2467)。対策として `Serial.begin()` を無条件化し、先頭に250ms delay(USB Serial/JTAG ペリフェラルの電源投入+ホスト側enumeration完了待ち、cold boot race対策)、さらに `logSerial.setTxTimeoutMs(1)`(CDC未接続時のwriteブロック防止)を追加。上流 crosspoint-reader/develop の方針と同一。フォーク独自のX3修正と競合なし。commit `bc3a341`。
+
 ---
 
 ## 意図的に取り込んでいない上流機能
