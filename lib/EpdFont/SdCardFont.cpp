@@ -144,14 +144,23 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
   }
 
   if (hasKern) {
+    // Keep the allocation context in the diagnostic report.  In particular,
+    // the matrix needs one contiguous block, so total free heap alone cannot
+    // tell us whether this is pressure or fragmentation.
+    const uint32_t freeBeforeKern = ESP.getFreeHeap();
+    const uint32_t maxAllocBeforeKern = ESP.getMaxAllocHeap();
     s.kernLeftClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernLeftEntryCount];
     s.kernRightClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernRightEntryCount];
     uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
     s.kernMatrix = new (std::nothrow) int8_t[matrixSize];
 
     if (!s.kernLeftClasses || !s.kernRightClasses || !s.kernMatrix) {
-      LOG_ERR("SDCF", "Failed to allocate kern data (%u+%u+%u bytes)", s.header.kernLeftEntryCount * 3u,
-              s.header.kernRightEntryCount * 3u, matrixSize);
+      LOG_ERR("SDCF",
+              "Failed to allocate kern data (%u+%u+%u bytes; before free=%u maxAlloc=%u; after free=%u "
+              "maxAlloc=%u; left=%d right=%d matrix=%d)",
+              s.header.kernLeftEntryCount * 3u, s.header.kernRightEntryCount * 3u, matrixSize, freeBeforeKern,
+              maxAllocBeforeKern, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), s.kernLeftClasses != nullptr,
+              s.kernRightClasses != nullptr, s.kernMatrix != nullptr);
       freeStyleKernLigatureData(s);
       file.close();
       return false;
