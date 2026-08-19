@@ -25,6 +25,10 @@ namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 constexpr int CACHE_STATUS_ICON_RADIUS = 7;
 constexpr char CACHE_STATUS_VALUE_SPACER[] = "    ";
+// Virtual first entry in PickDirectory mode. A single control byte that can
+// never collide with a real SD filename.
+constexpr const char* MOVE_HERE_MARKER = "\x01";
+bool isMoveHereEntry(const std::string& entry) { return entry == MOVE_HERE_MARKER; }
 
 }  // namespace
 
@@ -190,9 +194,10 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
           if (FsHelpers::checkFileExtension(filename, ".bin")) {
             files.emplace_back(filename);
           }
-        } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-                   FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                   FsHelpers::hasBmpExtension(filename) || FsHelpers::checkFileExtension(filename, ".bin")) {
+        } else if (mode != Mode::PickDirectory &&
+                   (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+                    FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+                    FsHelpers::hasBmpExtension(filename) || FsHelpers::checkFileExtension(filename, ".bin"))) {
           // Store original (NFD) filename for path construction.
           // NFC normalization is done at display time only.
           files.emplace_back(filename);
@@ -203,7 +208,14 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
   }
 
   const unsigned long sortStartedAt = millis();
-  sortFileList(files);
+  if (mode == Mode::PickDirectory) {
+    // Pin the special "move here" entry to the front, then sort the folders.
+    files.erase(std::remove(files.begin(), files.end(), MOVE_HERE_MARKER), files.end());
+    sortFileList(files);
+    files.insert(files.begin(), MOVE_HERE_MARKER);
+  } else {
+    sortFileList(files);
+  }
   const unsigned long sortMs = millis() - sortStartedAt;
 
   const unsigned long statusStartedAt = millis();
@@ -271,13 +283,60 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
   }
 }
 
+FileBrowserActivity::MoveResult FileBrowserActivity::moveEntry(const std::string& fullPath,
+                                                               const std::string& destDir) {
+  if (fullPath.empty() || destDir.empty()) return MoveResult::IntoSelf;
+
+  const auto slash = fullPath.find_last_of('/');
+  if (slash == std::string::npos || slash + 1 >= fullPath.size()) return MoveResult::IntoSelf;
+  const std::string name = fullPath.substr(slash + 1);
+  if (name.empty()) return MoveResult::IntoSelf;
+
+  // Normalize without trailing slashes for prefix comparisons.
+  std::string srcNorm = fullPath;
+  if (srcNorm.back() == '/') srcNorm.pop_back();
+  std::string dstNorm = destDir;
+  if (dstNorm.back() == '/') dstNorm.pop_back();
+
+  // Guard A: refuse to move a directory into itself or one of its descendants.
+  {
+    auto src = Storage.open(srcNorm.c_str());
+    if (src && src.isDirectory()) {
+      if (dstNorm == srcNorm || (dstNorm.size() > srcNorm.size() && dstNorm.compare(0, srcNorm.size(), srcNorm) == 0 &&
+                                 dstNorm[srcNorm.size()] == '/')) {
+        return MoveResult::IntoSelf;
+      }
+    }
+  }
+
+  std::string destFull = dstNorm;
+  destFull += "/";
+  destFull += name;
+
+  // Guard B: refuse if a same-named entry already exists at the destination.
+  if (Storage.exists(destFull.c_str())) return MoveResult::TargetExists;
+
+  if (FsHelpers::hasEpubExtension(fullPath)) clearFileMetadata(fullPath);
+
+  // rename failure is rare (guards already applied); fall back to IntoSelf so
+  // the caller still reports that the move did not happen.
+  if (!Storage.rename(fullPath.c_str(), destFull.c_str())) {
+    LOG_ERR("FileBrowser", "Failed to move: %s -> %s", fullPath.c_str(), destFull.c_str());
+    return MoveResult::IntoSelf;
+  }
+
+  invalidateDirectoryCache(dstNorm);
+  invalidateDirectoryCache(FsHelpers::extractFolderPath(fullPath));
+  LOG_DBG("FileBrowser", "Moved: %s -> %s", fullPath.c_str(), destFull.c_str());
+  return MoveResult::Success;
+}
+
 void FileBrowserActivity::loop() {
   // Long press BACK (1s+) goes to root folder
   // but Long press BACK (1s+) from ReaderActivity sends us here with the MappedInput already set.
   // So ignore it the first time.
-  if (mode == Mode::Books && mappedInput.isPressed(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= GO_HOME_MS &&
-      basepath != "/" && !lockLongPressBack) {
+  if ((mode == Mode::Books || mode == Mode::PickDirectory) && mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/" && !lockLongPressBack) {
     basepath = "/";
     loadFiles();
     selectorIndex = 0;
@@ -312,8 +371,8 @@ void FileBrowserActivity::loop() {
       return;
     }
 
-    if (mappedInput.getHeldTime() >= GO_HOME_MS) {
-      // --- LONG PRESS ACTION: DELETE FILE/FOLDER ---
+    if (mode == Mode::Books && mappedInput.getHeldTime() >= GO_HOME_MS) {
+      // --- LONG PRESS ACTION: DELETE / MOVE / MARK-AS-READ ---
       std::string cleanBasePath = basepath;
       if (cleanBasePath.back() != '/') cleanBasePath += "/";
       const std::string fullPath = cleanBasePath + (isDirectory ? entry.substr(0, entry.length() - 1) : entry);
@@ -333,22 +392,49 @@ void FileBrowserActivity::loop() {
         } else if (std::holds_alternative<MenuResult>(res.data)) {
           const int code = std::get<MenuResult>(res.data).action;
           if (code == ConfirmationActivity::RESULT_NEVER) {
-            // Left ボタン → アーカイブ（/Archived/ に移動）
-            std::string filename = isDirectory ? entry.substr(0, entry.length() - 1) : entry;
-            std::string destPath = "/Archived/" + filename;
-            Storage.mkdir("/Archived");
-            // 同名ファイルが存在する場合は先に削除
-            if (Storage.exists(destPath.c_str())) {
-              isDirectory ? Storage.removeDir(destPath.c_str()) : Storage.remove(destPath.c_str());
-            }
-            if (!isDirectory) clearFileMetadata(fullPath);
-            if (Storage.rename(fullPath.c_str(), destPath.c_str())) {
-              invalidateDirectoryCache("/Archived");
-              LOG_DBG("FileBrowser", "Archived to: %s", destPath.c_str());
-            } else {
-              LOG_ERR("FileBrowser", "Failed to archive: %s", fullPath.c_str());
-              return;
-            }
+            // Left ボタン → 移動: 移動先フォルダを選択して rename で移動
+            moveSourcePath = fullPath;
+            auto moveHandler = [this](const ActivityResult& pickRes) {
+              if (pickRes.isCancelled || !std::holds_alternative<FilePathResult>(pickRes.data)) {
+                moveSourcePath.clear();
+                loadFiles(true);
+                requestUpdate(true);
+                return;
+              }
+              const std::string destDir = std::get<FilePathResult>(pickRes.data).path;
+              const MoveResult mr = moveEntry(moveSourcePath, destDir);
+              if (mr != MoveResult::Success) {
+                // 移動失敗（同名 or 同一/配下）: メッセージを表示してから一覧へ戻る
+                const char* msg =
+                    mr == MoveResult::TargetExists ? tr(STR_MOVE_TARGET_EXISTS) : tr(STR_CANNOT_MOVE_INTO_SELF);
+                auto msgHandler = [this](const ActivityResult&) {
+                  moveSourcePath.clear();
+                  loadFiles(true);
+                  if (files.empty()) {
+                    selectorIndex = 0;
+                  } else if (selectorIndex >= files.size()) {
+                    selectorIndex = files.size() - 1;
+                  }
+                  requestUpdate(true);
+                };
+                startActivityForResult(
+                    std::make_unique<ConfirmationActivity>(renderer, mappedInput, std::string(msg), "", "",
+                                                           tr(STR_CONFIRM), tr(STR_CANCEL), ""),
+                    msgHandler);
+                return;
+              }
+              moveSourcePath.clear();
+              loadFiles(true);
+              if (files.empty()) {
+                selectorIndex = 0;
+              } else if (selectorIndex >= files.size()) {
+                selectorIndex = files.size() - 1;
+              }
+              requestUpdate(true);
+            };
+            startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/",
+                                                                         FileBrowserActivity::Mode::PickDirectory),
+                                   moveHandler);
           } else if (code == ConfirmationActivity::RESULT_MIDDLE) {
             // Confirm ボタン → 既読にする
             if (isDirectory) return;
@@ -381,12 +467,30 @@ void FileBrowserActivity::loop() {
       // ディレクトリ・.bin（ファームウェア）には既読操作を提供しない（btn2を空にする）
       const bool isBinFile = !isDirectory && FsHelpers::checkFileExtension(entry, ".bin");
       const char* markAsReadLabel = (isDirectory || isBinFile) ? "" : tr(STR_MARK_AS_READ);
-      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "", tr(STR_ARCHIVE),
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "", tr(STR_MOVE),
                                                                     tr(STR_DELETE), tr(STR_CANCEL), markAsReadLabel),
                              handler);
       return;
     } else {
       // --- SHORT PRESS ACTION: OPEN/NAVIGATE ---
+      // PickDirectory: confirm the "move here" entry to choose the current
+      // folder as destination; folders navigate downward.
+      if (mode == Mode::PickDirectory) {
+        if (isMoveHereEntry(entry)) {
+          std::string dest = basepath;
+          if (dest.back() != '/') dest += "/";
+          setResult(ActivityResult{FilePathResult{std::move(dest)}});
+          finish();
+        } else if (isDirectory) {
+          if (basepath.back() != '/') basepath += "/";
+          basepath += entry.substr(0, entry.length() - 1);
+          loadFiles();
+          selectorIndex = 0;
+          requestUpdate();
+        }
+        return;
+      }
+
       if (basepath.back() != '/') basepath += "/";
 
       if (isDirectory) {
@@ -419,7 +523,7 @@ void FileBrowserActivity::loop() {
         selectorIndex = findEntry(dirName);
 
         requestUpdate();
-      } else if (mode == Mode::PickFirmware) {
+      } else if (mode == Mode::PickFirmware || mode == Mode::PickDirectory) {
         ActivityResult result;
         result.isCancelled = true;
         setResult(std::move(result));
@@ -453,6 +557,7 @@ void FileBrowserActivity::loop() {
 }
 
 std::string getFileName(std::string filename) {
+  if (isMoveHereEntry(filename)) return std::string(tr(STR_MOVE_HERE));
   // NFC normalize for display (original NFD path is preserved in files[] for SD card access)
   utf8NfcNormalizeKana(filename);
   if (filename.back() == '/') {
@@ -471,6 +576,9 @@ std::string getFileExtension(std::string filename) {
     return "";
   }
   const auto pos = filename.rfind('.');
+  if (pos == std::string::npos) {
+    return "";
+  }
   return filename.substr(pos);
 }
 
@@ -502,6 +610,9 @@ void FileBrowserActivity::render(RenderLock&&) {
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
         [this](int index) { return getFileName(files[index]); }, nullptr,
         [this](int index) {
+          if (mode == Mode::PickDirectory) {
+            return isMoveHereEntry(files[index]) ? Folder : UITheme::getFileIcon(files[index]);
+          }
           return mode == Mode::PickFirmware ? UITheme::getFileIcon(files[index])
                                             : UITheme::getFileIcon(files[index], fileStatuses[index]);
         },
@@ -561,10 +672,13 @@ void FileBrowserActivity::render(RenderLock&&) {
 
   // Help text
   const bool selectingFirmwareFile = mode == Mode::PickFirmware && !files.empty() && files[selectorIndex].back() != '/';
-  const auto labels =
-      mappedInput.mapLabels(basepath == "/" ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK),
-                            files.empty() ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN)),
-                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+  const bool pickingMoveHere = mode == Mode::PickDirectory && !files.empty() && isMoveHereEntry(files[selectorIndex]);
+  const auto labels = mappedInput.mapLabels(
+      basepath == "/" ? (mode == Mode::PickFirmware || mode == Mode::PickDirectory ? tr(STR_BACK) : tr(STR_HOME))
+                      : tr(STR_BACK),
+      files.empty() ? ""
+                    : (selectingFirmwareFile ? tr(STR_SELECT) : (pickingMoveHere ? tr(STR_OK_BUTTON) : tr(STR_OPEN))),
+      files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
