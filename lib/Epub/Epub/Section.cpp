@@ -145,7 +145,10 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 82: skip auto first-line indent when a paragraph starts with an
 // ideographic space (U+3000), so a book-encoded full-width-space indent is not
 // doubled by the reader's own indent (applies to vertical + horizontal).
-constexpr uint8_t SECTION_FILE_VERSION = 82;
+// Version 83: inline-image detection compares against the character-cell width
+// (font size / emSize) instead of the "一" glyph advance, so it is font-family
+// independent (sans-serif glyphs no longer overflow to a block image).
+constexpr uint8_t SECTION_FILE_VERSION = 83;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
