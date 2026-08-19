@@ -372,6 +372,14 @@ void EpubReaderActivity::onExit() {
   APP_STATE.saveToFile();
   section.reset();
   epub.reset();
+
+  // The reader's SD font data is rebuilt when another book is opened.  Release
+  // it before Home allocates its cover buffer so fragmented page memory does
+  // not make the menu fail to render its recent-book cover.
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->clearCache();
+    fcm->freeKernLigatureData();
+  }
 }
 
 void EpubReaderActivity::loop() {

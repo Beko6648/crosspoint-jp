@@ -36,6 +36,9 @@ static constexpr uint32_t STYLE_TOC_ENTRY_SIZE = 32;
 // Vertical substitution is optional punctuation shaping.  Preserve enough
 // contiguous heap for the page renderer and font fallback data before loading it.
 static constexpr size_t MIN_FREE_HEAP_FOR_VERT_DATA = 32 * 1024;
+// Kerning is an optional typography enhancement.  Keep a small allocator
+// margin so a dense matrix never consumes the last usable contiguous block.
+static constexpr size_t KERN_ALLOCATION_MARGIN = 1024;
 
 // Helper to read little-endian values from byte buffer
 static inline uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -144,6 +147,18 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
   }
 
   if (hasKern) {
+    const uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
+
+    // The matrix must be one contiguous allocation.  Do not make several
+    // smaller allocations only to fail the matrix and repeat that work on the
+    // next prewarm; ligatures can still be loaded below.
+    if (ESP.getMaxAllocHeap() < matrixSize + KERN_ALLOCATION_MARGIN) {
+      LOG_INF("SDCF", "Skipping kern matrix (%u bytes; maxAlloc=%u)", matrixSize, ESP.getMaxAllocHeap());
+      hasKern = false;
+    }
+  }
+
+  if (hasKern) {
     // Keep the allocation context in the diagnostic report.  In particular,
     // the matrix needs one contiguous block, so total free heap alone cannot
     // tell us whether this is pressure or fragmentation.
@@ -151,22 +166,26 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     const uint32_t maxAllocBeforeKern = ESP.getMaxAllocHeap();
     s.kernLeftClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernLeftEntryCount];
     s.kernRightClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernRightEntryCount];
-    uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
+    const uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
     s.kernMatrix = new (std::nothrow) int8_t[matrixSize];
 
     if (!s.kernLeftClasses || !s.kernRightClasses || !s.kernMatrix) {
-      LOG_ERR("SDCF",
-              "Failed to allocate kern data (%u+%u+%u bytes; before free=%u maxAlloc=%u; after free=%u "
+      LOG_INF("SDCF",
+              "Disabling kern after allocation failure (%u+%u+%u bytes; before free=%u maxAlloc=%u; after free=%u "
               "maxAlloc=%u; left=%d right=%d matrix=%d)",
               s.header.kernLeftEntryCount * 3u, s.header.kernRightEntryCount * 3u, matrixSize, freeBeforeKern,
               maxAllocBeforeKern, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), s.kernLeftClasses != nullptr,
               s.kernRightClasses != nullptr, s.kernMatrix != nullptr);
-      freeStyleKernLigatureData(s);
-      file.close();
-      return false;
+      delete[] s.kernLeftClasses;
+      s.kernLeftClasses = nullptr;
+      delete[] s.kernRightClasses;
+      s.kernRightClasses = nullptr;
+      delete[] s.kernMatrix;
+      s.kernMatrix = nullptr;
+      hasKern = false;
     }
 
-    if (!file.seekSet(s.kernLeftFileOffset)) {
+    if (hasKern && !file.seekSet(s.kernLeftFileOffset)) {
       LOG_ERR("SDCF", "Failed to seek to kern data");
       freeStyleKernLigatureData(s);
       file.close();
@@ -174,9 +193,9 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     }
     size_t leftSz = s.header.kernLeftEntryCount * sizeof(EpdKernClassEntry);
     size_t rightSz = s.header.kernRightEntryCount * sizeof(EpdKernClassEntry);
-    if (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
+    if (hasKern && (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
         file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
-        file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize)) {
+        file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize))) {
       LOG_ERR("SDCF", "Failed to read kern data");
       freeStyleKernLigatureData(s);
       file.close();
