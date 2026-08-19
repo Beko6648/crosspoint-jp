@@ -28,3 +28,6 @@ lib/EpdFont/scripts/instanced_fonts/
 lib/EpdFont/scripts/output/
 
 *.bak
+
+# リリース用ビルド成果物（リリース作成時に生成）
+release_assets/
