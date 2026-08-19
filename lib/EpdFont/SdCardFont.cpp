@@ -179,8 +179,8 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
               "Disabling kern after allocation failure (%u+%u+%u bytes; rowCache=%d; before free=%u maxAlloc=%u; "
               "after free=%u maxAlloc=%u; left=%d right=%d matrix=%d)",
               s.header.kernLeftEntryCount * 3u, s.header.kernRightEntryCount * 3u, matrixSize, freeBeforeKern,
-              s.kernRowCacheEnabled, maxAllocBeforeKern, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), s.kernLeftClasses != nullptr,
-              s.kernRightClasses != nullptr, s.kernMatrix != nullptr);
+              s.kernRowCacheEnabled, maxAllocBeforeKern, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+              s.kernLeftClasses != nullptr, s.kernRightClasses != nullptr, s.kernMatrix != nullptr);
       freeStyleKernLigatureData(s);
       hasKern = false;
     }
@@ -195,7 +195,8 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     size_t rightSz = s.header.kernRightEntryCount * sizeof(EpdKernClassEntry);
     if (hasKern && (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
                     file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
-                    (s.kernMatrix && file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize)))) {
+                    (s.kernMatrix && file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) !=
+                                         static_cast<int>(matrixSize)))) {
       LOG_ERR("SDCF", "Failed to read kern data");
       freeStyleKernLigatureData(s);
       file.close();
