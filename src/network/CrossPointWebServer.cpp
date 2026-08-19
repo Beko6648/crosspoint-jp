@@ -321,6 +321,10 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
 
   running = true;
+  // Start the idle window with "recent activity" so the server begins in the
+  // fully responsive (active) state; the owning activity then drops to
+  // power-save polling once TRAFFIC_IDLE_MS elapses without client traffic.
+  lastTrafficMs = millis();
 
   LOG_DBG("WEB", "Web server started on port %d", port);
   // Show the correct IP based on network mode
@@ -407,6 +411,13 @@ void CrossPointWebServer::handleClient() {
     return;
   }
 
+  // Record traffic: a connected HTTP client indicates an in-flight request
+  // (page load, file list, download). WebSocket activity is tracked separately
+  // in onWebSocketEvent() so an open transfer session keeps us active.
+  if (server->client() && server->client().connected()) {
+    lastTrafficMs = millis();
+  }
+
   // Print debug every 10 seconds to confirm handleClient is being called
   if (millis() - lastDebugPrint > 10000) {
     LOG_DBG("WEB", "handleClient active, server running on port %d", port);
@@ -424,6 +435,7 @@ void CrossPointWebServer::handleClient() {
   if (udpActive) {
     int packetSize = udp.parsePacket();
     if (packetSize > 0) {
+      lastTrafficMs = millis();
       char buffer[16];
       int len = udp.read(buffer, sizeof(buffer) - 1);
       if (len > 0) {
@@ -453,6 +465,20 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
   status.lastCompleteSize = wsLastCompleteSize;
   status.lastCompleteAt = wsLastCompleteAt;
   return status;
+}
+
+bool CrossPointWebServer::hasActiveTraffic() const {
+  if (!running) {
+    return false;
+  }
+  // An open WebSocket client means a transfer/browser session is live => active.
+  if (wsServer && wsServer->connectedClients() > 0) {
+    return true;
+  }
+  // No WebSocket session: stay active briefly after the last HTTP/UDP/WS event
+  // so a burst of short-lived requests (or a discovery ping) isn't treated as
+  // idle. After TRAFFIC_IDLE_MS with no traffic we report idle.
+  return millis() - lastTrafficMs < TRAFFIC_IDLE_MS;
 }
 
 static void sendHtmlContent(WebServer* server, const char* data, size_t len) {
@@ -1511,6 +1537,10 @@ void CrossPointWebServer::wsEventCallback(uint8_t num, WStype_t type, uint8_t* p
 //   3. Server sends TEXT "PROGRESS:<received>:<total>" after each chunk
 //   4. Server sends TEXT "DONE" or "ERROR:<message>" when complete
 void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  // Any WebSocket event (connect/data/disconnect) is real client traffic and
+  // restarts the idle window, keeping the connection path fully responsive.
+  lastTrafficMs = millis();
+
   switch (type) {
     case WStype_DISCONNECTED:
       LOG_DBG("WS", "Client %u disconnected", num);

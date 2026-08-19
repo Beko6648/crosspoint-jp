@@ -323,8 +323,27 @@ void CrossPointWebServerActivity::loop() {
       }
     }
 
-    // Handle web server requests - maximize throughput with watchdog safety
+    // Handle web server requests - maximize throughput with watchdog safety.
+    // Idle-aware power management: when no client is actively transferring or
+    // has recently connected, the server drops to a low-power polling loop
+    // (radios may modem-sleep, few handleClient calls) to save battery while
+    // just sitting in file-transfer mode. The moment traffic resumes the
+    // activity returns to the upstream full-throughput behaviour.
     if (webServer && webServer->isRunning()) {
+      // True when clients are connected/transferring or within the recent
+      // traffic window. Used to pick the polling intensity AND the WiFi power
+      // mode so the two stay consistent (full throughput <=> sleep disabled).
+      const bool active = webServer->hasActiveTraffic();
+      const bool wantSleep = !active && !isApMode;
+
+      // Only toggle WiFi modem sleep on state change (STA mode) to avoid
+      // hammering the driver every loop iteration.
+      if (wantSleep != wifiSleepEnabled) {
+        wifiSleepEnabled = wantSleep;
+        WiFi.setSleep(wantSleep);
+        LOG_DBG("WEBACT", "WiFi modem sleep %s (active=%d)", wantSleep ? "ENABLED" : "disabled", active);
+      }
+
       const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
 
       // Log if there's a significant gap between handleClient calls (>100ms)
@@ -335,17 +354,20 @@ void CrossPointWebServerActivity::loop() {
       // Reset watchdog BEFORE processing - HTTP header parsing can be slow
       esp_task_wdt_reset();
 
-      // Process HTTP requests in tight loop for maximum throughput
-      // More iterations = more data processed per main loop cycle
-      constexpr int MAX_ITERATIONS = 500;
-      for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
+      // Process HTTP requests. Idle state uses a small iteration budget and a
+      // short yield between cycles so the CPU (and modem, when sleep is on)
+      // can actually idle; active state uses the upstream tight loop for
+      // maximum transfer throughput.
+      const int maxIterations = active ? 500 : 4;
+      for (int i = 0; i < maxIterations && webServer->isRunning(); i++) {
         webServer->handleClient();
         // Reset watchdog every 32 iterations
         if ((i & 0x1F) == 0x1F) {
           esp_task_wdt_reset();
         }
-        // Yield and check for exit button every 64 iterations
-        if ((i & 0x3F) == 0x3F) {
+        // Yield and check for exit button every iteration when idle (gives the
+        // scheduler a chance to sleep), every 64 when active (throughput).
+        if ((active ? ((i & 0x3F) == 0x3F) : true)) {
           yield();
           // Force trigger an update of which buttons are being pressed so be have accurate state
           // for back button checking

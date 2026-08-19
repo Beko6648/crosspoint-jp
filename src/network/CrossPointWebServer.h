@@ -64,6 +64,13 @@ class CrossPointWebServer {
   // Check if server is running
   bool isRunning() const { return running; }
 
+  // Activity-idle detection for power management.
+  // True when the server appears idle (no active WebSocket clients and no
+  // recent HTTP activity), which allows the caller to re-enable WiFi modem
+  // sleep and reduce polling to conserve battery while no transfer is in
+  // progress. See CrossPointWebServer.cpp for the exact definition.
+  bool hasActiveTraffic() const;
+
   WsUploadStatus getWsUploadStatus() const;
 
   // Get the port number
@@ -78,6 +85,13 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+
+  // Power-management support: track the last moment of real client traffic
+  // (WebSocket connect/data, HTTP request processing) so the owning activity
+  // can detect idle periods and re-enable WiFi modem sleep to save battery
+  // while no transfer is actually in progress.
+  unsigned long lastTrafficMs = 0;
+  static constexpr unsigned long TRAFFIC_IDLE_MS = 5000;  // 5s without traffic => idle
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);

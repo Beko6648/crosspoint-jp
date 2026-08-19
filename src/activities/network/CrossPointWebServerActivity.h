@@ -44,6 +44,12 @@ class CrossPointWebServerActivity final : public Activity {
   // Performance monitoring
   unsigned long lastHandleClientTime = 0;
 
+  // Power management: tracks whether WiFi modem sleep is currently enabled.
+  // The web server needs full-throughput (setSleep(false)) while clients are
+  // active or transferring; when idle we re-enable modem sleep to save battery
+  // and drop the polling intensity. Only toggled on state change.
+  bool wifiSleepEnabled = false;
+
   void renderServerRunning() const;
 
   void onNetworkModeSelected(NetworkMode mode);
