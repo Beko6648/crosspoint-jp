@@ -191,8 +191,8 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
             files.emplace_back(filename);
           }
         } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-            FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-            FsHelpers::hasBmpExtension(filename)) {
+                   FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+                   FsHelpers::hasBmpExtension(filename) || FsHelpers::checkFileExtension(filename, ".bin")) {
           // Store original (NFD) filename for path construction.
           // NFC normalization is done at display time only.
           files.emplace_back(filename);
@@ -378,8 +378,9 @@ void FileBrowserActivity::loop() {
 
       std::string heading = entry;
 
-      // ディレクトリには既読操作を提供しない（btn2を空にする）
-      const char* markAsReadLabel = isDirectory ? "" : tr(STR_MARK_AS_READ);
+      // ディレクトリ・.bin（ファームウェア）には既読操作を提供しない（btn2を空にする）
+      const bool isBinFile = !isDirectory && FsHelpers::checkFileExtension(entry, ".bin");
+      const char* markAsReadLabel = (isDirectory || isBinFile) ? "" : tr(STR_MARK_AS_READ);
       startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "", tr(STR_ARCHIVE),
                                                                     tr(STR_DELETE), tr(STR_CANCEL), markAsReadLabel),
                              handler);
@@ -394,6 +395,9 @@ void FileBrowserActivity::loop() {
         selectorIndex = 0;
         requestUpdate();
       } else {
+        // .bin files (firmware) are listed for management (delete/archive) but
+        // are not books, so a short press must not try to open them.
+        if (FsHelpers::checkFileExtension(entry, ".bin")) return;
         onSelectBook(basepath + entry);
       }
     }
