@@ -22,6 +22,9 @@ Xteink X3用に、本家`v0.4.0`(コミット`2590620`)をベースに統合し�
 
 - **フォントのダウンロード配布元をフォークの`sd-fonts`に変更**(2026-08-19):端末の「設定 > フォントをダウンロード」が取得する `fonts.json`(マニフェスト)の参照先を、従来の`zrn-ns/crosspoint-jp`からフォークの`Beko6648/crosspoint-jp`に変更(`FontDownloadActivity.h` の `FONT_MANIFEST_URL`・commit `323694a`)。フォークの`sd-fonts`リリースに**日本語5ファミリー**(NotoSansJp / BIZUDGothic / NotoSerifJp / BIZUDMincho / **NotoSerifJpExt**)を公開。NotoSerifJpExt は本フォーク独自フォント(JIS X 0213+拡張A漢字+矢印収録・6サイズ8-18pt・約72MB)。既存4種は zrn-ns の sd-fonts から .cpfont を取得して再公開。実機でDL候補一覧にオリジナル(NotoSerifJpExt含む5種)が表示されることを確認済み。**※ OTAアップデート先(`latestReleaseUrl`・`OtaUpdater.cpp`)は引き続き`zrn-ns/crosspoint-jp`を参照**(今回は変更していない。フォントDLとOTAで参照先が非対称)。
 
+- **SDフォントのkern行キャッシュ(上流 v0.4.1 移植、2026-08-20)**:大きなSDフォントのkern表を連続確保できない場合、必要な行だけをSDカードから読む方式に切り替える。メモリ断片化時の確保失敗を抑え、読書・ホーム画面を安定化。`SdCardFont.cpp/h`・`EpdFont.cpp`・`EpdFontData.h` を上流v0.4.1の最終版で更新(本フォークは上流v0.4.0と一致していたためクリーン適用)。実機確認済み(2026-08-20)。
+- **縦字形(OpenType `vert`)の先読み(上流 v0.4.1 c63bb28 移植、2026-08-20)**:ファイル転送直後などヒープ断片化時に縦書きEPUBを開いても、ページング用バッファ確保前に読点・長音・鍵括弧の縦字形を先読み(preload)して横書きフォールバックに落ちるのを防ぐ。あわせて読書終了(`onExit`)時にkern/約物データを解放し、ホームのカバー描画を安定化。`GfxRenderer` に `ensureSdCardVerticalGlyphsReady()` を追加。実機確認済み(2026-08-20・`yomuka_vertical_punctuation_check.epub` で確認)。
+
 ### キャッシュ
 
 - **キャッシュ生成終了時のフォントキャッシュ解放**:上流に取り込み済み
