@@ -207,9 +207,8 @@ class GfxRenderer {
   void drawCenteredText(const int fontId, const int y, const char* text, const bool black = true,
                         const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
-  void drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black,
-                            const int xOffset,
-                            const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  void drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black, const int xOffset,
+                              const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;

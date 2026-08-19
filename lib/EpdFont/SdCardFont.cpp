@@ -1,13 +1,14 @@
 #include "SdCardFont.h"
 
 #include <HalStorage.h>
-#include <Logging.h>
 #include <Issue18Diagnostics.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
 #include <cstring>
 #include <memory>
+
 #include "EpdFontFamily.h"
 
 static_assert(sizeof(EpdGlyph) == 16, "EpdGlyph must be 16 bytes to match .cpfont file layout");
@@ -194,8 +195,8 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     size_t leftSz = s.header.kernLeftEntryCount * sizeof(EpdKernClassEntry);
     size_t rightSz = s.header.kernRightEntryCount * sizeof(EpdKernClassEntry);
     if (hasKern && (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
-        file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
-        file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize))) {
+                    file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
+                    file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize))) {
       LOG_ERR("SDCF", "Failed to read kern data");
       freeStyleKernLigatureData(s);
       file.close();
@@ -814,8 +815,8 @@ bool SdCardFont::loadVertData(uint8_t style) {
   if (s.vertSectionOffset == 0) return false;
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
-    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
+    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style, ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
     Issue18Diagnostics::logMemory("vert-load-skipped", filePath_);
     return false;
   }
@@ -1214,29 +1215,28 @@ EpdFont* SdCardFont::getEpdFont(uint8_t style) {
 bool SdCardFont::hasStyle(uint8_t style) const { return style < MAX_STYLES && styles_[style].present; }
 
 uint8_t SdCardFont::resolveStyle(uint8_t style) const {
-    static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
-        {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},
-        {EpdFontFamily::BOLD, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::ITALIC},
-        {EpdFontFamily::ITALIC, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD},
-        {EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::REGULAR},
-    };
+  static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
+      {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},
+      {EpdFontFamily::BOLD, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::ITALIC},
+      {EpdFontFamily::ITALIC, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD},
+      {EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::REGULAR},
+  };
 
-    const uint8_t styleBits = style & (MAX_STYLES - 1);
-    for (uint8_t candidate : kFallbacks[styleBits]) {
-        if (styles_[candidate].present)
-            return candidate;
-    }
-    return EpdFontFamily::REGULAR;
+  const uint8_t styleBits = style & (MAX_STYLES - 1);
+  for (uint8_t candidate : kFallbacks[styleBits]) {
+    if (styles_[candidate].present) return candidate;
+  }
+  return EpdFontFamily::REGULAR;
 }
 
 uint8_t SdCardFont::resolveStyleMask(uint8_t styleMask) const {
-    uint8_t resolvedMask = 0;
-    for (uint8_t si = 0; si < MAX_STYLES; si++) {
-        if (styleMask & (1 << si)) {
-            resolvedMask |= static_cast<uint8_t>(1u << resolveStyle(si));
-        }
+  uint8_t resolvedMask = 0;
+  for (uint8_t si = 0; si < MAX_STYLES; si++) {
+    if (styleMask & (1 << si)) {
+      resolvedMask |= static_cast<uint8_t>(1u << resolveStyle(si));
     }
-    return resolvedMask;
+  }
+  return resolvedMask;
 }
 
 // --- On-demand glyph loading (overflow buffer) ---
