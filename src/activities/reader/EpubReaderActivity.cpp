@@ -372,6 +372,14 @@ void EpubReaderActivity::onExit() {
   APP_STATE.saveToFile();
   section.reset();
   epub.reset();
+
+  // The reader's SD font data is rebuilt when another book is opened.  Release
+  // it before Home allocates its cover buffer so fragmented page memory does
+  // not make the menu fail to render its recent-book cover.
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->clearCache();
+    fcm->freeKernLigatureData();
+  }
 }
 
 void EpubReaderActivity::loop() {
@@ -1035,6 +1043,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // goToReader() calls ensureSdFontLoaded(false) before verticalMode is known,
     // so we reload here with the correct direction after resolution.
     ensureSdFontLoaded(verticalMode);
+
+    // Load the OpenType 'vert' punctuation data while the reader has not yet
+    // allocated page/render buffers. After a large file transfer the heap can
+    // be fragmented enough that the former lazy load during drawTextVertical()
+    // is skipped, leaving 、 and brackets on the horizontal fallback path.
+    if (verticalMode) {
+      if (auto* fcm = renderer.getFontCacheManager()) {
+        fcm->clearCache();
+        fcm->freeKernLigatureData();
+      }
+      renderer.ensureSdCardVerticalGlyphsReady(SETTINGS.getReaderFontId(verticalMode));
+    }
 
      // ルビ用フォント: フォントロード後に8ptフォントを取得
     // rubyEnabled が OFF の場合は rubyFontId=0 でルビ描画をスキップ
