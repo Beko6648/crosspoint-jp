@@ -176,11 +176,15 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       int imgY = y;
       if (isVertical && i < wordYpos.size()) {
         // 縦書き: 画像を、そのセル(=次の語までの送り)の縦中心に配置する。
-        // 横書きの行内中央配置と対称。列末尾(次の語がない)は列の残り高さで近似。
-        int cellBottom = (i + 1 < wordYpos.size()) ? wordYpos[i + 1] : viewportHeight;
-        int cellH = cellBottom - wordYpos[i];
-        if (cellH < imgH) cellH = imgH;  // 画像がセルより大きい場合は上詰め相当(はみ出さない)
-        imgY = y + wordYpos[i] + (cellH - imgH) / 2;
+        // 横書きの行内中央配置と対称。列末・段落末(次の語がない)では残り画面全体を
+        // セル下端に使うと画像が中央まで下がるため、元の位置のままにしておく。
+        if (i + 1 < wordYpos.size()) {
+          int cellH = wordYpos[i + 1] - wordYpos[i];
+          if (cellH < imgH) cellH = imgH;  // 画像がセルより大きい場合は上詰め相当(はみ出さない)
+          imgY = y + wordYpos[i] + (cellH - imgH) / 2;
+        } else {
+          imgY = y + wordYpos[i];
+        }
         // 縦書き: 列セル内に中央配置（画像は回転しない）
         imgX += (columnWidth - imgW) / 2;
       } else {
