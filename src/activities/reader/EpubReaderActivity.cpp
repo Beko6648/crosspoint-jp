@@ -1342,7 +1342,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   if (TextBlock::rubyFontId != 0 && renderer.isSdCardFont(TextBlock::rubyFontId)) {
     std::string pageRubyText;
     page->collectRubyText(pageRubyText);
-    if (!pageRubyText.empty()) renderer.ensureSdCardFontReady(TextBlock::rubyFontId, pageRubyText.c_str());
+    if (!pageRubyText.empty()) {
+      renderer.ensureSdCardFontReady(TextBlock::rubyFontId, pageRubyText.c_str(), 1u << EpdFontFamily::REGULAR);
+    }
   }
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
                rubyOffsetX, rubyOffsetY);  // scan pass

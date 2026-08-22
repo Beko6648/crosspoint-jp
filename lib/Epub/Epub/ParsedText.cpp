@@ -74,6 +74,15 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
   return renderer.getTextAdvanceX(fontId, sanitized.c_str(), style);
 }
 
+uint8_t usedStyleMask(const std::vector<EpdFontFamily::Style>& wordStyles) {
+  uint8_t mask = 1u << EpdFontFamily::REGULAR;
+  for (const auto style : wordStyles) {
+    const uint8_t baseStyle = static_cast<uint8_t>(style) & static_cast<uint8_t>(EpdFontFamily::BOLD_ITALIC);
+    mask |= static_cast<uint8_t>(1u << baseStyle);
+  }
+  return mask;
+}
+
 // Check if a word is a single CJK character (used for zero-spacing between adjacent CJK words)
 bool isSingleCjkWord(const std::string& word) {
   if (word.empty()) return false;
@@ -236,7 +245,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
       allText += words[i];
     }
     if (hyphenationEnabled) allText += '-';
-    renderer.ensureSdCardFontReady(fontId, allText.c_str());
+    renderer.ensureSdCardFontReady(fontId, allText.c_str(), usedStyleMask(wordStyles));
   }
 
   const int pageWidth = viewportWidth;
@@ -317,7 +326,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     // contains only halfwidth kana. This lets each font provide its own body
     // cell instead of deriving one from family-specific line-height metrics.
     allText += "\xE4\xB8\x80";  // U+4E00
-    renderer.ensureSdCardFontReady(fontId, allText.c_str());
+    renderer.ensureSdCardFontReady(fontId, allText.c_str(), usedStyleMask(wordStyles));
   }
 
   const int lineHeight = renderer.getLineHeight(fontId);

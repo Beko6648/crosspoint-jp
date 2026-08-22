@@ -149,7 +149,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 83: decode the standard &apos; HTML entity before pages are persisted.
 // Version 84: retain complete ruby groups until their annotation is applied.
 // Version 85: footnote href records retain up to 256 bytes.
-constexpr uint8_t SECTION_FILE_VERSION = 85;
+// Version 86: ruby closing tags preserve parser depth so surrounding emphasis
+// is closed at the correct element.
+constexpr uint8_t SECTION_FILE_VERSION = 86;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

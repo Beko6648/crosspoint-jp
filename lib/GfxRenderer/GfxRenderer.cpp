@@ -164,7 +164,7 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
   return &fontData->bitmap[glyph->dataOffset];
 }
 
-void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const {
+void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask) const {
   auto it = sdCardFonts_.find(fontId);
   if (it != sdCardFonts_.end()) {
     // Build a compact advance-only table for layout measurement.
@@ -172,7 +172,7 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text) const 
     // with 2000+ unique codepoints without overflow thrashing.
     // Uses 6 bytes per codepoint (vs 16 for full EpdGlyph), no bitmap data.
     const uint32_t startedAt = millis();
-    int missed = it->second->buildAdvanceTable(utf8Text, 0x0F);
+    int missed = it->second->buildAdvanceTable(utf8Text, styleMask);
     sdCardAdvanceBuildMs_ += millis() - startedAt;
     sdCardAdvanceBuildCalls_++;
     if (missed > 0) {

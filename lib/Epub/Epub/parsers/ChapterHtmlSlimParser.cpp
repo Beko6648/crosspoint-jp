@@ -1515,24 +1515,21 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   // Ruby closing tags
   if (strcmp(name, "rt") == 0) {
-   self->collectingRubyText = false;
-   self->depth -= 1;
+    self->collectingRubyText = false;
     return;
   }
 
   if (strcmp(name, "rb") == 0) {
-   self->flushPartWordBuffer();
-   self->depth -= 1;
-   if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
-     self->inlineStyleStack.pop_back();
-     self->updateEffectiveInlineStyle();
-   }
-   return;
+    self->flushPartWordBuffer();
+    if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
+      self->inlineStyleStack.pop_back();
+      self->updateEffectiveInlineStyle();
+    }
+    return;
   }
 
   if (strcmp(name, "rp") == 0) {
-   self->depth -= 1;
-   return;
+    return;
   }
 
   if (strcmp(name, "ruby") == 0 && self->inRuby && self->currentTextBlock) {
@@ -1578,7 +1575,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->rubyStartWordIndex = -1;
     self->rubyTextBuffer.clear();
 
-    self->depth -= 1;
     if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyTagStyle) {
       self->inlineStyleStack.pop_back();
       self->updateEffectiveInlineStyle();
