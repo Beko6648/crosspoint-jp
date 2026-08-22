@@ -104,6 +104,17 @@ void SdCardFont::freeAll() {
   loaded_ = false;
 }
 
+void SdCardFont::releaseResidentCaches() {
+  clearOverflow();
+  clearAdvanceTables();
+  for (uint8_t i = 0; i < MAX_STYLES; i++) {
+    if (!styles_[i].present) continue;
+    freeStyleMiniData(styles_[i]);
+    freeStyleKernLigatureData(styles_[i]);
+    applyGlyphMissCallback(i);
+  }
+}
+
 void SdCardFont::clearOverflow() {
   for (uint32_t i = 0; i < overflowCount_; i++) {
     delete[] overflow_[i].bitmap;

@@ -17,6 +17,9 @@ class FontCacheManager {
 
   void clearCache();
   void freeKernLigatureData();
+  // Release all rebuildable SD-font caches before heap-critical Wi-Fi and web
+  // server allocations. Fonts remain registered and reload on demand.
+  void releaseSdFontCaches();
   void prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F);
   void logStats(const char* label = "render");
   void resetStats();
