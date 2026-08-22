@@ -120,7 +120,7 @@ class ChapterHtmlSlimParser {
   int footnoteLinkDepth = -1;
   char currentFootnoteLinkText[24] = {};
   int currentFootnoteLinkTextLen = 0;
-  char currentFootnoteLinkHref[64] = {};
+  char currentFootnoteLinkHref[FOOTNOTE_HREF_LEN] = {};
   std::vector<std::pair<int, FootnoteEntry>> pendingFootnotes;  // <wordIndex, entry>
   int wordsExtractedInBlock = 0;
   // Once the document root has closed, malformed trailing bytes are outside
