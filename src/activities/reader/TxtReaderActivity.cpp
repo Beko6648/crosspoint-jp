@@ -376,6 +376,7 @@ void TxtReaderActivity::renderPage() {
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
   renderLines();  // scan pass — text accumulated, no drawing
+  renderStatusBar();
   scope.endScanAndPrewarm();
 
   // BW rendering

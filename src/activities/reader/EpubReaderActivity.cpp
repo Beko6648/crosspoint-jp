@@ -1346,6 +1346,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
                rubyOffsetX, rubyOffsetY);  // scan pass
+  // Include a CJK book/chapter title in the same prewarm pass.  This keeps the
+  // status bar from faulting its compressed glyphs after the page is drawn.
+  renderStatusBar();
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 

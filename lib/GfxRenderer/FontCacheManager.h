@@ -70,5 +70,8 @@ class FontCacheManager {
   // For compressed (non-SD) fonts: accumulate text in a single buffer
   std::string scanCompressedText_;
   uint32_t scanCompressedStyleCounts_[4] = {};
-  int scanCompressedFontId_ = -1;
+  // Font IDs are FNV hashes and may be negative.  Keep occupancy separately
+  // so a valid negative ID is not mistaken for the empty-slot marker.
+  bool hasScanCompressedFont_ = false;
+  int scanCompressedFontId_ = 0;
 };

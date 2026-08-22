@@ -118,7 +118,10 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
   } else {
     // Compressed (non-SD) font path
     scanCompressedText_ += text;
-    if (scanCompressedFontId_ < 0) scanCompressedFontId_ = fontId;
+    if (!hasScanCompressedFont_) {
+      scanCompressedFontId_ = fontId;
+      hasScanCompressedFont_ = true;
+    }
     scanCompressedStyleCounts_[baseStyle] += cpCount;
   }
 }
@@ -142,7 +145,8 @@ FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manage
   manager_->scanCompressedText_.clear();
   manager_->scanCompressedText_.reserve(2048);
   memset(manager_->scanCompressedStyleCounts_, 0, sizeof(manager_->scanCompressedStyleCounts_));
-  manager_->scanCompressedFontId_ = -1;
+  manager_->hasScanCompressedFont_ = false;
+  manager_->scanCompressedFontId_ = 0;
 }
 
 void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
@@ -165,7 +169,7 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
   }
 
   // Prewarm compressed (non-SD) font
-  if (!manager_->scanCompressedText_.empty() && manager_->scanCompressedFontId_ >= 0) {
+  if (!manager_->scanCompressedText_.empty() && manager_->hasScanCompressedFont_) {
     uint8_t styleMask = 0;
     for (uint8_t i = 0; i < 4; i++) {
       if (manager_->scanCompressedStyleCounts_[i] > 0) styleMask |= (1 << i);
