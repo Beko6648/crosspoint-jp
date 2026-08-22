@@ -1,6 +1,7 @@
 #include "SleepActivity.h"
 
 #include <Epub.h>
+#include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -209,6 +210,10 @@ void SleepActivity::renderCustomSleepScreen() const {
 }
 
 bool SleepActivity::renderTransparentSleepOverlay() const {
+  // The reader page is already in the framebuffer.  Reclaiming SD font data
+  // before allocating the BMP row buffer makes sleep reliable with large fonts.
+  if (auto* fontCaches = renderer.getFontCacheManager()) fontCaches->releaseSdFontCaches();
+
   FsFile file;
   if (!Storage.openFileForRead("SLP", TRANSPARENT_SLEEP_OVERLAY_PATH, file)) {
     LOG_ERR("SLP", "Transparent overlay not found: %s", TRANSPARENT_SLEEP_OVERLAY_PATH);
