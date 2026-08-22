@@ -382,8 +382,7 @@ void Epub::parseCssFiles() const {
   // alone is not enough: an interrupted write, a changed EPUB, or a truncated
   // file must fall through to a clean rebuild.
   if (cssParser->hasCache()) {
-    if (cssParser->loadFromCache()) {
-      cssParser->clear();
+    if (cssParser->validateCache()) {
       LOG_DBG("EBP", "CSS cache validated, skipping parseCssFiles");
       return;
     }
@@ -489,8 +488,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   // Try to load existing cache first
   if (bookMetadataCache->load()) {
     if (!skipLoadingCss) {
-      // Rebuild CSS cache when missing or when cache version changed (loadFromCache removes stale file)
-      const bool cssCacheLoaded = cssParser->hasCache() && cssParser->loadFromCache();
+      // Keep the rules on SD until a section needs them. Loading the full map
+      // merely to validate it can starve the section builder of heap.
+      const bool cssCacheLoaded = cssParser->hasCache() && cssParser->validateCache();
       if (!cssCacheLoaded) {
         LOG_DBG("EBP", "CSS rules cache missing or stale, attempting to parse CSS files");
         cssParser->deleteCache();
@@ -505,19 +505,24 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         }
         bookMetadataCache.reset();
         parseCssFiles();
+        // parseCssFiles deliberately leaves no cache when low heap prevents a
+        // complete stylesheet parse.  That is transient and must not discard
+        // otherwise valid section caches on every book open.
+        const bool cssCacheRebuilt = cssParser->hasCache();
         bookMetadataCache.reset(new BookMetadataCache(cachePath));
         if (!bookMetadataCache->load()) {
           LOG_ERR("EBP", "Failed to reload cache after CSS rebuild");
           return false;
         }
-        // Invalidate section caches so they are rebuilt with the new CSS
-        Storage.removeDir((cachePath + "/sections").c_str());
+        if (cssCacheRebuilt) {
+          // New CSS rules can affect layout, so rebuild section caches only
+          // after a complete CSS cache was actually published.
+          Storage.removeDir((cachePath + "/sections").c_str());
+        } else {
+          LOG_INF("EBP", "CSS cache was not rebuilt; retaining existing section caches");
+        }
       } else {
-        // Existing section caches do not need CSS rules in RAM.  A section that
-        // must be rebuilt reloads them on demand, then releases them after use.
-        // Keeping a large rule map resident here can starve vertical font data.
-        cssParser->clear();
-        LOG_DBG("EBP", "Validated CSS cache and released loaded rules");
+        LOG_DBG("EBP", "Validated CSS cache without loading rules into RAM");
       }
     }
     if (fingerprintNeedsWrite && !saveSourceFingerprint(sourceFingerprint)) {

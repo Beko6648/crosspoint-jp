@@ -8,6 +8,8 @@
 #include <cctype>
 #include <string_view>
 
+#include "CssSelectorUsage.h"
+
 namespace {
 
 // Stack-allocated string buffer to avoid heap reallocations during parsing
@@ -734,6 +736,26 @@ void CssParser::deleteCache() const {
   if (hasCache()) Storage.remove((cachePath + rulesCache).c_str());
 }
 
+bool CssParser::validateCache() const {
+  if (cachePath.empty()) return false;
+
+  FsFile file;
+  if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) return false;
+
+  uint8_t version = 0;
+  uint64_t cachedSourceFingerprint = 0;
+  const bool valid = file.read(&version, 1) == 1 && version == CSS_CACHE_VERSION &&
+                     file.read(&cachedSourceFingerprint, sizeof(cachedSourceFingerprint)) ==
+                         sizeof(cachedSourceFingerprint) &&
+                     cachedSourceFingerprint == cacheSourceFingerprint_;
+  file.close();
+  if (!valid) {
+    LOG_DBG("CSS", "Cache header mismatch; removing stale cache for rebuild");
+    Storage.remove((cachePath + rulesCache).c_str());
+  }
+  return valid;
+}
+
 bool CssParser::saveToCache() const {
   if (cachePath.empty()) {
     return false;
@@ -834,7 +856,7 @@ bool CssParser::saveToCache() const {
   return true;
 }
 
-bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
+bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelectorUsage* usage) {
   if (cachePath.empty()) {
     return false;
   }
@@ -879,7 +901,7 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     return false;
   }
 
-  if (minFreeHeapAfterLoad > 0) {
+  if (usage == nullptr && minFreeHeapAfterLoad > 0) {
     const size_t estimatedRuleHeap = static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
     const size_t requiredFreeHeap = minFreeHeapAfterLoad + estimatedRuleHeap;
     if (ESP.getFreeHeap() < requiredFreeHeap) {
@@ -892,17 +914,17 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
   // reserve() itself allocates the bucket array before the per-rule guard
   // below can run. Use the same conservative per-rule estimate even for the
   // validation path that does not request an additional post-load reserve.
-  const size_t cacheLoadReserve = MIN_FREE_HEAP_DURING_CSS_PARSE +
-                                  static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
-  if (ESP.getFreeHeap() < cacheLoadReserve) {
-    LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu for safe restore", ruleCount,
-            ESP.getFreeHeap(), cacheLoadReserve);
-    return false;
+  if (usage == nullptr) {
+    const size_t cacheLoadReserve = MIN_FREE_HEAP_DURING_CSS_PARSE +
+                                    static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
+    if (ESP.getFreeHeap() < cacheLoadReserve) {
+      LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu for safe restore", ruleCount,
+              ESP.getFreeHeap(), cacheLoadReserve);
+      return false;
+    }
+    // Only unfiltered loading knows the full map size in advance.
+    rulesBySelector_.reserve(ruleCount);
   }
-
-  // Size the bucket array before restoring rules so the map does not repeatedly
-  // rehash while this cache is loaded.
-  rulesBySelector_.reserve(ruleCount);
 
   auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
     return static_cast<size_t>(file.available()) >= neededBytes;
@@ -1053,6 +1075,9 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
     style.defined.display = (definedBits & 1 << 15) != 0;
 
+    if (usage != nullptr && !usage->matches(selector)) {
+      continue;
+    }
     rulesBySelector_.emplace(std::move(selector), style);
   }
 
@@ -1064,6 +1089,7 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     return false;
   }
 
-  LOG_DBG("CSS", "Loaded %u rules from cache", ruleCount);
+  LOG_DBG("CSS", "Loaded %zu of %u cached rules%s", rulesBySelector_.size(), ruleCount,
+          usage != nullptr ? " (usage-filtered)" : "");
   return true;
 }

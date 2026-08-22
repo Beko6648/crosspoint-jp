@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "Epub/css/CssParser.h"
+#include "Epub/css/CssSelectorUsage.h"
 #include "Page.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
@@ -546,7 +547,8 @@ bool Section::clearCache() const {
   return true;
 }
 
-CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize) {
+CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize,
+                                              const std::string& htmlPath) {
   if (bookStyle == 0) {
     return nullptr;
   }
@@ -558,7 +560,9 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
 
   const size_t minFreeHeap =
       std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
-  if (!cssParser->loadFromCache(minFreeHeap)) {
+  CssSelectorUsage usage;
+  const bool scanned = usage.scanHtmlFile(htmlPath);
+  if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr)) {
     LOG_INF("SCT", "CSS cache unavailable or skipped; continuing without external rules");
     return nullptr;
   }
@@ -751,7 +755,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
-  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize);
+  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath);
 
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');

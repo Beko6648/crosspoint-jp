@@ -9,6 +9,8 @@
 
 #include "CssStyle.h"
 
+class CssSelectorUsage;
+
 /**
  * Lightweight CSS parser for EPUB stylesheets
  *
@@ -103,7 +105,11 @@ class CssParser {
    * Clears any existing rules before loading.
    * @return true if cache was loaded successfully
    */
-  bool loadFromCache(size_t minFreeHeapAfterLoad = 0);
+  bool loadFromCache(size_t minFreeHeapAfterLoad = 0, const CssSelectorUsage* usage = nullptr);
+
+  // Check cache identity without materializing its rules in RAM. Rules are
+  // loaded only while building the section that needs them.
+  bool validateCache() const;
 
   // The EPUB archive fingerprint binds this serialized cache to its source.
   void setCacheSourceFingerprint(uint64_t fingerprint) { cacheSourceFingerprint_ = fingerprint; }
