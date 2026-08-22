@@ -12,6 +12,8 @@
 #include <Xtc.h>
 
 #include <ctime>
+#include <memory>
+#include <new>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -19,6 +21,34 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
+
+namespace {
+constexpr char TRANSPARENT_SLEEP_OVERLAY_PATH[] = "/sleep-overlay.bmp";
+constexpr uint8_t MIN_VISIBLE_ALPHA = 16;
+
+uint16_t readLe16(FsFile& file) {
+  const int low = file.read();
+  const int high = file.read();
+  if (low < 0 || high < 0) return 0;
+  return static_cast<uint16_t>(low) | (static_cast<uint16_t>(high) << 8);
+}
+
+uint32_t readLe32(FsFile& file) {
+  uint32_t value = 0;
+  for (int i = 0; i < 4; ++i) {
+    const int byte = file.read();
+    if (byte < 0) return 0;
+    value |= static_cast<uint32_t>(byte) << (i * 8);
+  }
+  return value;
+}
+
+uint8_t alphaThreshold(const int x, const int y) {
+  static constexpr uint8_t bayer4x4[16] = {0, 128, 32, 160, 192, 64, 224, 96,
+                                            48, 176, 16, 144, 240, 112, 208, 80};
+  return bayer4x4[((y & 3) << 2) | (x & 3)];
+}
+}  // namespace
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
@@ -37,6 +67,13 @@ void SleepActivity::onEnter() {
   // inversion artifacts; restore afterwards in case the device doesn't sleep.
   const bool wasDarkMode = renderer.isDarkMode();
   renderer.setDarkMode(false);
+
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM) {
+    const bool rendered = renderTransparentSleepOverlay();
+    renderer.setDarkMode(wasDarkMode);
+    if (rendered) return;
+    // Invalid or missing overlays fall back to the normal sleep screen.
+  }
 
   // カレンダーをBW描画パスに挿入するためのフラグ設定
   // X4 では DS3231 がないため、電源断後に正確な日付を保持できない → カレンダー無効
@@ -166,6 +203,69 @@ void SleepActivity::renderCustomSleepScreen() const {
   }
 
   renderDefaultSleepScreen();
+}
+
+bool SleepActivity::renderTransparentSleepOverlay() const {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", TRANSPARENT_SLEEP_OVERLAY_PATH, file)) {
+    LOG_ERR("SLP", "Transparent overlay not found: %s", TRANSPARENT_SLEEP_OVERLAY_PATH);
+    return false;
+  }
+
+  if (readLe16(file) != 0x4d42) {
+    LOG_ERR("SLP", "Transparent overlay is not a BMP");
+    return false;
+  }
+  file.seekCur(8);
+  const uint32_t dataOffset = readLe32(file);
+  const uint32_t dibSize = readLe32(file);
+  const int32_t width = static_cast<int32_t>(readLe32(file));
+  const int32_t rawHeight = static_cast<int32_t>(readLe32(file));
+  const uint16_t planes = readLe16(file);
+  const uint16_t bitsPerPixel = readLe16(file);
+  const uint32_t compression = readLe32(file);
+  if (dibSize < 40 || width <= 0 || rawHeight == 0 || planes != 1 || bitsPerPixel != 32 ||
+      (compression != 0 && compression != 3)) {
+    LOG_ERR("SLP", "Overlay must be a 32-bit BGRA BMP");
+    return false;
+  }
+
+  const bool topDown = rawHeight < 0;
+  const int32_t height = topDown ? -rawHeight : rawHeight;
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  if (width > screenWidth || height > screenHeight) {
+    LOG_ERR("SLP", "Overlay is larger than screen: %ldx%ld", static_cast<long>(width), static_cast<long>(height));
+    return false;
+  }
+
+  const uint32_t rowBytes = static_cast<uint32_t>(width) * 4u;
+  auto row = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[rowBytes]);
+  if (!row || !file.seek(dataOffset)) {
+    LOG_ERR("SLP", "Could not allocate or seek transparent overlay");
+    return false;
+  }
+
+  const int originX = (screenWidth - width) / 2;
+  const int originY = (screenHeight - height) / 2;
+  for (int32_t sourceY = 0; sourceY < height; ++sourceY) {
+    if (file.read(row.get(), rowBytes) != static_cast<int>(rowBytes)) {
+      LOG_ERR("SLP", "Short read in transparent overlay");
+      return false;
+    }
+    const int screenY = originY + (topDown ? sourceY : height - 1 - sourceY);
+    for (int32_t x = 0; x < width; ++x) {
+      const uint8_t* pixel = row.get() + static_cast<size_t>(x) * 4u;
+      const uint8_t alpha = pixel[3];
+      const int screenX = originX + x;
+      if (alpha < MIN_VISIBLE_ALPHA || alpha <= alphaThreshold(screenX, screenY)) continue;
+      const uint8_t luminance = static_cast<uint8_t>((77u * pixel[2] + 150u * pixel[1] + 29u * pixel[0]) >> 8);
+      renderer.drawPixel(screenX, screenY, luminance < 192);
+    }
+  }
+
+  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  return true;
 }
 
 void SleepActivity::renderDefaultSleepScreen() const {
