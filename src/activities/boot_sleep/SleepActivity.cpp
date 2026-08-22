@@ -53,12 +53,15 @@ uint8_t alphaThreshold(const int x, const int y) {
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
+  const bool transparentOverlay =
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM;
+
   // Show popup with reader orientation only when going to sleep from reader
   if (APP_STATE.lastSleepFromReader) {
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+    if (!transparentOverlay) GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
     renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
+  } else if (!transparentOverlay) {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
@@ -68,7 +71,7 @@ void SleepActivity::onEnter() {
   const bool wasDarkMode = renderer.isDarkMode();
   renderer.setDarkMode(false);
 
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM) {
+  if (transparentOverlay) {
     const bool rendered = renderTransparentSleepOverlay();
     renderer.setDarkMode(wasDarkMode);
     if (rendered) return;
