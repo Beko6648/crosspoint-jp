@@ -1515,15 +1515,16 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   // Ruby closing tags
+  // The common close path above has already decremented depth once.  Ruby
+  // elements must not decrement it a second time: doing so prevents an
+  // enclosing inline element such as <b> from finding its style-stack entry.
   if (strcmp(name, "rt") == 0) {
     self->collectingRubyText = false;
-    self->depth -= 1;
     return;
   }
 
   if (strcmp(name, "rb") == 0) {
     self->flushPartWordBuffer();
-    self->depth -= 1;
     if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
       self->inlineStyleStack.pop_back();
       self->updateEffectiveInlineStyle();
@@ -1532,7 +1533,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   if (strcmp(name, "rp") == 0) {
-    self->depth -= 1;
     return;
   }
 
