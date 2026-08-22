@@ -1399,7 +1399,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   const size_t wordCount = self->currentTextBlock->size();
   const bool normalFlush = wordCount > 750;
   const bool earlyFlush = wordCount > 100 && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING * 2;
-  if (normalFlush || earlyFlush) self->flushTextBlockForMemory();
+  // A group ruby annotation is applied only when its closing </ruby> arrives.
+  // Flushing its base words beforehand loses that span and can split or drop
+  // the annotation, so defer the memory flush until the group is complete.
+  if (!self->inRuby && (normalFlush || earlyFlush)) self->flushTextBlockForMemory();
 }
 
 void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const XML_Char* s, const int len) {
