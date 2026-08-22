@@ -14,6 +14,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "network/TlsHeapReclaim.h"
 
 FontDownloadActivity::FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("FontDownload", renderer, mappedInput), fontInstaller_(sdFontSystem.registry()) {}
@@ -50,13 +51,7 @@ void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
   }
   requestUpdateAndWait();
 
-  // Free ExternalFont LRU caches (~34KB each) to make room for TLS buffers.
-  FontManager& fm = FontManager::getInstance();
-  ExternalFont* uiFont = fm.getActiveUiFont();
-  ExternalFont* readerFont = fm.getActiveFont();
-  if (uiFont) uiFont->unload();
-  if (readerFont) readerFont->unload();
-  LOG_DBG("FONT", "Freed font caches, heap=%d", ESP.getFreeHeap());
+  reclaimHeapForTls(renderer, "FONT");
 
   if (!fetchAndParseManifest()) {
     {
@@ -226,6 +221,10 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), destPath, sizeof(destPath));
 
     std::string url = baseUrl_ + file.name;
+
+    // The progress screen can refill font caches between files, so reclaim
+    // again immediately before the next TLS handshake.
+    reclaimHeapForTls(renderer, "FONT");
 
     auto result = HttpDownloader::downloadToFile(url, destPath, [this](size_t downloaded, size_t total) {
       fileProgress_ = downloaded;
