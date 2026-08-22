@@ -13,6 +13,7 @@ class SleepActivity final : public Activity {
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   bool renderTransparentSleepOverlay() const;
+  bool renderTransparentSleepOverlayFile(const char* path) const;
   void renderCoverSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap, bool preserveBackground = false) const;
   void renderBlankSleepScreen() const;

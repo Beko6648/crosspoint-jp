@@ -25,6 +25,8 @@
 
 namespace {
 constexpr char TRANSPARENT_SLEEP_OVERLAY_PATH[] = "/sleep-overlay.bmp";
+constexpr char TRANSPARENT_SLEEP_OVERLAY_DIR[] = "/.sleep-overlay";
+constexpr size_t MAX_SLEEP_OVERLAY_FILE_NAME = 256;
 constexpr uint8_t MIN_VISIBLE_ALPHA = 16;
 
 uint16_t readLe16(FsFile& file) {
@@ -48,6 +50,19 @@ uint8_t alphaThreshold(const int x, const int y) {
   static constexpr uint8_t bayer4x4[16] = {0, 128, 32, 160, 192, 64, 224, 96,
                                             48, 176, 16, 144, 240, 112, 208, 80};
   return bayer4x4[((y & 3) << 2) | (x & 3)];
+}
+
+bool findNextTransparentOverlayBmp(FsFile& directory, char* name, const size_t nameSize) {
+  for (auto file = directory.openNextFile(); file; file = directory.openNextFile()) {
+    if (file.isDirectory()) continue;
+    file.getName(name, nameSize);
+    if (name[0] == '\0' || name[0] == '.') continue;
+    if (!FsHelpers::hasBmpExtension(std::string(name))) continue;
+
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() == BmpReaderError::Ok) return true;
+  }
+  return false;
 }
 }  // namespace
 
@@ -214,11 +229,30 @@ bool SleepActivity::renderTransparentSleepOverlay() const {
   // before allocating the BMP row buffer makes sleep reliable with large fonts.
   if (auto* fontCaches = renderer.getFontCacheManager()) fontCaches->releaseSdFontCaches();
 
-  FsFile file;
-  if (!Storage.openFileForRead("SLP", TRANSPARENT_SLEEP_OVERLAY_PATH, file)) {
-    LOG_ERR("SLP", "Transparent overlay not found: %s", TRANSPARENT_SLEEP_OVERLAY_PATH);
-    return false;
+  // An explicitly configured root image takes priority over random overlays.
+  if (renderTransparentSleepOverlayFile(TRANSPARENT_SLEEP_OVERLAY_PATH)) return true;
+
+  auto directory = Storage.open(TRANSPARENT_SLEEP_OVERLAY_DIR);
+  if (!directory || !directory.isDirectory()) return false;
+
+  char name[MAX_SLEEP_OVERLAY_FILE_NAME];
+  uint16_t count = 0;
+  while (count < UINT16_MAX && findNextTransparentOverlayBmp(directory, name, sizeof(name))) ++count;
+  if (count == 0) return false;
+
+  const uint16_t selected = static_cast<uint16_t>(random(count));
+  directory.rewindDirectory();
+  for (uint16_t index = 0; index <= selected; ++index) {
+    if (!findNextTransparentOverlayBmp(directory, name, sizeof(name))) return false;
   }
+
+  const std::string path = std::string(TRANSPARENT_SLEEP_OVERLAY_DIR) + "/" + name;
+  return renderTransparentSleepOverlayFile(path.c_str());
+}
+
+bool SleepActivity::renderTransparentSleepOverlayFile(const char* path) const {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", path, file)) return false;
 
   if (readLe16(file) != 0x4d42) return false;
   file.seekCur(8);
@@ -245,7 +279,8 @@ bool SleepActivity::renderTransparentSleepOverlay() const {
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
   if (width > screenWidth || height > screenHeight) {
-    LOG_ERR("SLP", "Overlay is larger than screen: %ldx%ld", static_cast<long>(width), static_cast<long>(height));
+    LOG_ERR("SLP", "Overlay is larger than screen: %s (%ldx%ld)", path, static_cast<long>(width),
+            static_cast<long>(height));
     return false;
   }
 
