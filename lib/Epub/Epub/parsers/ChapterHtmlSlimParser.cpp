@@ -592,7 +592,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             FsFile cachedImageFile;
             bool extractSuccess = false;
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
+              // Images are extracted lazily. A larger transfer buffer cuts SD
+              // read/write calls for image-heavy EPUBs without retaining it.
+              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
               cachedImageFile.flush();
               cachedImageFile.close();
             }

@@ -1,6 +1,7 @@
 #pragma once
 #include <HalStorage.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -32,13 +33,21 @@ class ImageToFramebufferDecoder {
 
   virtual const char* getFormatName() const = 0;
 
+  // Decoder callbacks call this periodically so multi-second image work does
+  // not starve the idle task or watchdog.
+  static void yieldDuringDecode(uint32_t& lastYieldMs);
+
+  // Validate header dimensions before they are narrowed into ImageDimensions.
+  // Shared by the header probes and full decoders.
+  static bool validateAndStoreDimensions(int64_t width, int64_t height, ImageDimensions& out, const char* format);
+
  protected:
   // Size validation helpers
   // JPEG/PNG decoders use streaming (row-by-row) decode with built-in scaling,
   // so source pixel count does not determine memory usage. This limit is a safety
   // net against absurdly large images only.
-  static constexpr int MAX_SOURCE_PIXELS = 25000000;  // 5000 * 5000
+  static constexpr int64_t MAX_SOURCE_DIMENSION = INT16_MAX;
+  static constexpr int64_t MAX_SOURCE_PIXELS = 25000000;  // Preserve Yomuka's existing 25 MP ceiling.
 
-  bool validateImageDimensions(int width, int height, const std::string& format);
   void warnUnsupportedFeature(const std::string& feature, const std::string& imagePath);
 };
