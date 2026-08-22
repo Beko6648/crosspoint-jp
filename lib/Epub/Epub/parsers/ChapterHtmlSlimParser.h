@@ -123,6 +123,9 @@ class ChapterHtmlSlimParser {
   char currentFootnoteLinkHref[64] = {};
   std::vector<std::pair<int, FootnoteEntry>> pendingFootnotes;  // <wordIndex, entry>
   int wordsExtractedInBlock = 0;
+  // Once the document root has closed, malformed trailing bytes are outside
+  // the rendered XHTML and can be ignored safely.
+  bool htmlEnded = false;
 
   void updateEffectiveInlineStyle();
   void startNewTextBlock(const BlockStyle& blockStyle);
