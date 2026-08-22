@@ -1,13 +1,14 @@
 #include "SdCardFont.h"
 
 #include <HalStorage.h>
-#include <Logging.h>
 #include <Issue18Diagnostics.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
 #include <cstring>
 #include <memory>
+
 #include "EpdFontFamily.h"
 
 static_assert(sizeof(EpdGlyph) == 16, "EpdGlyph must be 16 bytes to match .cpfont file layout");
@@ -36,6 +37,9 @@ static constexpr uint32_t STYLE_TOC_ENTRY_SIZE = 32;
 // Vertical substitution is optional punctuation shaping.  Preserve enough
 // contiguous heap for the page renderer and font fallback data before loading it.
 static constexpr size_t MIN_FREE_HEAP_FOR_VERT_DATA = 32 * 1024;
+// Kerning is an optional typography enhancement.  Keep a small allocator
+// margin so a dense matrix never consumes the last usable contiguous block.
+static constexpr size_t KERN_ALLOCATION_MARGIN = 1024;
 
 // Helper to read little-endian values from byte buffer
 static inline uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -79,6 +83,11 @@ void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
   s.kernMatrix = nullptr;
   delete[] s.ligaturePairs;
   s.ligaturePairs = nullptr;
+  delete[] s.kernRowCache;
+  s.kernRowCache = nullptr;
+  memset(s.kernCachedRows, 0, sizeof(s.kernCachedRows));
+  s.kernRowCacheNext = 0;
+  s.kernRowCacheEnabled = false;
   s.kernLigLoaded = false;
 }
 
@@ -155,20 +164,39 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
   }
 
   if (hasKern) {
+    // Keep the allocation context in the diagnostic report.  In particular,
+    // the matrix needs one contiguous block, so total free heap alone cannot
+    // tell us whether this is pressure or fragmentation.
+    const uint32_t freeBeforeKern = ESP.getFreeHeap();
+    const uint32_t maxAllocBeforeKern = ESP.getMaxAllocHeap();
+    const uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
+    const bool useRowCache = ESP.getMaxAllocHeap() < matrixSize + KERN_ALLOCATION_MARGIN;
     s.kernLeftClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernLeftEntryCount];
     s.kernRightClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernRightEntryCount];
-    uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
-    s.kernMatrix = new (std::nothrow) int8_t[matrixSize];
-
-    if (!s.kernLeftClasses || !s.kernRightClasses || !s.kernMatrix) {
-      LOG_ERR("SDCF", "Failed to allocate kern data (%u+%u+%u bytes)", s.header.kernLeftEntryCount * 3u,
-              s.header.kernRightEntryCount * 3u, matrixSize);
-      freeStyleKernLigatureData(s);
-      file.close();
-      return false;
+    if (useRowCache) {
+      const size_t cacheSize = static_cast<size_t>(KERN_ROW_CACHE_ROWS) * s.header.kernRightClassCount;
+      s.kernRowCache = new (std::nothrow) int8_t[cacheSize];
+      s.kernRowCacheEnabled = s.kernRowCache != nullptr;
+      if (s.kernRowCacheEnabled) {
+        LOG_INF("SDCF", "Using kern row cache (%u rows x %u bytes; matrix=%u maxAlloc=%u)", KERN_ROW_CACHE_ROWS,
+                s.header.kernRightClassCount, matrixSize, maxAllocBeforeKern);
+      }
+    } else {
+      s.kernMatrix = new (std::nothrow) int8_t[matrixSize];
     }
 
-    if (!file.seekSet(s.kernLeftFileOffset)) {
+    if (!s.kernLeftClasses || !s.kernRightClasses || (!s.kernMatrix && !s.kernRowCacheEnabled)) {
+      LOG_INF("SDCF",
+              "Disabling kern after allocation failure (%u+%u+%u bytes; rowCache=%d; before free=%u maxAlloc=%u; "
+              "after free=%u maxAlloc=%u; left=%d right=%d matrix=%d)",
+              s.header.kernLeftEntryCount * 3u, s.header.kernRightEntryCount * 3u, matrixSize, freeBeforeKern,
+              s.kernRowCacheEnabled, maxAllocBeforeKern, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+              s.kernLeftClasses != nullptr, s.kernRightClasses != nullptr, s.kernMatrix != nullptr);
+      freeStyleKernLigatureData(s);
+      hasKern = false;
+    }
+
+    if (hasKern && !file.seekSet(s.kernLeftFileOffset)) {
       LOG_ERR("SDCF", "Failed to seek to kern data");
       freeStyleKernLigatureData(s);
       file.close();
@@ -176,9 +204,10 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     }
     size_t leftSz = s.header.kernLeftEntryCount * sizeof(EpdKernClassEntry);
     size_t rightSz = s.header.kernRightEntryCount * sizeof(EpdKernClassEntry);
-    if (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
-        file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
-        file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) != static_cast<int>(matrixSize)) {
+    if (hasKern && (file.read(reinterpret_cast<uint8_t*>(s.kernLeftClasses), leftSz) != static_cast<int>(leftSz) ||
+                    file.read(reinterpret_cast<uint8_t*>(s.kernRightClasses), rightSz) != static_cast<int>(rightSz) ||
+                    (s.kernMatrix && file.read(reinterpret_cast<uint8_t*>(s.kernMatrix), matrixSize) !=
+                                         static_cast<int>(matrixSize)))) {
       LOG_ERR("SDCF", "Failed to read kern data");
       freeStyleKernLigatureData(s);
       file.close();
@@ -229,6 +258,33 @@ void SdCardFont::applyGlyphMissCallback(uint8_t styleIdx) {
   auto& s = styles_[styleIdx];
   s.stubData.glyphMissHandler = &SdCardFont::onGlyphMiss;
   s.stubData.glyphMissCtx = &overflowCtx_[styleIdx];
+  s.stubData.kernLookupHandler = &SdCardFont::lookupKernRow;
+  s.stubData.kernLookupCtx = &overflowCtx_[styleIdx];
+}
+
+int8_t SdCardFont::lookupKernRow(void* ctx, const uint8_t leftClass, const uint8_t rightClass) {
+  auto* overflowCtx = static_cast<OverflowContext*>(ctx);
+  if (!overflowCtx || !overflowCtx->self || leftClass == 0 || rightClass == 0) return 0;
+
+  auto& s = overflowCtx->self->styles_[overflowCtx->styleIdx];
+  const uint8_t rowWidth = s.header.kernRightClassCount;
+  if (!s.kernRowCacheEnabled || !s.kernRowCache || rightClass > rowWidth) return 0;
+
+  for (uint8_t slot = 0; slot < KERN_ROW_CACHE_ROWS; slot++) {
+    if (s.kernCachedRows[slot] == leftClass) return s.kernRowCache[slot * rowWidth + rightClass - 1];
+  }
+
+  const uint8_t slot = s.kernRowCacheNext++ % KERN_ROW_CACHE_ROWS;
+  FsFile file;
+  if (!Storage.openFileForRead("SDCF", overflowCtx->self->filePath_, file)) return 0;
+  const uint32_t rowOffset = s.kernMatrixFileOffset + static_cast<uint32_t>(leftClass - 1) * rowWidth;
+  const bool ok = file.seekSet(rowOffset) &&
+                  file.read(reinterpret_cast<uint8_t*>(s.kernRowCache + slot * rowWidth), rowWidth) == rowWidth;
+  file.close();
+  if (!ok) return 0;
+
+  s.kernCachedRows[slot] = leftClass;
+  return s.kernRowCache[slot * rowWidth + rightClass - 1];
 }
 
 // --- Compute per-style file offsets from a base data offset ---
@@ -718,6 +774,8 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   }
   s.miniData.glyphMissHandler = &SdCardFont::onGlyphMiss;
   s.miniData.glyphMissCtx = &overflowCtx_[styleIdx];
+  s.miniData.kernLookupHandler = &SdCardFont::lookupKernRow;
+  s.miniData.kernLookupCtx = &overflowCtx_[styleIdx];
 
   s.epdFont.data = &s.miniData;
 
@@ -797,8 +855,8 @@ bool SdCardFont::loadVertData(uint8_t style) {
   if (s.vertSectionOffset == 0) return false;
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
-    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style,
-            ESP.getFreeHeap(), ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
+    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style, ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
     Issue18Diagnostics::logMemory("vert-load-skipped", filePath_);
     return false;
   }
@@ -1197,29 +1255,28 @@ EpdFont* SdCardFont::getEpdFont(uint8_t style) {
 bool SdCardFont::hasStyle(uint8_t style) const { return style < MAX_STYLES && styles_[style].present; }
 
 uint8_t SdCardFont::resolveStyle(uint8_t style) const {
-    static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
-        {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},
-        {EpdFontFamily::BOLD, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::ITALIC},
-        {EpdFontFamily::ITALIC, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD},
-        {EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::REGULAR},
-    };
+  static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
+      {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},
+      {EpdFontFamily::BOLD, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::ITALIC},
+      {EpdFontFamily::ITALIC, EpdFontFamily::REGULAR, EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD},
+      {EpdFontFamily::BOLD_ITALIC, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::REGULAR},
+  };
 
-    const uint8_t styleBits = style & (MAX_STYLES - 1);
-    for (uint8_t candidate : kFallbacks[styleBits]) {
-        if (styles_[candidate].present)
-            return candidate;
-    }
-    return EpdFontFamily::REGULAR;
+  const uint8_t styleBits = style & (MAX_STYLES - 1);
+  for (uint8_t candidate : kFallbacks[styleBits]) {
+    if (styles_[candidate].present) return candidate;
+  }
+  return EpdFontFamily::REGULAR;
 }
 
 uint8_t SdCardFont::resolveStyleMask(uint8_t styleMask) const {
-    uint8_t resolvedMask = 0;
-    for (uint8_t si = 0; si < MAX_STYLES; si++) {
-        if (styleMask & (1 << si)) {
-            resolvedMask |= static_cast<uint8_t>(1u << resolveStyle(si));
-        }
+  uint8_t resolvedMask = 0;
+  for (uint8_t si = 0; si < MAX_STYLES; si++) {
+    if (styleMask & (1 << si)) {
+      resolvedMask |= static_cast<uint8_t>(1u << resolveStyle(si));
     }
-    return resolvedMask;
+  }
+  return resolvedMask;
 }
 
 // --- On-demand glyph loading (overflow buffer) ---

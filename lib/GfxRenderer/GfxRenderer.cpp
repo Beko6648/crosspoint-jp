@@ -92,9 +92,12 @@ int clampExternalAdvance(const int baseWidth, const int spacing) { return std::m
 // for 、。 provide its designed vertical position without regenerating fonts.
 uint32_t verticalPresentationCodepoint(const uint32_t cp) {
   switch (cp) {
-    case 0xFF61: return 0x3002;  // ｡ -> 。
-    case 0xFF64: return 0x3001;  // ､ -> 、
-    default: return cp;
+    case 0xFF61:
+      return 0x3002;  // ｡ -> 。
+    case 0xFF64:
+      return 0x3001;  // ､ -> 、
+    default:
+      return cp;
   }
 }
 
@@ -179,6 +182,18 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_
       LOG_DBG("GFX", "ensureSdCardFontReady: %d glyph(s) not found", missed);
     }
   }
+}
+
+bool GfxRenderer::ensureSdCardVerticalGlyphsReady(const int fontId, const EpdFontFamily::Style style) const {
+  const auto it = sdCardFonts_.find(fontId);
+  if (it == sdCardFonts_.end() || it->second == nullptr || !it->second->hasVertData()) {
+    return false;
+  }
+
+  const bool loaded = it->second->loadVertData(static_cast<uint8_t>(style));
+  LOG_INF("GFX", "Vertical glyph preload: font=%d style=%u loaded=%d free=%u maxAlloc=%u", fontId,
+          static_cast<unsigned>(style), loaded ? 1 : 0, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  return loaded;
 }
 
 void GfxRenderer::resetSdCardAdvanceBuildTiming() const {
@@ -638,8 +653,7 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
   drawText(fontId, x, y, text, black, style);
 }
 void GfxRenderer::drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black,
-                                         const int xOffset,
-                                         const EpdFontFamily::Style style) const {
+                                         const int xOffset, const EpdFontFamily::Style style) const {
   const int x = ((getScreenWidth() - getTextWidth(fontId, text, style)) / 2) + xOffset;
   drawText(fontId, x, y, text, black, style);
 }
@@ -947,11 +961,20 @@ void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) con
 
 void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
   switch (color) {
-    case Color::Clear: break;
-    case Color::Black: fillRectImpl<Color::Black>(x, y, width, height); break;
-    case Color::White: fillRectImpl<Color::White>(x, y, width, height); break;
-    case Color::LightGray: fillRectImpl<Color::LightGray>(x, y, width, height); break;
-    case Color::DarkGray: fillRectImpl<Color::DarkGray>(x, y, width, height); break;
+    case Color::Clear:
+      break;
+    case Color::Black:
+      fillRectImpl<Color::Black>(x, y, width, height);
+      break;
+    case Color::White:
+      fillRectImpl<Color::White>(x, y, width, height);
+      break;
+    case Color::LightGray:
+      fillRectImpl<Color::LightGray>(x, y, width, height);
+      break;
+    case Color::DarkGray:
+      fillRectImpl<Color::DarkGray>(x, y, width, height);
+      break;
   }
 }
 
@@ -987,15 +1010,21 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
       uint8_t* row = frameBuffer + static_cast<uint32_t>(py) * panelWidthBytes;
       if (byteStart == byteEnd) {
         const uint8_t mask = headMask & tailMask;
-        if (physicalBlack) row[byteStart] &= static_cast<uint8_t>(~mask);
-        else row[byteStart] |= mask;
+        if (physicalBlack)
+          row[byteStart] &= static_cast<uint8_t>(~mask);
+        else
+          row[byteStart] |= mask;
         continue;
       }
-      if (physicalBlack) row[byteStart] &= static_cast<uint8_t>(~headMask);
-      else row[byteStart] |= headMask;
+      if (physicalBlack)
+        row[byteStart] &= static_cast<uint8_t>(~headMask);
+      else
+        row[byteStart] |= headMask;
       if (byteEnd > byteStart + 1) memset(row + byteStart + 1, fillByte, byteEnd - byteStart - 1);
-      if (physicalBlack) row[byteEnd] &= static_cast<uint8_t>(~tailMask);
-      else row[byteEnd] |= tailMask;
+      if (physicalBlack)
+        row[byteEnd] &= static_cast<uint8_t>(~tailMask);
+      else
+        row[byteEnd] |= tailMask;
     }
     return;
   }
@@ -1003,10 +1032,18 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
   int logicalDx = 0;
   int logicalDy = 0;
   switch (orientation) {
-    case Portrait: logicalDy = 1; break;
-    case PortraitInverted: logicalDy = -1; break;
-    case LandscapeClockwise: logicalDx = -1; break;
-    case LandscapeCounterClockwise: logicalDx = 1; break;
+    case Portrait:
+      logicalDy = 1;
+      break;
+    case PortraitInverted:
+      logicalDy = -1;
+      break;
+    case LandscapeClockwise:
+      logicalDx = -1;
+      break;
+    case LandscapeCounterClockwise:
+      logicalDx = 1;
+      break;
   }
   uint8_t blackMasks[2] = {};
   for (int parity = 0; parity < 2; ++parity) {
@@ -1014,10 +1051,22 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
     int logicalX = 0;
     int logicalY = 0;
     switch (orientation) {
-      case Portrait: logicalX = panelHeight - 1 - sampleY; logicalY = byteStart * 8; break;
-      case PortraitInverted: logicalX = sampleY; logicalY = panelWidth - 1 - byteStart * 8; break;
-      case LandscapeClockwise: logicalX = panelWidth - 1 - byteStart * 8; logicalY = panelHeight - 1 - sampleY; break;
-      case LandscapeCounterClockwise: logicalX = byteStart * 8; logicalY = sampleY; break;
+      case Portrait:
+        logicalX = panelHeight - 1 - sampleY;
+        logicalY = byteStart * 8;
+        break;
+      case PortraitInverted:
+        logicalX = sampleY;
+        logicalY = panelWidth - 1 - byteStart * 8;
+        break;
+      case LandscapeClockwise:
+        logicalX = panelWidth - 1 - byteStart * 8;
+        logicalY = panelHeight - 1 - sampleY;
+        break;
+      case LandscapeCounterClockwise:
+        logicalX = byteStart * 8;
+        logicalY = sampleY;
+        break;
     }
     uint8_t mask = 0;
     for (int bit = 0; bit < 8; ++bit) {
@@ -1289,8 +1338,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     // row writes only outCols pixels -- roughly 1/60 of the old full-source
     // loop. Source rows are still read sequentially (readNextRow advances the
     // file), so ditherer state and palette processing stay intact.
-    const int outCols =
-        std::max(1, static_cast<int>(std::floor((bitmap.getWidth() - 2 * cropPixX) * scale)));
+    const int outCols = std::max(1, static_cast<int>(std::floor((bitmap.getWidth() - 2 * cropPixX) * scale)));
     auto* bestCols = static_cast<uint8_t*>(malloc(static_cast<size_t>(outCols)));
     if (!bestCols) {
       LOG_ERR("GFX", "!! Failed to allocate downscale column buffer");
@@ -1833,8 +1881,6 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
         const int cjkAdvance = clampExternalAdvance(extFont->getCharWidth(), cjkSpacing);
         uint32_t cp;
         while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-          
-
           if (utf8IsCombiningMark(cp)) continue;
           // CJK: use charWidth directly (no SD card read needed)
           if (isCjkCodepoint(cp)) {
@@ -2068,8 +2114,8 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     const int verticalAdvance = advance + advance * verticalCharSpacingPercent_ / 100;
     // Ruby/small-font prolonged sound mark: draw as a small vertical line.
     // Some vertical substitute glyphs for U+30FC become too large in ruby.
-    
-    if (cp == 0x30FC && getLineHeight(effectiveFontId) <= 24) { // ー
+
+    if (cp == 0x30FC && getLineHeight(effectiveFontId) <= 24) {  // ー
       int lineLen = verticalAdvance - 4;
       if (lineLen < 4) lineLen = 4;
 
@@ -2168,10 +2214,10 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
           // font-scoped so BIZUD's verified placement remains unchanged.
           if ((cp == 0xFF63 || cp == 0xFF70) && sdFont != nullptr &&
               std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
-            if (cp == 0xFF70) {       // ｰ: slightly right and lower
+            if (cp == 0xFF70) {  // ｰ: slightly right and lower
               drawX -= 7;
               drawY += 9;
-            } else {                  // ｣: retain the verified offset
+            } else {  // ｣: retain the verified offset
               drawX -= 10;
               drawY += 5;
             }
@@ -2267,8 +2313,7 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
             visibleMaxY = std::max(visibleMaxY, scaledY);
           }
         }
-        baseX = visibleMaxY >= visibleMinY ? centerX + (visibleMinY + visibleMaxY) / 2
-                                            : centerX + (drawH - 1) / 2;
+        baseX = visibleMaxY >= visibleMinY ? centerX + (visibleMinY + visibleMaxY) / 2 : centerX + (drawH - 1) / 2;
       } else {
         baseX = x + drawAscender - drawTop + drawH - 1;
       }
@@ -2332,7 +2377,6 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       const char* ptr = text;
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
-        
         if (CjkUiFont21::hasCjkUiGlyph(cp)) {
           const uint8_t* bitmap = CjkUiFont21::getCjkUiGlyph(cp);
           const uint8_t width = CjkUiFont21::getCjkUiGlyphWidth(cp);
@@ -2383,7 +2427,6 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-    
     // For ASCII characters, prefer EPD font (better quality for Latin text)
     // Only use CJK UI font for non-ASCII characters or when EPD font lacks the
     // glyph
@@ -2634,20 +2677,13 @@ size_t GfxRenderer::getRegionByteSize(int x, int y, int width, int height) const
   return (bits + 7) / 8;
 }
 
-uint8_t* GfxRenderer::getWriteTarget() const {
-  return getFrameBuffer();
-}
+uint8_t* GfxRenderer::getWriteTarget() const { return getFrameBuffer(); }
 
-int GfxRenderer::getWriteOriginY() const {
-  return 0;
-}
+int GfxRenderer::getWriteOriginY() const { return 0; }
 
-int GfxRenderer::getWriteRows() const {
-  return getDisplayHeight();
-}
+int GfxRenderer::getWriteRows() const { return getDisplayHeight(); }
 
-bool GfxRenderer::copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer,
-                                     size_t outBufferSize) {
+bool GfxRenderer::copyRegionToBuffer(int x, int y, int width, int height, uint8_t* outBuffer, size_t outBufferSize) {
   if (!outBuffer || width <= 0 || height <= 0) {
     return false;
   }
@@ -2679,8 +2715,8 @@ bool GfxRenderer::copyRegionToBuffer(int x, int y, int width, int height, uint8_
     for (int xx = 0; xx < width; xx++) {
       const int srcX = x + xx;
 
-      const size_t srcBitIndex = static_cast<size_t>(srcY) * static_cast<size_t>(screenWidth) +
-                                 static_cast<size_t>(srcX);
+      const size_t srcBitIndex =
+          static_cast<size_t>(srcY) * static_cast<size_t>(screenWidth) + static_cast<size_t>(srcX);
 
       const bool bit = (frameBuffer[srcBitIndex / 8] & (0x80 >> (srcBitIndex % 8))) != 0;
 
@@ -2730,8 +2766,8 @@ bool GfxRenderer::copyBufferToRegion(int x, int y, int width, int height, const 
 
       const bool bit = (inBuffer[srcBitIndex / 8] & (0x80 >> (srcBitIndex % 8))) != 0;
 
-      const size_t dstBitIndex = static_cast<size_t>(dstY) * static_cast<size_t>(screenWidth) +
-                                 static_cast<size_t>(dstX);
+      const size_t dstBitIndex =
+          static_cast<size_t>(dstY) * static_cast<size_t>(screenWidth) + static_cast<size_t>(dstX);
 
       if (bit) {
         frameBuffer[dstBitIndex / 8] |= (0x80 >> (dstBitIndex % 8));

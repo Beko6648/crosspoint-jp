@@ -101,14 +101,17 @@ static uint8_t lookupKernClass(const EpdKernClassEntry* entries, const uint16_t 
 }
 
 int8_t EpdFont::getKerning(const uint32_t leftCp, const uint32_t rightCp) const {
-  if (!data->kernMatrix) {
+  if (!data->kernLeftClasses || !data->kernRightClasses) {
     return 0;
   }
   const uint8_t lc = lookupKernClass(data->kernLeftClasses, data->kernLeftEntryCount, leftCp);
   if (lc == 0) return 0;
   const uint8_t rc = lookupKernClass(data->kernRightClasses, data->kernRightEntryCount, rightCp);
   if (rc == 0) return 0;
-  return data->kernMatrix[(lc - 1) * data->kernRightClassCount + (rc - 1)];
+  if (data->kernMatrix) {
+    return data->kernMatrix[(lc - 1) * data->kernRightClassCount + (rc - 1)];
+  }
+  return data->kernLookupHandler ? data->kernLookupHandler(data->kernLookupCtx, lc, rc) : 0;
 }
 
 uint32_t EpdFont::getLigature(const uint32_t leftCp, const uint32_t rightCp) const {

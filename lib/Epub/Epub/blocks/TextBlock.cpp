@@ -106,9 +106,9 @@ int TextBlock::getHorizontalRubyTopInset(const GfxRenderer& renderer, const int 
   return std::max(0, rubyViewportSafety - naturalRubyY);
 }
 
-void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, const int y,
-                       const int viewportWidth, const int viewportHeight, const int viewportLeft,
-                       const int viewportTop, const int rubyOffsetX, const int rubyOffsetY) const {
+void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, const int y, const int viewportWidth,
+                       const int viewportHeight, const int viewportLeft, const int viewportTop, const int rubyOffsetX,
+                       const int rubyOffsetY) const {
   // Validate iterator bounds before rendering
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
     LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
@@ -144,8 +144,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   if (isVertical) {
     int bodyMinX = 0;
     int bodyMaxX = 0;
-    renderer.getTextVisibleBoundsX(
-        effectiveFontId, "\xe4\xb8\x80", &bodyMinX, &bodyMaxX, EpdFontFamily::REGULAR);  // U+4E00
+    renderer.getTextVisibleBoundsX(effectiveFontId, "\xe4\xb8\x80", &bodyMinX, &bodyMaxX,
+                                   EpdFontFamily::REGULAR);  // U+4E00
     verticalBodyCenterOffset = (bodyMinX + bodyMaxX) / 2 - columnWidth / 2;
   }
 
@@ -156,35 +156,35 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
 #if DEBUG_RUBY_RENDER
-  const char* rubyForLog = "";
-  if (i < rubyTexts.size()) {
-    rubyForLog = rubyTexts[i].c_str();
-  }
+    const char* rubyForLog = "";
+    if (i < rubyTexts.size()) {
+      rubyForLog = rubyTexts[i].c_str();
+    }
 
-  LOG_INF(
-      "TXB",
-      "[WORD_RUBY_MAP] i=%u word=%s ruby=%s rubySize=%u wordsSize=%u vertical=%d",
-      static_cast<unsigned>(i),
-      words[i].c_str(),
-      rubyForLog,
-      static_cast<unsigned>(rubyTexts.size()),
-      static_cast<unsigned>(words.size()),
-      isVertical ? 1 : 0
-  );
+    LOG_INF("TXB", "[WORD_RUBY_MAP] i=%u word=%s ruby=%s rubySize=%u wordsSize=%u vertical=%d",
+            static_cast<unsigned>(i), words[i].c_str(), rubyForLog, static_cast<unsigned>(rubyTexts.size()),
+            static_cast<unsigned>(words.size()), isVertical ? 1 : 0);
 #endif
     // インライン画像（sparse）: words[i] が画像マーカー(U+FFFC)のとき、inlineImages の該当要素
     // （マーカー出現順）を ImageBlock として描画する。画像は回転しない（縦書きでも横向きのまま列内に収める）。
     if (words[i] == INLINE_IMAGE_MARKER) {
-      const int imgW = (imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0)
-                           ? inlineImages[imgIdx].width
-                           : 1;
-      const int imgH = (imgIdx < inlineImages.size() && inlineImages[imgIdx].height > 0)
-                           ? inlineImages[imgIdx].height
-                           : 1;
+      const int imgW =
+          (imgIdx < inlineImages.size() && inlineImages[imgIdx].width > 0) ? inlineImages[imgIdx].width : 1;
+      const int imgH =
+          (imgIdx < inlineImages.size() && inlineImages[imgIdx].height > 0) ? inlineImages[imgIdx].height : 1;
       int imgX = x + wordXpos[i];
       int imgY = y;
       if (isVertical && i < wordYpos.size()) {
-        imgY = y + wordYpos[i];
+        // 縦書き: 画像を、そのセル(=次の語までの送り)の縦中心に配置する。
+        // 横書きの行内中央配置と対称。列末・段落末(次の語がない)では残り画面全体を
+        // セル下端に使うと画像が中央まで下がるため、元の位置のままにしておく。
+        if (i + 1 < wordYpos.size()) {
+          int cellH = wordYpos[i + 1] - wordYpos[i];
+          if (cellH < imgH) cellH = imgH;  // 画像がセルより大きい場合は上詰め相当(はみ出さない)
+          imgY = y + wordYpos[i] + (cellH - imgH) / 2;
+        } else {
+          imgY = y + wordYpos[i];
+        }
         // 縦書き: 列セル内に中央配置（画像は回転しない）
         imgX += (columnWidth - imgW) / 2;
       } else {
@@ -221,63 +221,60 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           const uint32_t baseCp = utf8NextCodepoint(&basePtr);
           if (baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
               VerticalTextUtils::isUprightInVertical(baseCp) && baseIndex < wordYpos.size()) {
-              const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : currentStyle;
-              const auto baseFontStyle =
-                  static_cast<EpdFontFamily::Style>(baseStyle & EpdFontFamily::BOLD_ITALIC);
-              const int baseAdvance =
-                  renderer.getTextAdvanceX(effectiveFontId, words[baseIndex].c_str(), baseFontStyle);
-              const int measuredEm =
-                  renderer.getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", baseFontStyle);  // U+4E00
-              const int emAdvance = measuredEm > 0 ? measuredEm : renderer.getLineHeight(effectiveFontId);
+            const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : currentStyle;
+            const auto baseFontStyle = static_cast<EpdFontFamily::Style>(baseStyle & EpdFontFamily::BOLD_ITALIC);
+            const int baseAdvance = renderer.getTextAdvanceX(effectiveFontId, words[baseIndex].c_str(), baseFontStyle);
+            const int measuredEm = renderer.getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", baseFontStyle);  // U+4E00
+            const int emAdvance = measuredEm > 0 ? measuredEm : renderer.getLineHeight(effectiveFontId);
 
-              // Halfwidth body glyphs are visibly centered in the CJK column
-              // below. Carry the same font-specific adjustment into the mark
-              // anchor so BIZUD and Noto side bearings do not separate ｼ and ﾞ.
-              const bool hasHalfwidthBase = VerticalTextUtils::isHalfwidthKatakana(baseCp);
-              int baseCenterOffset = 0;
-              if (hasHalfwidthBase) {
-                int baseMinX = 0;
-                int baseMaxX = 0;
-                int bodyMinX = 0;
-                int bodyMaxX = 0;
-                renderer.getTextVisibleBoundsX(
-                    effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX, baseFontStyle);
-                renderer.getTextVisibleBoundsX(
-                    effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, baseFontStyle);  // U+4E00
-                baseCenterOffset = (bodyMinX + bodyMaxX - baseMinX - baseMaxX) / 2;
-              }
+            // Halfwidth body glyphs are visibly centered in the CJK column
+            // below. Carry the same font-specific adjustment into the mark
+            // anchor so BIZUD and Noto side bearings do not separate ｼ and ﾞ.
+            const bool hasHalfwidthBase = VerticalTextUtils::isHalfwidthKatakana(baseCp);
+            int baseCenterOffset = 0;
+            if (hasHalfwidthBase) {
+              int baseMinX = 0;
+              int baseMaxX = 0;
+              int bodyMinX = 0;
+              int bodyMaxX = 0;
+              renderer.getTextVisibleBoundsX(effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX,
+                                             baseFontStyle);
+              renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX,
+                                             baseFontStyle);  // U+4E00
+              baseCenterOffset = (bodyMinX + bodyMaxX - baseMinX - baseMaxX) / 2;
+            }
 
-              // U+3099/U+309A are combining glyphs whose dots sit farther
-              // left in their cell. Spacing and halfwidth marks already have
-              // their own right-side bearing, so keep those closer to the
-              // base character.
-              // Preserve the established fullwidth positioning for unusual
-              // sequences such as あﾞ / 阿゛. Only a halfwidth base needs the
-              // new advance- and side-bearing-aware anchor.
-              const int anchorCell = hasHalfwidthBase ? emAdvance : renderer.getLineHeight(effectiveFontId);
-              const int markOffset = (firstCp == 0x3099 || firstCp == 0x309A)
-                                         ? (anchorCell * 3) / 4
-                                         : hasHalfwidthBase ? (baseAdvance * 2) / 3 : anchorCell / 3;
-              int markX = x + wordXpos[baseIndex] + baseCenterOffset + markOffset;
-              const bool isCombiningVoicingMark = firstCp == 0x3099 || firstCp == 0x309A;
-              if (!hasHalfwidthBase && !isCombiningVoicingMark) {
-                // U+309B/U+309C and U+FF9E/U+FF9F carry very different left
-                // bearings in Noto and BIZUD. Align their visible center with
-                // the base glyph's visible right edge instead of sharing a
-                // font-independent origin. Combining marks keep the existing
-                // placement, which both device screenshots already validate.
-                int baseMinX = 0;
-                int baseMaxX = 0;
-                int markMinX = 0;
-                int markMaxX = 0;
-                renderer.getTextVisibleBoundsX(
-                    effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX, baseFontStyle);
-                renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, baseFontStyle);
-                markX = x + wordXpos[baseIndex] + baseMaxX - (markMinX + markMaxX) / 2;
-              }
-              const int markY = y + wordYpos[baseIndex] - anchorCell / 8;
-              renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
-              renderedAsOverlay = true;
+            // U+3099/U+309A are combining glyphs whose dots sit farther
+            // left in their cell. Spacing and halfwidth marks already have
+            // their own right-side bearing, so keep those closer to the
+            // base character.
+            // Preserve the established fullwidth positioning for unusual
+            // sequences such as あﾞ / 阿゛. Only a halfwidth base needs the
+            // new advance- and side-bearing-aware anchor.
+            const int anchorCell = hasHalfwidthBase ? emAdvance : renderer.getLineHeight(effectiveFontId);
+            const int markOffset = (firstCp == 0x3099 || firstCp == 0x309A) ? (anchorCell * 3) / 4
+                                   : hasHalfwidthBase                       ? (baseAdvance * 2) / 3
+                                                                            : anchorCell / 3;
+            int markX = x + wordXpos[baseIndex] + baseCenterOffset + markOffset;
+            const bool isCombiningVoicingMark = firstCp == 0x3099 || firstCp == 0x309A;
+            if (!hasHalfwidthBase && !isCombiningVoicingMark) {
+              // U+309B/U+309C and U+FF9E/U+FF9F carry very different left
+              // bearings in Noto and BIZUD. Align their visible center with
+              // the base glyph's visible right edge instead of sharing a
+              // font-independent origin. Combining marks keep the existing
+              // placement, which both device screenshots already validate.
+              int baseMinX = 0;
+              int baseMaxX = 0;
+              int markMinX = 0;
+              int markMaxX = 0;
+              renderer.getTextVisibleBoundsX(effectiveFontId, words[baseIndex].c_str(), &baseMinX, &baseMaxX,
+                                             baseFontStyle);
+              renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, baseFontStyle);
+              markX = x + wordXpos[baseIndex] + baseMaxX - (markMinX + markMaxX) / 2;
+            }
+            const int markY = y + wordYpos[baseIndex] - anchorCell / 8;
+            renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
+            renderedAsOverlay = true;
           }
         }
         if (renderedAsOverlay) continue;
@@ -290,8 +287,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         int bodyMinX = 0;
         int bodyMaxX = 0;
         renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, currentStyle);
-        renderer.getTextVisibleBoundsX(
-            effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
+        renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
         const int centerOffset = (bodyMinX + bodyMaxX - markMinX - markMaxX) / 2;
         renderer.drawTextVertical(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
         continue;
@@ -299,14 +295,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       // 縦書きでは「＝」を90度回転する。半角長音符「ｰ」は
       // drawTextVertical() の句読点経路で回転・配置する。
-      const bool forceSidewaysSymbol =
-          isSingleCodepoint &&
-          firstCp == 0xFF1D;  // ＝ FULLWIDTH EQUALS SIGN
+      const bool forceSidewaysSymbol = isSingleCodepoint && firstCp == 0xFF1D;  // ＝ FULLWIDTH EQUALS SIGN
 
       const bool isSingleCjk =
-          isSingleCodepoint &&
-          !forceSidewaysSymbol &&
-          VerticalTextUtils::isUprightInVertical(firstCp);
+          isSingleCodepoint && !forceSidewaysSymbol && VerticalTextUtils::isUprightInVertical(firstCp);
 
       if (isSingleCjk) {
         int uprightX = wx;
@@ -319,8 +311,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           int bodyMinX = 0;
           int bodyMaxX = 0;
           renderer.getTextVisibleBoundsX(effectiveFontId, w, &kanaMinX, &kanaMaxX, currentStyle);
-          renderer.getTextVisibleBoundsX(
-              effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
+          renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX,
+                                         currentStyle);  // U+4E00
           uprightX += (bodyMinX + bodyMaxX - kanaMinX - kanaMaxX) / 2;
         }
         // wordYpos already contains the halfwidth glyph advance plus the
@@ -340,50 +332,32 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, currentStyle);
           int fullwidthDigitMinX = 0;
           int fullwidthDigitMaxX = 0;
-          renderer.getTextVisibleBoundsX(
-              effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX, currentStyle);  // U+FF10
-          const int centerOffset =
-              (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
+          renderer.getTextVisibleBoundsX(effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX,
+                                         currentStyle);  // U+FF10
+          const int centerOffset = (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
           renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           const int vertShift = renderer.getFontAscenderSize(effectiveFontId) / 3;
-          renderer.drawTextSideways(
-              effectiveFontId, wx + verticalBodyCenterOffset, wy + vertShift, w, true, currentStyle, columnWidth);
+          renderer.drawTextSideways(effectiveFontId, wx + verticalBodyCenterOffset, wy + vertShift, w, true,
+                                    currentStyle, columnWidth);
         }
       }
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
-        #if DEBUG_RUBY_RENDER
-        LOG_INF(
-            "TXB",
-            "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s isSingleCjk=%d x=%d y=%d",
-            static_cast<unsigned>(i),
-            rubyFontId,
-            words[i].c_str(),
-            rubyTexts[i].c_str(),
-            isSingleCjk ? 1 : 0,
-            wx,
-            wy
-        );
-        #endif
+#if DEBUG_RUBY_RENDER
+        LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s isSingleCjk=%d x=%d y=%d",
+                static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(), isSingleCjk ? 1 : 0, wx,
+                wy);
+#endif
       }
 
-                  // 縦書きルビ描画
-      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() &&
-          !isRubyContinuation(rubyTexts[i])) {
-        #if DEBUG_RUBY_RENDER
-        LOG_INF(
-            "TXB",
-            "[RUBY_DRAW] i=%u rubyFontId=%d word=%s ruby=%s x=%d y=%d",
-            static_cast<unsigned>(i),
-            rubyFontId,
-            words[i].c_str(),
-            rubyTexts[i].c_str(),
-            wx,
-            wy
-        );
-        #endif
+      // 縦書きルビ描画
+      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
+#if DEBUG_RUBY_RENDER
+        LOG_INF("TXB", "[RUBY_DRAW] i=%u rubyFontId=%d word=%s ruby=%s x=%d y=%d", static_cast<unsigned>(i), rubyFontId,
+                words[i].c_str(), rubyTexts[i].c_str(), wx, wy);
+#endif
         const int rubyColumnWidth = renderer.getLineHeight(rubyFontId);
 
         // BIZUD系は列幅が大きく、従来位置でちょうどよい。
@@ -404,18 +378,16 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int rubyX = std::clamp(rightBaseX + rubyOffsetX, minRubyX, maxRubyX);
 
         const bool rubyIsAsciiWord = VerticalTextUtils::isAsciiAlphabeticWord(rubyTexts[i].c_str());
-        const int rubyNaturalHeight = rubyIsAsciiWord
-                                          ? renderer.getTextAdvanceX(
-                                                rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR)
-                                          : renderer.getTextAdvanceYVertical(
-                                                rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
+        const int rubyNaturalHeight =
+            rubyIsAsciiWord
+                ? renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR)
+                : renderer.getTextAdvanceYVertical(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
         const int rubyTextHeight = std::max(rubyColumnWidth, rubyNaturalHeight);
         constexpr int rubyViewportSafety = 2;
         const int minRubyY = viewportHeight > 0 ? viewportTop + rubyViewportSafety : 0;
         const int maxRubyY =
-            viewportHeight > 0
-                ? std::max(minRubyY, viewportTop + viewportHeight - rubyTextHeight - rubyViewportSafety)
-                : INT_MAX;
+            viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyTextHeight - rubyViewportSafety)
+                               : INT_MAX;
         int rubyY = std::clamp(wy + rubyOffsetY, minRubyY, maxRubyY);
         if (rubyY < nextVerticalRubyY) {
           rubyY = std::min(nextVerticalRubyY, maxRubyY);
@@ -424,30 +396,27 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
         if (rubyIsAsciiWord) {
           const int rubyShift = renderer.getFontAscenderSize(rubyFontId) / 3;
-          renderer.drawTextSideways(
-              rubyFontId, rubyX, rubyY + rubyShift, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR, rubyColumnWidth);
+          renderer.drawTextSideways(rubyFontId, rubyX, rubyY + rubyShift, rubyTexts[i].c_str(), true,
+                                    EpdFontFamily::REGULAR, rubyColumnWidth);
         } else {
-          renderer.drawTextVertical(
-              rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
+          renderer.drawTextVertical(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
         }
       }
     } else {
       const int wordX = wordXpos[i] + x;
       renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);
       // 横書きルビ描画
-      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() &&
-          !isRubyContinuation(rubyTexts[i])) {
+      if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
         size_t rubyBaseEnd = i;
         while (rubyBaseEnd + 1 < rubyTexts.size() && isRubyContinuation(rubyTexts[rubyBaseEnd + 1])) {
           rubyBaseEnd++;
         }
 
         // Center over the complete <ruby> base, not only its first CJK token.
-        const int lastBaseAdvance = renderer.getTextAdvanceX(
-            effectiveFontId, words[rubyBaseEnd].c_str(), wordStyles[rubyBaseEnd]);
+        const int lastBaseAdvance =
+            renderer.getTextAdvanceX(effectiveFontId, words[rubyBaseEnd].c_str(), wordStyles[rubyBaseEnd]);
         const int baseWidth = wordXpos[rubyBaseEnd] - wordXpos[i] + lastBaseAdvance;
-        const int rubyWidth =
-            renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
+        const int rubyWidth = renderer.getTextAdvanceX(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
         const int viewportRight = viewportLeft + viewportWidth;
         const int minRubyX = viewportWidth > 0 ? viewportLeft : 0;
         const int maxRubyX = viewportWidth > 0 ? std::max(minRubyX, viewportRight - rubyWidth) : INT_MAX;
@@ -463,11 +432,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         constexpr int rubyViewportSafety = 2;
         const int minRubyY = viewportHeight > 0 ? viewportTop + rubyViewportSafety : 0;
         const int maxRubyY =
-            viewportHeight > 0
-                ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
-                : INT_MAX;
-        const int rubyY = std::clamp(y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY,
-                                     minRubyY, maxRubyY);
+            viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
+                               : INT_MAX;
+        const int rubyY =
+            std::clamp(y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY, minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 

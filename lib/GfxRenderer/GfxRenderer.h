@@ -131,6 +131,10 @@ class GfxRenderer {
   // Restrict styleMask to styles that the caller will actually measure. This
   // avoids reading unused SD font style data during section layout.
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
+  // Load vertical punctuation substitutions before page generation allocates its
+  // temporary buffers. This avoids falling back to horizontal punctuation when
+  // a reader is opened immediately after memory-intensive work such as transfer.
+  bool ensureSdCardVerticalGlyphsReady(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void resetSdCardAdvanceBuildTiming() const;
   uint32_t getSdCardAdvanceBuildCalls() const { return sdCardAdvanceBuildCalls_; }
   uint32_t getSdCardAdvanceBuildMs() const { return sdCardAdvanceBuildMs_; }
@@ -205,9 +209,8 @@ class GfxRenderer {
   void drawCenteredText(const int fontId, const int y, const char* text, const bool black = true,
                         const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
-  void drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black,
-                            const int xOffset,
-                            const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  void drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black, const int xOffset,
+                              const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;

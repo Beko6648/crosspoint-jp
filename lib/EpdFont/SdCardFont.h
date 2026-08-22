@@ -9,6 +9,7 @@ class SdCardFont {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 128;
   static constexpr uint8_t MAX_STYLES = 4;
+  static constexpr uint8_t KERN_ROW_CACHE_ROWS = 4;
 
   SdCardFont() = default;
   ~SdCardFont();
@@ -67,7 +68,7 @@ class SdCardFont {
 
   // Returns true if the given style is present in this font file.
   bool hasStyle(uint8_t style) const;
-  
+
   // Resolve requested style bits to the closest present style.
   uint8_t resolveStyle(uint8_t style) const;
 
@@ -159,6 +160,10 @@ class SdCardFont {
     EpdKernClassEntry* kernRightClasses = nullptr;
     int8_t* kernMatrix = nullptr;
     EpdLigaturePair* ligaturePairs = nullptr;
+    int8_t* kernRowCache = nullptr;
+    uint8_t kernCachedRows[KERN_ROW_CACHE_ROWS] = {};
+    uint8_t kernRowCacheNext = 0;
+    bool kernRowCacheEnabled = false;
     bool kernLigLoaded = false;
 
     // Stub EpdFontData returned when not prewarmed
@@ -232,6 +237,7 @@ class SdCardFont {
   bool loadStyleKernLigatureData(PerStyle& s);
   void applyKernLigaturePointers(PerStyle& s, EpdFontData& data) const;
   void applyGlyphMissCallback(uint8_t styleIdx);
+  static int8_t lookupKernRow(void* ctx, uint8_t leftClass, uint8_t rightClass);
   int32_t findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) const;
   int prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint32_t cpCount, bool metadataOnly);
 
