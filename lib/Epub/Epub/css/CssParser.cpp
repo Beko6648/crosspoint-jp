@@ -45,6 +45,11 @@ constexpr size_t MAX_RULES = 1500;
 // If below this threshold, we skip CSS to avoid display artifacts.
 constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
 
+// The firmware is built without C++ exceptions, so a failed map allocation
+// while parsing CSS would abort and reboot the device. Stop collecting rules
+// before that point; a partial stylesheet is preferable to a restart.
+constexpr size_t MIN_FREE_HEAP_DURING_CSS_PARSE = 32 * 1024;
+
 // unordered_map node, selector string, bucket growth, and allocator overhead.
 // Measured caches use about 180 bytes per rule; keep a conservative margin so
 // a fragmented heap never reaches throwing new while restoring cached rules.
@@ -421,6 +426,11 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
     return;
   }
 
+  if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
+    LOG_DBG("CSS", "Low heap (%u bytes), dropping CSS rule registration", ESP.getFreeHeap());
+    return;
+  }
+
   // Handle comma-separated selectors
   const auto selectors = splitOnChar(selectorGroup, ',');
 
@@ -602,6 +612,15 @@ bool CssParser::loadFromStream(FsFile& source) {
 
   char buffer[READ_BUFFER_SIZE];
   while (source.available()) {
+    // Do not risk a later rulesBySelector_ allocation when memory is nearly
+    // exhausted. The caller keeps the already parsed rules in RAM, but will
+    // avoid saving this incomplete set as a cache.
+    if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
+      LOG_ERR("CSS", "Low heap during CSS parse (%u bytes), stopping early with %zu rules", ESP.getFreeHeap(),
+              rulesBySelector_.size());
+      return false;
+    }
+
     int bytesRead = source.read(buffer, sizeof(buffer));
     if (bytesRead <= 0) break;
 
@@ -870,6 +889,17 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
     }
   }
 
+  // reserve() itself allocates the bucket array before the per-rule guard
+  // below can run. Use the same conservative per-rule estimate even for the
+  // validation path that does not request an additional post-load reserve.
+  const size_t cacheLoadReserve = MIN_FREE_HEAP_DURING_CSS_PARSE +
+                                  static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
+  if (ESP.getFreeHeap() < cacheLoadReserve) {
+    LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu for safe restore", ruleCount,
+            ESP.getFreeHeap(), cacheLoadReserve);
+    return false;
+  }
+
   // Size the bucket array before restoring rules so the map does not repeatedly
   // rehash while this cache is loaded.
   rulesBySelector_.reserve(ruleCount);
@@ -886,6 +916,14 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad) {
 
   // Read each rule
   for (uint16_t i = 0; i < ruleCount; ++i) {
+    // A new selector and map node allocate from the heap. Stop before a
+    // failed allocation can abort the no-exceptions firmware.
+    if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
+      LOG_ERR("CSS", "Low heap while loading CSS cache (%u bytes), stopping early with %zu rules", ESP.getFreeHeap(),
+              rulesBySelector_.size());
+      return true;
+    }
+
     // Read selector string
     uint16_t selectorLen = 0;
     if (!hasRemainingBytes(sizeof(selectorLen))) {
