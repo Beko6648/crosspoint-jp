@@ -220,10 +220,7 @@ bool SleepActivity::renderTransparentSleepOverlay() const {
     return false;
   }
 
-  if (readLe16(file) != 0x4d42) {
-    LOG_ERR("SLP", "Transparent overlay is not a BMP");
-    return false;
-  }
+  if (readLe16(file) != 0x4d42) return false;
   file.seekCur(8);
   const uint32_t dataOffset = readLe32(file);
   const uint32_t dibSize = readLe32(file);
@@ -234,8 +231,13 @@ bool SleepActivity::renderTransparentSleepOverlay() const {
   const uint32_t compression = readLe32(file);
   if (dibSize < 40 || width <= 0 || rawHeight == 0 || planes != 1 || bitsPerPixel != 32 ||
       (compression != 0 && compression != 3)) {
-    LOG_ERR("SLP", "Overlay must be a 32-bit BGRA BMP");
-    return false;
+    // A conventional BMP is also useful as an overlay: drawBitmap leaves its
+    // white pixels unchanged when the background is preserved.
+    if (!file.seek(0)) return false;
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() != BmpReaderError::Ok) return false;
+    renderBitmapSleepScreen(bitmap, true);
+    return true;
   }
 
   const bool topDown = rawHeight < 0;
@@ -253,6 +255,27 @@ bool SleepActivity::renderTransparentSleepOverlay() const {
     LOG_ERR("SLP", "Could not allocate or seek transparent overlay");
     return false;
   }
+
+  // Conventional 32-bit BMPs often have no usable alpha channel.  Handle
+  // those through the normal white-is-transparent bitmap path instead.
+  bool hasVisibleAlpha = false;
+  bool hasTransparentAlpha = false;
+  for (int32_t sourceY = 0; sourceY < height; ++sourceY) {
+    if (file.read(row.get(), rowBytes) != static_cast<int>(rowBytes)) return false;
+    for (int32_t x = 0; x < width; ++x) {
+      const uint8_t alpha = row[static_cast<size_t>(x) * 4u + 3u];
+      hasVisibleAlpha |= alpha >= MIN_VISIBLE_ALPHA;
+      hasTransparentAlpha |= alpha < 255;
+    }
+  }
+  if (!hasVisibleAlpha || !hasTransparentAlpha) {
+    if (!file.seek(0)) return false;
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() != BmpReaderError::Ok) return false;
+    renderBitmapSleepScreen(bitmap, true);
+    return true;
+  }
+  if (!file.seek(dataOffset)) return false;
 
   const int originX = (screenWidth - width) / 2;
   const int originY = (screenHeight - height) / 2;
@@ -293,7 +316,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
+void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -334,9 +357,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   }
 
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  renderer.clearScreen();
+  if (!preserveBackground) renderer.clearScreen();
 
-  const bool hasGreyscale = bitmap.hasGreyscale() &&
+  const bool hasGreyscale = !preserveBackground && bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
 
   renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
