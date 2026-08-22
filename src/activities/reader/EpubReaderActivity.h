@@ -66,6 +66,8 @@ class EpubReaderActivity final : public Activity {
   void jumpToPercent(int percent);
   void jumpToBookProgress(float progress);
   void invalidateSectionPreservingPosition();
+  // Reflow position is valid only until the user navigates explicitly.
+  void clearDeferredReposition();
   void onReaderMenuBack(uint8_t orientation);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
