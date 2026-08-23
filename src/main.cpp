@@ -16,6 +16,7 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <esp_task_wdt.h>
 #include <sys/time.h>
@@ -49,6 +50,30 @@ ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+
+void logX3DisplayProbeDiag() {
+  if (!gpio.deviceIsX3()) return;
+
+  const auto& diag = freeink::getXteinkDisplayProbeDiag();
+  if (!diag.valid) {
+    LOG_ERR("XTDET", "X3 display-controller probe did not run");
+    return;
+  }
+
+  const char* verdict = "inconclusive";
+  if (diag.verdict == static_cast<uint8_t>(freeink::DisplayControllerVerdict::PrimaryAssumed)) {
+    verdict = "UC8253 assumed";
+  } else if (diag.verdict == static_cast<uint8_t>(freeink::DisplayControllerVerdict::Uc81xxConfirmed)) {
+    verdict = "UC8279 confirmed";
+  }
+
+  LOG_INF("XTDET", "VER=%02X %02X %02X %02X %02X FLG=%02X -> %s promoted=%d", diag.ver[0], diag.ver[1], diag.ver[2],
+          diag.ver[3], diag.ver[4], diag.flg, verdict, diag.promoted ? 1 : 0);
+  if (diag.mtpValid) {
+    LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0], diag.mtp[0x17],
+            diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C], diag.mtp[0x1D]);
+  }
+}
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -139,53 +164,6 @@ EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 
-// measurement of power button press duration calibration value
-unsigned long t1 = 0;
-unsigned long t2 = 0;
-
-// Verify power button press duration on wake-up from deep sleep
-// Pre-condition: isWakeupByPowerButton() == true
-void verifyPowerButtonDuration() {
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) {
-    // Fast path for short press
-    // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-    return;
-  }
-
-  // Give the user up to 1000ms to start holding the power button, and must hold for SETTINGS.getPowerButtonDuration()
-  const auto start = millis();
-  bool abort = false;
-  // Subtract the current time, because inputManager only starts counting the HeldTime from the first update()
-  // This way, we remove the time we already took to reach here from the duration,
-  // assuming the button was held until now from millis()==0 (i.e. device start time).
-  const uint16_t calibration = start;
-  const uint16_t calibratedPressDuration =
-      (calibration < SETTINGS.getPowerButtonDuration()) ? SETTINGS.getPowerButtonDuration() - calibration : 1;
-
-  gpio.update();
-  // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-  while (!gpio.isPressed(HalGPIO::BTN_POWER) && millis() - start < 1000) {
-    delay(10);  // only wait 10ms each iteration to not delay too much in case of short configured duration.
-    gpio.update();
-  }
-
-  t2 = millis();
-  if (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    do {
-      delay(10);
-      gpio.update();
-    } while (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getHeldTime() < calibratedPressDuration);
-    abort = gpio.getHeldTime() < calibratedPressDuration;
-  } else {
-    abort = true;
-  }
-
-  if (abort) {
-    // Button released too early. Returning to sleep.
-    // IMPORTANT: Re-arm the wakeup trigger before sleeping again
-    powerManager.startDeepSleep(gpio, gpio.deviceIsX4() || !SETTINGS.rtcEnabled);
-  }
-}
 void waitForPowerRelease() {
   gpio.update();
   while (gpio.isPressed(HalGPIO::BTN_POWER)) {
@@ -318,8 +296,6 @@ static void resetSpiPins() {
 }
 
 void setup() {
-  t1 = millis();
-
   // タイムゾーン設定（JST = UTC+9）。ディープスリープ後のリブートでも
   // localtime_r()が日本時間を返すようにするため、起動直後に設定する。
   setenv("TZ", "JST-9", 1);
@@ -349,6 +325,7 @@ void setup() {
 #endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
+  logX3DisplayProbeDiag();
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
@@ -391,7 +368,8 @@ void setup() {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
       gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
-                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
+                                   gpio.deviceIsX4() || !SETTINGS.rtcEnabled);
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep

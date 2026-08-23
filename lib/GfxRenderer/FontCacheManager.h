@@ -17,6 +17,9 @@ class FontCacheManager {
 
   void clearCache();
   void freeKernLigatureData();
+  // Release all rebuildable SD-font caches before heap-critical Wi-Fi and web
+  // server allocations. Fonts remain registered and reload on demand.
+  void releaseSdFontCaches();
   void prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F);
   void logStats(const char* label = "render");
   void resetStats();
@@ -67,5 +70,8 @@ class FontCacheManager {
   // For compressed (non-SD) fonts: accumulate text in a single buffer
   std::string scanCompressedText_;
   uint32_t scanCompressedStyleCounts_[4] = {};
-  int scanCompressedFontId_ = -1;
+  // Font IDs are FNV hashes and may be negative.  Keep occupancy separately
+  // so a valid negative ID is not mistaken for the empty-slot marker.
+  bool hasScanCompressedFont_ = false;
+  int scanCompressedFontId_ = 0;
 };

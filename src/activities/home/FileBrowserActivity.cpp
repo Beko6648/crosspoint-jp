@@ -337,9 +337,14 @@ void FileBrowserActivity::loop() {
   // So ignore it the first time.
   if ((mode == Mode::Books || mode == Mode::PickDirectory) && mappedInput.isPressed(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/" && !lockLongPressBack) {
-    basepath = "/";
-    loadFiles();
-    selectorIndex = 0;
+    {
+      // render() reads basepath and the file/status vectors on the render
+      // task. loadFiles() can replace those vectors, so keep the update atomic.
+      RenderLock lock(*this);
+      basepath = "/";
+      loadFiles();
+      selectorIndex = 0;
+    }
     requestUpdate();
     return;
   }
@@ -453,11 +458,16 @@ void FileBrowserActivity::loop() {
           return;
         }
         // 操作成功後、ファイル一覧を更新（アイコン状態反映のため）
-        loadFiles(true);
-        if (files.empty()) {
-          selectorIndex = 0;
-        } else if (selectorIndex >= files.size()) {
-          selectorIndex = files.size() - 1;
+        {
+          // render() reads these values on the render task; loadFiles() may
+          // free their current backing storage.
+          RenderLock lock(*this);
+          loadFiles(true);
+          if (files.empty()) {
+            selectorIndex = 0;
+          } else if (selectorIndex >= files.size()) {
+            selectorIndex = files.size() - 1;
+          }
         }
         requestUpdate(true);
       };
@@ -491,18 +501,24 @@ void FileBrowserActivity::loop() {
         return;
       }
 
+      // render() reads basepath and the file/status vectors on the render
+      // task. Mutate them only while it is excluded.
+      RenderLock lock(*this);
       if (basepath.back() != '/') basepath += "/";
 
       if (isDirectory) {
         basepath += entry.substr(0, entry.length() - 1);
         loadFiles();
         selectorIndex = 0;
+        lock.unlock();
         requestUpdate();
       } else {
         // .bin files (firmware) are listed for management (delete/archive) but
         // are not books, so a short press must not try to open them.
         if (FsHelpers::checkFileExtension(entry, ".bin")) return;
-        onSelectBook(basepath + entry);
+        const std::string fullPath = basepath + entry;
+        lock.unlock();  // Activity launch may acquire the render lock.
+        onSelectBook(fullPath);
       }
     }
     return;
@@ -514,13 +530,18 @@ void FileBrowserActivity::loop() {
       if (basepath != "/") {
         const std::string oldPath = basepath;
 
-        basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
-        if (basepath.empty()) basepath = "/";
-        loadFiles();
+        {
+          // render() reads basepath and the file/status vectors on the render
+          // task. loadFiles() can replace those vectors.
+          RenderLock lock(*this);
+          basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
+          if (basepath.empty()) basepath = "/";
+          loadFiles();
 
-        const auto pos = oldPath.find_last_of('/');
-        const std::string dirName = oldPath.substr(pos + 1) + "/";
-        selectorIndex = findEntry(dirName);
+          const auto pos = oldPath.find_last_of('/');
+          const std::string dirName = oldPath.substr(pos + 1) + "/";
+          selectorIndex = findEntry(dirName);
+        }
 
         requestUpdate();
       } else if (mode == Mode::PickFirmware || mode == Mode::PickDirectory) {

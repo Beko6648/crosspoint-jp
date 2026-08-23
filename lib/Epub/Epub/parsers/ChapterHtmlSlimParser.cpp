@@ -591,7 +591,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             FsFile cachedImageFile;
             bool extractSuccess = false;
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
+              // Images are extracted lazily. A larger transfer buffer cuts SD
+              // read/write calls for image-heavy EPUBs without retaining it.
+              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
               cachedImageFile.flush();
               cachedImageFile.close();
             }
@@ -1400,7 +1402,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   const size_t wordCount = self->currentTextBlock->size();
   const bool normalFlush = wordCount > 750;
   const bool earlyFlush = wordCount > 100 && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING * 2;
-  if (normalFlush || earlyFlush) self->flushTextBlockForMemory();
+  // A group ruby annotation is applied only when its closing </ruby> arrives.
+  // Flushing its base words beforehand loses that span and can split or drop
+  // the annotation, so defer the memory flush until the group is complete.
+  if (!self->inRuby && (normalFlush || earlyFlush)) self->flushTextBlockForMemory();
 }
 
 void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const XML_Char* s, const int len) {
@@ -1510,15 +1515,16 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   // Ruby closing tags
+  // The common close path above has already decremented depth once.  Ruby
+  // elements must not decrement it a second time: doing so prevents an
+  // enclosing inline element such as <b> from finding its style-stack entry.
   if (strcmp(name, "rt") == 0) {
     self->collectingRubyText = false;
-    self->depth -= 1;
     return;
   }
 
   if (strcmp(name, "rb") == 0) {
     self->flushPartWordBuffer();
-    self->depth -= 1;
     if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyBaseTagStyle) {
       self->inlineStyleStack.pop_back();
       self->updateEffectiveInlineStyle();
@@ -1527,7 +1533,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   if (strcmp(name, "rp") == 0) {
-    self->depth -= 1;
     return;
   }
 
@@ -1571,7 +1576,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->rubyStartWordIndex = -1;
     self->rubyTextBuffer.clear();
 
-    self->depth -= 1;
     if (!self->inlineStyleStack.empty() && self->inlineStyleStack.back().rubyTagStyle) {
       self->inlineStyleStack.pop_back();
       self->updateEffectiveInlineStyle();
@@ -1652,9 +1656,14 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       self->currentTextBlock->setBlockStyle(style);
     }
   }
+
+  if (strcmp(name, "html") == 0) {
+    self->htmlEnded = true;
+  }
 }
 
 bool ChapterHtmlSlimParser::parseAndBuildPages() {
+  htmlEnded = false;
   auto paragraphAlignmentBlockStyle = BlockStyle();
   paragraphAlignmentBlockStyle.textAlignDefined = true;
   // Resolve None sentinel to Justify for initial block (no CSS context yet)
@@ -1730,6 +1739,10 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     done = file.available() == 0;
 
     if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+      if (htmlEnded) {
+        LOG_DBG("EHP", "Ignoring trailing data after </html>: %s", XML_ErrorString(XML_GetErrorCode(parser)));
+        break;
+      }
       LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
               XML_ErrorString(XML_GetErrorCode(parser)));
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing

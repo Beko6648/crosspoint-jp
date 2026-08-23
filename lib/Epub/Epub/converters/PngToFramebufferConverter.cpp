@@ -38,6 +38,7 @@ struct PngContext {
   bool caching{false};
 
   uint8_t* grayLineBuffer{nullptr};
+  uint32_t lastYieldMs{0};
 };
 
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
@@ -206,6 +207,8 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
 
+  ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
+
   int srcY = pDraw->y;
   int srcWidth = ctx->srcWidth;
 
@@ -316,19 +319,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
                          (static_cast<uint32_t>(header[18]) << 8) | header[19];
   const uint32_t height = (static_cast<uint32_t>(header[20]) << 24) | (static_cast<uint32_t>(header[21]) << 16) |
                           (static_cast<uint32_t>(header[22]) << 8) | header[23];
-  constexpr uint32_t maxDimension = 32767;
-  constexpr uint64_t maxPixels = 25000000;
-  if (width == 0 || height == 0 || width > maxDimension || height > maxDimension ||
-      static_cast<uint64_t>(width) * height > maxPixels) {
-    LOG_ERR("PNG", "Invalid PNG dimensions: %lux%lu", static_cast<unsigned long>(width),
-            static_cast<unsigned long>(height));
-    return false;
-  }
-
-  out.width = static_cast<int16_t>(width);
-  out.height = static_cast<int16_t>(height);
-
-  return true;
+  return validateAndStoreDimensions(width, height, out, "PNG header");
 }
 
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
@@ -372,13 +363,12 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     return false;
   }
 
-  if (!validateImageDimensions(png->getWidth(), png->getHeight(), "PNG")) {
-    return false;
-  }
+  ImageDimensions sourceDimensions;
+  if (!validateAndStoreDimensions(png->getWidth(), png->getHeight(), sourceDimensions, "PNG")) return false;
 
   // Calculate output dimensions
-  ctx.srcWidth = png->getWidth();
-  ctx.srcHeight = png->getHeight();
+  ctx.srcWidth = sourceDimensions.width;
+  ctx.srcHeight = sourceDimensions.height;
 
   if (config.useExactDimensions && config.maxWidth > 0 && config.maxHeight > 0) {
     // Fit image within the exact target bounds while preserving aspect ratio.
@@ -454,6 +444,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   }
 
   unsigned long decodeStart = millis();
+  ctx.lastYieldMs = decodeStart;
   rc = png->decode(&ctx, 0);
   unsigned long decodeTime = millis() - decodeStart;
 

@@ -1,8 +1,11 @@
+#include <BoardConfig.h>
 #include <HalGPIO.h>
 #include <Logging.h>
+#include <PowerManager.h>
 #include <Preferences.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <XteinkDetect.h>
 #include <esp_sleep.h>
 
 // Global HalGPIO instance
@@ -191,10 +194,22 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
 }  // namespace
 
 void HalGPIO::begin() {
+  _deviceType = detectDeviceTypeWithFingerprint();
+
+  // The display-controller probe bit-bangs the EPD pins, so it must run before
+  // InputManager or the hardware SPI peripheral claims any pins. Keep Yomuka's
+  // existing X3/X4 detection and overrides, but select FreeInk's X3 profile
+  // before probing whether this production run uses UC8253 or UC8279d.
+  if (deviceIsX3()) {
+    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3);
+    // A previous sleep may have held the shared SD power rail off. Restore it
+    // before probing the panel, otherwise the unpowered card can clamp SPI.
+    BoardConfig::releaseSdRail();
+    freeink::applyXteinkDisplayController();
+  }
+
   inputMgr.begin();
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
-
-  _deviceType = detectDeviceTypeWithFingerprint();
 
   if (deviceIsX4()) {
     pinMode(BAT_GPIO0, INPUT);
@@ -223,19 +238,23 @@ bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
 
 unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
 
-void HalGPIO::startDeepSleep() {
+void HalGPIO::startDeepSleep(bool cutPowerRails) {
   // Ensure that the power button has been released to avoid immediately turning back on if you're holding it
   while (inputMgr.isPressed(BTN_POWER)) {
     delay(50);
     inputMgr.update();
   }
+  if (cutPowerRails) {
+    freeink::PowerManager::powerDownRailsForSleep();
+  }
+  gpio_deep_sleep_hold_en();
   // Arm the wakeup trigger *after* the button is released
   esp_deep_sleep_enable_gpio_wakeup(1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
   // Enter Deep Sleep
   esp_deep_sleep_start();
 }
 
-void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
+void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed, bool cutPowerRails) {
   if (shortPressAllowed) {
     // Fast path - no duration check needed
     return;
@@ -260,10 +279,10 @@ void HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
       inputMgr.update();
     } while (inputMgr.isPressed(BTN_POWER) && inputMgr.getHeldTime() < calibratedDuration);
     if (inputMgr.getHeldTime() < calibratedDuration) {
-      startDeepSleep();
+      startDeepSleep(cutPowerRails);
     }
   } else {
-    startDeepSleep();
+    startDeepSleep(cutPowerRails);
   }
 }
 

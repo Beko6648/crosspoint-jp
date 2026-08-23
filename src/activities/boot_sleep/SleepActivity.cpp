@@ -1,6 +1,7 @@
 #include "SleepActivity.h"
 
 #include <Epub.h>
+#include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -12,6 +13,8 @@
 #include <Xtc.h>
 
 #include <ctime>
+#include <memory>
+#include <new>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -20,15 +23,61 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 
+namespace {
+constexpr char TRANSPARENT_SLEEP_OVERLAY_PATH[] = "/sleep-overlay.bmp";
+constexpr char TRANSPARENT_SLEEP_OVERLAY_DIR[] = "/.sleep-overlay";
+constexpr size_t MAX_SLEEP_OVERLAY_FILE_NAME = 256;
+constexpr uint8_t MIN_VISIBLE_ALPHA = 16;
+
+uint16_t readLe16(FsFile& file) {
+  const int low = file.read();
+  const int high = file.read();
+  if (low < 0 || high < 0) return 0;
+  return static_cast<uint16_t>(low) | (static_cast<uint16_t>(high) << 8);
+}
+
+uint32_t readLe32(FsFile& file) {
+  uint32_t value = 0;
+  for (int i = 0; i < 4; ++i) {
+    const int byte = file.read();
+    if (byte < 0) return 0;
+    value |= static_cast<uint32_t>(byte) << (i * 8);
+  }
+  return value;
+}
+
+uint8_t alphaThreshold(const int x, const int y) {
+  static constexpr uint8_t bayer4x4[16] = {0, 128, 32, 160, 192, 64, 224, 96,
+                                            48, 176, 16, 144, 240, 112, 208, 80};
+  return bayer4x4[((y & 3) << 2) | (x & 3)];
+}
+
+bool findNextTransparentOverlayBmp(FsFile& directory, char* name, const size_t nameSize) {
+  for (auto file = directory.openNextFile(); file; file = directory.openNextFile()) {
+    if (file.isDirectory()) continue;
+    file.getName(name, nameSize);
+    if (name[0] == '\0' || name[0] == '.') continue;
+    if (!FsHelpers::hasBmpExtension(std::string(name))) continue;
+
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() == BmpReaderError::Ok) return true;
+  }
+  return false;
+}
+}  // namespace
+
 void SleepActivity::onEnter() {
   Activity::onEnter();
+
+  const bool transparentOverlay =
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM;
 
   // Show popup with reader orientation only when going to sleep from reader
   if (APP_STATE.lastSleepFromReader) {
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+    if (!transparentOverlay) GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
     renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
+  } else if (!transparentOverlay) {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
@@ -37,6 +86,13 @@ void SleepActivity::onEnter() {
   // inversion artifacts; restore afterwards in case the device doesn't sleep.
   const bool wasDarkMode = renderer.isDarkMode();
   renderer.setDarkMode(false);
+
+  if (transparentOverlay) {
+    const bool rendered = renderTransparentSleepOverlay();
+    renderer.setDarkMode(wasDarkMode);
+    if (rendered) return;
+    // Invalid or missing overlays fall back to the normal sleep screen.
+  }
 
   // カレンダーをBW描画パスに挿入するためのフラグ設定
   // X4 では DS3231 がないため、電源断後に正確な日付を保持できない → カレンダー無効
@@ -168,6 +224,116 @@ void SleepActivity::renderCustomSleepScreen() const {
   renderDefaultSleepScreen();
 }
 
+bool SleepActivity::renderTransparentSleepOverlay() const {
+  // The reader page is already in the framebuffer.  Reclaiming SD font data
+  // before allocating the BMP row buffer makes sleep reliable with large fonts.
+  if (auto* fontCaches = renderer.getFontCacheManager()) fontCaches->releaseSdFontCaches();
+
+  // An explicitly configured root image takes priority over random overlays.
+  if (renderTransparentSleepOverlayFile(TRANSPARENT_SLEEP_OVERLAY_PATH)) return true;
+
+  auto directory = Storage.open(TRANSPARENT_SLEEP_OVERLAY_DIR);
+  if (!directory || !directory.isDirectory()) return false;
+
+  char name[MAX_SLEEP_OVERLAY_FILE_NAME];
+  uint16_t count = 0;
+  while (count < UINT16_MAX && findNextTransparentOverlayBmp(directory, name, sizeof(name))) ++count;
+  if (count == 0) return false;
+
+  const uint16_t selected = static_cast<uint16_t>(random(count));
+  directory.rewindDirectory();
+  for (uint16_t index = 0; index <= selected; ++index) {
+    if (!findNextTransparentOverlayBmp(directory, name, sizeof(name))) return false;
+  }
+
+  const std::string path = std::string(TRANSPARENT_SLEEP_OVERLAY_DIR) + "/" + name;
+  return renderTransparentSleepOverlayFile(path.c_str());
+}
+
+bool SleepActivity::renderTransparentSleepOverlayFile(const char* path) const {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", path, file)) return false;
+
+  if (readLe16(file) != 0x4d42) return false;
+  file.seekCur(8);
+  const uint32_t dataOffset = readLe32(file);
+  const uint32_t dibSize = readLe32(file);
+  const int32_t width = static_cast<int32_t>(readLe32(file));
+  const int32_t rawHeight = static_cast<int32_t>(readLe32(file));
+  const uint16_t planes = readLe16(file);
+  const uint16_t bitsPerPixel = readLe16(file);
+  const uint32_t compression = readLe32(file);
+  if (dibSize < 40 || width <= 0 || rawHeight == 0 || planes != 1 || bitsPerPixel != 32 ||
+      (compression != 0 && compression != 3)) {
+    // A conventional BMP is also useful as an overlay: drawBitmap leaves its
+    // white pixels unchanged when the background is preserved.
+    if (!file.seek(0)) return false;
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() != BmpReaderError::Ok) return false;
+    renderBitmapSleepScreen(bitmap, true);
+    return true;
+  }
+
+  const bool topDown = rawHeight < 0;
+  const int32_t height = topDown ? -rawHeight : rawHeight;
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  if (width > screenWidth || height > screenHeight) {
+    LOG_ERR("SLP", "Overlay is larger than screen: %s (%ldx%ld)", path, static_cast<long>(width),
+            static_cast<long>(height));
+    return false;
+  }
+
+  const uint32_t rowBytes = static_cast<uint32_t>(width) * 4u;
+  auto row = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[rowBytes]);
+  if (!row || !file.seek(dataOffset)) {
+    LOG_ERR("SLP", "Could not allocate or seek transparent overlay");
+    return false;
+  }
+
+  // Conventional 32-bit BMPs often have no usable alpha channel.  Handle
+  // those through the normal white-is-transparent bitmap path instead.
+  bool hasVisibleAlpha = false;
+  bool hasTransparentAlpha = false;
+  for (int32_t sourceY = 0; sourceY < height; ++sourceY) {
+    if (file.read(row.get(), rowBytes) != static_cast<int>(rowBytes)) return false;
+    for (int32_t x = 0; x < width; ++x) {
+      const uint8_t alpha = row[static_cast<size_t>(x) * 4u + 3u];
+      hasVisibleAlpha |= alpha >= MIN_VISIBLE_ALPHA;
+      hasTransparentAlpha |= alpha < 255;
+    }
+  }
+  if (!hasVisibleAlpha || !hasTransparentAlpha) {
+    if (!file.seek(0)) return false;
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() != BmpReaderError::Ok) return false;
+    renderBitmapSleepScreen(bitmap, true);
+    return true;
+  }
+  if (!file.seek(dataOffset)) return false;
+
+  const int originX = (screenWidth - width) / 2;
+  const int originY = (screenHeight - height) / 2;
+  for (int32_t sourceY = 0; sourceY < height; ++sourceY) {
+    if (file.read(row.get(), rowBytes) != static_cast<int>(rowBytes)) {
+      LOG_ERR("SLP", "Short read in transparent overlay");
+      return false;
+    }
+    const int screenY = originY + (topDown ? sourceY : height - 1 - sourceY);
+    for (int32_t x = 0; x < width; ++x) {
+      const uint8_t* pixel = row.get() + static_cast<size_t>(x) * 4u;
+      const uint8_t alpha = pixel[3];
+      const int screenX = originX + x;
+      if (alpha < MIN_VISIBLE_ALPHA || alpha <= alphaThreshold(screenX, screenY)) continue;
+      const uint8_t luminance = static_cast<uint8_t>((77u * pixel[2] + 150u * pixel[1] + 29u * pixel[0]) >> 8);
+      renderer.drawPixel(screenX, screenY, luminance < 192);
+    }
+  }
+
+  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  return true;
+}
+
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -185,7 +351,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
+void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -226,9 +392,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   }
 
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  renderer.clearScreen();
+  if (!preserveBackground) renderer.clearScreen();
 
-  const bool hasGreyscale = bitmap.hasGreyscale() &&
+  const bool hasGreyscale = !preserveBackground && bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
 
   renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);

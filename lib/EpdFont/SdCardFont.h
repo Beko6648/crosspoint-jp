@@ -57,6 +57,11 @@ class SdCardFont {
   // Data will be lazy-loaded again on next prewarm.
   void freeKernLigatureData();
 
+  // Release rebuildable glyph, kern/ligature, overflow and advance caches
+  // while keeping the font registered and usable. The next render faults data
+  // back in from SD as needed.
+  void releaseResidentCaches();
+
   // Returns pointer to the managed EpdFont for a given style.
   // Returns nullptr if the style is not present.
   EpdFont* getEpdFont(uint8_t style = 0);

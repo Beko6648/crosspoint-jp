@@ -1,7 +1,6 @@
 #include "AozoraActivity.h"
 
 #include <ArduinoJson.h>
-#include <FontCacheManager.h>
 #include <FontManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -18,6 +17,7 @@
 #include "Epub/parsers/ContainerParser.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "network/TlsHeapReclaim.h"
 
 // --- 50音行定義 ---
 
@@ -90,13 +90,7 @@ void AozoraActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
-  // Free ExternalFont LRU caches (~34KB each) to make room for TLS buffers.
-  FontManager& fm = FontManager::getInstance();
-  ExternalFont* uiFont = fm.getActiveUiFont();
-  ExternalFont* readerFont = fm.getActiveFont();
-  if (uiFont) uiFont->unload();
-  if (readerFont) readerFont->unload();
-  LOG_DBG("AOZORA", "Freed font caches, heap=%d", ESP.getFreeHeap());
+  reclaimHeapForTls(renderer, "AOZORA");
 
   // Load download index
   indexManager_.loadAndPurge();
@@ -257,13 +251,7 @@ static bool isRetryableEpubDownloadFailure(const HttpDownloader::DownloadError r
 }
 
 static void releaseTransientFontCachesForTls(GfxRenderer& renderer) {
-  const uint32_t heapBefore = ESP.getFreeHeap();
-  if (FontCacheManager* cacheManager = renderer.getFontCacheManager()) {
-    cacheManager->clearCache();
-    cacheManager->freeKernLigatureData();
-  }
-  LOG_INF("AOZORA", "Freed transient font caches for TLS: heap=%u->%u maxAlloc=%u", heapBefore, ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  reclaimHeapForTls(renderer, "AOZORA");
 }
 
 static HttpDownloader::DownloadError downloadEpubWithRetry(GfxRenderer& renderer, const std::string& url,

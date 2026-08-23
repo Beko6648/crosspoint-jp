@@ -9,6 +9,8 @@
 
 #include "CssStyle.h"
 
+class CssSelectorUsage;
+
 /**
  * Lightweight CSS parser for EPUB stylesheets
  *
@@ -44,7 +46,9 @@ class CssParser {
    * Load and parse CSS from a file stream.
    * Can be called multiple times to accumulate rules from multiple stylesheets.
    * @param source Open file handle to read from
-   * @return true if parsing completed (even if no rules found)
+   * @return true if parsing completed (even if no rules found). Returns false
+   *         if parsing stopped early due to low heap; rules collected so far
+   *         remain loaded, but must not be saved as a complete cache.
    */
   bool loadFromStream(FsFile& source);
 
@@ -101,7 +105,11 @@ class CssParser {
    * Clears any existing rules before loading.
    * @return true if cache was loaded successfully
    */
-  bool loadFromCache(size_t minFreeHeapAfterLoad = 0);
+  bool loadFromCache(size_t minFreeHeapAfterLoad = 0, const CssSelectorUsage* usage = nullptr);
+
+  // Check cache identity without materializing its rules in RAM. Rules are
+  // loaded only while building the section that needs them.
+  bool validateCache() const;
 
   // The EPUB archive fingerprint binds this serialized cache to its source.
   void setCacheSourceFingerprint(uint64_t fingerprint) { cacheSourceFingerprint_ = fingerprint; }

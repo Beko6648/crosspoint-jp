@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "Epub/css/CssParser.h"
+#include "Epub/css/CssSelectorUsage.h"
 #include "Page.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
@@ -148,7 +149,13 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 83: inline-image detection compares against the character-cell width
 // (font size / emSize) instead of the "一" glyph advance, so it is font-family
 // independent (sans-serif glyphs no longer overflow to a block image).
-constexpr uint8_t SECTION_FILE_VERSION = 83;
+// Version 84: decode the standard &apos; HTML entity before pages are persisted.
+// Version 85: retain complete ruby groups until their annotation is applied.
+// Version 86: footnote href records retain up to 256 bytes.
+// Version 87: retain complete ruby groups until their annotation is applied.
+// Version 88: invalidate caches after correcting ruby close-tag handling.
+// Version 89: balance all ruby close tags so enclosing emphasis cannot leak.
+constexpr uint8_t SECTION_FILE_VERSION = 89;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -546,7 +553,8 @@ bool Section::clearCache() const {
   return true;
 }
 
-CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize) {
+CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize,
+                                              const std::string& htmlPath) {
   if (bookStyle == 0) {
     return nullptr;
   }
@@ -558,7 +566,9 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
 
   const size_t minFreeHeap =
       std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
-  if (!cssParser->loadFromCache(minFreeHeap)) {
+  CssSelectorUsage usage;
+  const bool scanned = usage.scanHtmlFile(htmlPath);
+  if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr)) {
     LOG_INF("SCT", "CSS cache unavailable or skipped; continuing without external rules");
     return nullptr;
   }
@@ -751,7 +761,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
-  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize);
+  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath);
 
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');

@@ -71,13 +71,13 @@ class HalGPIO {
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
 
-  // Setup wake up GPIO and enter deep sleep
-  void startDeepSleep();
+  // Setup wake up GPIO and enter deep sleep. X3 + RTC有効時はGPIO13を維持する。
+  void startDeepSleep(bool cutPowerRails);
 
   // Verify power button was held long enough after wakeup.
   // If verification fails, enters deep sleep and does not return.
   // Should only be called when wakeup reason is PowerButton.
-  void verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed);
+  void verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed, bool cutPowerRails);
 
   // Check if USB is connected
   bool isUsbConnected() const;

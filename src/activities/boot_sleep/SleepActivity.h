@@ -12,8 +12,10 @@ class SleepActivity final : public Activity {
  private:
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
+  bool renderTransparentSleepOverlay() const;
+  bool renderTransparentSleepOverlayFile(const char* path) const;
   void renderCoverSleepScreen() const;
-  void renderBitmapSleepScreen(const Bitmap& bitmap) const;
+  void renderBitmapSleepScreen(const Bitmap& bitmap, bool preserveBackground = false) const;
   void renderBlankSleepScreen() const;
   void renderCalendarOverlay() const;
   void drawCalendarIfPending() const;

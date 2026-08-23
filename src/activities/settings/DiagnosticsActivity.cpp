@@ -1,6 +1,7 @@
 #include "DiagnosticsActivity.h"
 
 #include <Arduino.h>
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -16,6 +17,22 @@
 namespace {
 
 constexpr const char* kDiagnosticsDirectory = "/.crosspoint/diagnostics";
+
+const char* x3DisplayControllerName() {
+  switch (BoardConfig::ACTIVE.displayController) {
+    case BoardConfig::DisplayController::UC8253:
+      return "UC8253";
+    case BoardConfig::DisplayController::UC8279:
+      return "UC8279";
+    default:
+      return "unknown";
+  }
+}
+
+std::string deviceDescription() {
+  if (!gpio.deviceIsX3()) return "X4";
+  return std::string("X3 (") + x3DisplayControllerName() + ")";
+}
 
 int countReadingCacheDirectories() {
   auto root = Storage.open("/.crosspoint");
@@ -57,7 +74,7 @@ std::vector<std::string> splitLogLines(const std::string& logs) {
 std::string makeReportPath() {
   const time_t now = time(nullptr);
   if (now >= 1704067200) {
-    struct tm timeInfo {};
+    struct tm timeInfo{};
     localtime_r(&now, &timeInfo);
     char filename[48];
     snprintf(filename, sizeof(filename), "report_%04d%02d%02d_%02d%02d%02d.txt", timeInfo.tm_year + 1900,
@@ -95,6 +112,7 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("Yomuka diagnostics\n");
   file.printf("version=%s\n", CROSSPOINT_VERSION);
   file.printf("device=%s\n", gpio.deviceIsX3() ? "X3" : "X4");
+  if (gpio.deviceIsX3()) file.printf("display_controller=%s\n", x3DisplayControllerName());
   file.printf("sd_ready=%s\n", sdReady ? "true" : "false");
   file.printf("free_heap=%lu\n", static_cast<unsigned long>(freeHeap));
   file.printf("max_alloc_heap=%lu\n", static_cast<unsigned long>(maxAllocHeap));
@@ -132,7 +150,7 @@ void DiagnosticsActivity::renderOverview(const int x, int y, const int contentWi
     y += lineHeight;
   };
   drawLine(std::string("Yomuka: ") + CROSSPOINT_VERSION);
-  drawLine(std::string("Device: ") + (gpio.deviceIsX3() ? "X3" : "X4"));
+  drawLine("Device: " + deviceDescription());
   drawLine(std::string("SD: ") + (sdReady ? "ready" : "unavailable"));
   drawLine("Heap: " + std::to_string(freeHeap));
   drawLine("Max alloc: " + std::to_string(maxAllocHeap));
@@ -189,8 +207,8 @@ void DiagnosticsActivity::render(RenderLock&&) {
     renderLogs(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT),
-                                             tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT), tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

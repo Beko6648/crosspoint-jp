@@ -29,7 +29,7 @@ class Section {
                               bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering, bool verticalMode,
                               uint8_t charSpacing);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
-  CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize);
+  CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize, const std::string& htmlPath);
   bool streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
                                  uint32_t& fileSize);
   bool readSectionOffsets(FsFile& file, uint32_t& lutOffset, uint32_t& anchorMapOffset) const;

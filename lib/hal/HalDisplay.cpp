@@ -45,7 +45,10 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
     case HalDisplay::HALF_REFRESH:
       return EInkDisplay::HALF_REFRESH;
     case HalDisplay::SLEEP_REFRESH:
-      return EInkDisplay::SLEEP_REFRESH;
+      // FreeInk deliberately exposes only full, half, and fast modes. A
+      // static sleep image favors final quality over speed, so do not map it
+      // to HALF_REFRESH: the X4 half waveform forces a fixed 0x5A temperature.
+      return EInkDisplay::FULL_REFRESH;
     case HalDisplay::FAST_REFRESH:
     default:
       return EInkDisplay::FAST_REFRESH;
