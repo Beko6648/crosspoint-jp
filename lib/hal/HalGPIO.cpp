@@ -1,8 +1,10 @@
+#include <BoardConfig.h>
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <Preferences.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <XteinkDetect.h>
 #include <esp_sleep.h>
 
 // Global HalGPIO instance
@@ -191,10 +193,19 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
 }  // namespace
 
 void HalGPIO::begin() {
+  _deviceType = detectDeviceTypeWithFingerprint();
+
+  // The display-controller probe bit-bangs the EPD pins, so it must run before
+  // InputManager or the hardware SPI peripheral claims any pins. Keep Yomuka's
+  // existing X3/X4 detection and overrides, but select FreeInk's X3 profile
+  // before probing whether this production run uses UC8253 or UC8279d.
+  if (deviceIsX3()) {
+    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3);
+    freeink::applyXteinkDisplayController();
+  }
+
   inputMgr.begin();
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
-
-  _deviceType = detectDeviceTypeWithFingerprint();
 
   if (deviceIsX4()) {
     pinMode(BAT_GPIO0, INPUT);

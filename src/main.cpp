@@ -16,6 +16,7 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <esp_task_wdt.h>
 #include <sys/time.h>
@@ -49,6 +50,31 @@ ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+
+void logX3DisplayProbeDiag() {
+  if (!gpio.deviceIsX3()) return;
+
+  const auto& diag = freeink::getXteinkDisplayProbeDiag();
+  if (!diag.valid) {
+    LOG_ERR("XTDET", "X3 display-controller probe did not run");
+    return;
+  }
+
+  const char* verdict = "inconclusive";
+  if (diag.verdict == static_cast<uint8_t>(freeink::DisplayControllerVerdict::PrimaryAssumed)) {
+    verdict = "UC8253 assumed";
+  } else if (diag.verdict == static_cast<uint8_t>(freeink::DisplayControllerVerdict::Uc81xxConfirmed)) {
+    verdict = "UC8279 confirmed";
+  }
+
+  LOG_INF("XTDET", "VER=%02X %02X %02X %02X %02X FLG=%02X -> %s promoted=%d", diag.ver[0], diag.ver[1],
+          diag.ver[2], diag.ver[3], diag.ver[4], diag.flg, verdict, diag.promoted ? 1 : 0);
+  if (diag.mtpValid) {
+    LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0],
+            diag.mtp[0x17], diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C],
+            diag.mtp[0x1D]);
+  }
+}
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -343,6 +369,7 @@ void setup() {
 #endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
+  logX3DisplayProbeDiag();
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
