@@ -74,7 +74,7 @@ std::vector<std::string> splitLogLines(const std::string& logs) {
 std::string makeReportPath() {
   const time_t now = time(nullptr);
   if (now >= 1704067200) {
-    struct tm timeInfo {};
+    struct tm timeInfo{};
     localtime_r(&now, &timeInfo);
     char filename[48];
     snprintf(filename, sizeof(filename), "report_%04d%02d%02d_%02d%02d%02d.txt", timeInfo.tm_year + 1900,
@@ -207,8 +207,8 @@ void DiagnosticsActivity::render(RenderLock&&) {
     renderLogs(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT),
-                                             tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT), tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

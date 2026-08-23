@@ -67,12 +67,11 @@ void logX3DisplayProbeDiag() {
     verdict = "UC8279 confirmed";
   }
 
-  LOG_INF("XTDET", "VER=%02X %02X %02X %02X %02X FLG=%02X -> %s promoted=%d", diag.ver[0], diag.ver[1],
-          diag.ver[2], diag.ver[3], diag.ver[4], diag.flg, verdict, diag.promoted ? 1 : 0);
+  LOG_INF("XTDET", "VER=%02X %02X %02X %02X %02X FLG=%02X -> %s promoted=%d", diag.ver[0], diag.ver[1], diag.ver[2],
+          diag.ver[3], diag.ver[4], diag.flg, verdict, diag.promoted ? 1 : 0);
   if (diag.mtpValid) {
-    LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0],
-            diag.mtp[0x17], diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C],
-            diag.mtp[0x1D]);
+    LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0], diag.mtp[0x17],
+            diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C], diag.mtp[0x1D]);
   }
 }
 
@@ -363,8 +362,8 @@ void setup() {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
       gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
-                                    SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
-                                    gpio.deviceIsX4() || !SETTINGS.rtcEnabled);
+                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
+                                   gpio.deviceIsX4() || !SETTINGS.rtcEnabled);
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep

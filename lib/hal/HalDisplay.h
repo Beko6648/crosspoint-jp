@@ -12,10 +12,10 @@ class HalDisplay {
 
   // Refresh modes
   enum RefreshMode {
-    FULL_REFRESH,  // Full refresh with complete waveform
-    HALF_REFRESH,  // Half refresh (1720ms) - balanced quality and speed
-    SLEEP_REFRESH, // Quality-oriented refresh for a static sleep screen
-    FAST_REFRESH   // Fast refresh using custom LUT
+    FULL_REFRESH,   // Full refresh with complete waveform
+    HALF_REFRESH,   // Half refresh (1720ms) - balanced quality and speed
+    SLEEP_REFRESH,  // Quality-oriented refresh for a static sleep screen
+    FAST_REFRESH    // Fast refresh using custom LUT
   };
 
   // Initialize the display hardware and driver
