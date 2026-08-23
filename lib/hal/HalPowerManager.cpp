@@ -1,6 +1,7 @@
 #include "HalPowerManager.h"
 
 #include <Logging.h>
+#include <PowerManager.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
 
@@ -66,10 +67,16 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool useFullPowerOff) const 
     delay(50);
     gpio.update();
   }
+  // X3のGPIO13はSDカードとDS3231 RTCの共有電源レール。RTC有効時にLOWへ
+  // ホールドすると、復帰後に時刻を失う。そのため完全電源断を行う経路だけで
+  // FreeInkのレール停止を実行する。
+  if (useFullPowerOff) {
+    freeink::PowerManager::powerDownRailsForSleep();
+  }
+
   // Pre-sleep routines from the original firmware (crosspoint-reader/crosspoint-reader#1298)
-  // GPIO13はバッテリーラッチMOSFET。LOWにしてバッテリー切断→MCU全電源断。
-  // useFullPowerOff=false の場合はGPIO13を触らず、MCUのディープスリープ（RTC維持）で
-  // DS3231の時刻保持を狙う（X3 + RTC有効時）。
+  // X4ではGPIO13がバッテリーラッチMOSFET、X3ではSD/RTC電源レール。
+  // useFullPowerOff=false（X3 + RTC有効時）ではGPIO13を触らない。
   constexpr gpio_num_t GPIO_SPIWP = GPIO_NUM_13;
   if (useFullPowerOff) {
     gpio_set_direction(GPIO_SPIWP, GPIO_MODE_OUTPUT);
