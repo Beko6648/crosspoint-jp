@@ -744,10 +744,10 @@ bool CssParser::validateCache() const {
 
   uint8_t version = 0;
   uint64_t cachedSourceFingerprint = 0;
-  const bool valid = file.read(&version, 1) == 1 && version == CSS_CACHE_VERSION &&
-                     file.read(&cachedSourceFingerprint, sizeof(cachedSourceFingerprint)) ==
-                         sizeof(cachedSourceFingerprint) &&
-                     cachedSourceFingerprint == cacheSourceFingerprint_;
+  const bool valid =
+      file.read(&version, 1) == 1 && version == CSS_CACHE_VERSION &&
+      file.read(&cachedSourceFingerprint, sizeof(cachedSourceFingerprint)) == sizeof(cachedSourceFingerprint) &&
+      cachedSourceFingerprint == cacheSourceFingerprint_;
   file.close();
   if (!valid) {
     LOG_DBG("CSS", "Cache header mismatch; removing stale cache for rebuild");
@@ -915,11 +915,11 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
   // below can run. Use the same conservative per-rule estimate even for the
   // validation path that does not request an additional post-load reserve.
   if (usage == nullptr) {
-    const size_t cacheLoadReserve = MIN_FREE_HEAP_DURING_CSS_PARSE +
-                                    static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
+    const size_t cacheLoadReserve =
+        MIN_FREE_HEAP_DURING_CSS_PARSE + static_cast<size_t>(ruleCount) * CSS_CACHE_HEAP_BYTES_PER_RULE;
     if (ESP.getFreeHeap() < cacheLoadReserve) {
-      LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu for safe restore", ruleCount,
-              ESP.getFreeHeap(), cacheLoadReserve);
+      LOG_INF("CSS", "Skipping cache load: rules=%u free=%u need>=%zu for safe restore", ruleCount, ESP.getFreeHeap(),
+              cacheLoadReserve);
       return false;
     }
     // Only unfiltered loading knows the full map size in advance.

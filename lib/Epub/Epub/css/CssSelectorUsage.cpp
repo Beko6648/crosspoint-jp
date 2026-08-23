@@ -54,7 +54,17 @@ bool CssSelectorUsage::scanHtmlFile(const std::string& path) {
   FsFile file;
   if (!Storage.openFileForRead("CSU", path, file)) return false;
 
-  enum class State : uint8_t { Text, TagOpen, SkipMarkup, TagName, InTag, AttrName, AfterAttrName, BeforeValue, AttrValue };
+  enum class State : uint8_t {
+    Text,
+    TagOpen,
+    SkipMarkup,
+    TagName,
+    InTag,
+    AttrName,
+    AfterAttrName,
+    BeforeValue,
+    AttrValue
+  };
   State state = State::Text;
   char token[MAX_TOKEN_LENGTH];
   size_t tokenLen = 0;

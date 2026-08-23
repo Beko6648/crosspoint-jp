@@ -11,10 +11,10 @@
 
 #include <cstring>
 
+#include "Epub/parsers/ContainerParser.h"
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
-#include "Epub/parsers/ContainerParser.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "network/TlsHeapReclaim.h"
@@ -250,9 +250,7 @@ static bool isRetryableEpubDownloadFailure(const HttpDownloader::DownloadError r
   return httpCode <= 0 || httpCode == 408 || httpCode == 429 || httpCode >= 500;
 }
 
-static void releaseTransientFontCachesForTls(GfxRenderer& renderer) {
-  reclaimHeapForTls(renderer, "AOZORA");
-}
+static void releaseTransientFontCachesForTls(GfxRenderer& renderer) { reclaimHeapForTls(renderer, "AOZORA"); }
 
 static HttpDownloader::DownloadError downloadEpubWithRetry(GfxRenderer& renderer, const std::string& url,
                                                             const std::string& tmpPath,

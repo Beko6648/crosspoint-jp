@@ -639,9 +639,7 @@ void EpubReaderActivity::invalidateSectionPreservingPosition() {
   }
 }
 
-void EpubReaderActivity::clearDeferredReposition() {
-  cachedChapterTotalPageCount = 0;
-}
+void EpubReaderActivity::clearDeferredReposition() { cachedChapterTotalPageCount = 0; }
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
   switch (action) {
