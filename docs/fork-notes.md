@@ -17,6 +17,7 @@ Xteink X3用に、本家`v0.4.0`(コミット`2590620`)をベースに統合し�
 - **メモリ改善**: 低ヒープ時のCSS解析失敗防止(`CssSelectorUsage`新規)・使用中CSSルールのみ読込・使用中フォントスタイルのみ事前読込・負のフォントID対応・画像デコード安全化(サイズ検証・展開時書き込み)・EPUB最適化での埋込フォント/HTMLコメント除去。
 - **透過スリープ画像**: 読書ページを残して画像を重ねる「透過カスタム」スリープ画面を追加。32-bit BMP(透過情報)を使用。SD直下`/sleep-overlay.bmp`優先表示、`/.sleep-overlay/`フォルダの複数BMPはスリープごとにランダム表示。透過スリープ時は「スリープ中」ダイアログ非表示。
 - **マージ衝突解決**: 4ファイル(`platformio.ini`/`GfxRenderer.h`/`EpubReaderActivity.cpp`/`FileBrowserActivity.cpp`)で衝突したが、いずれも上流の新機能(styleMask引数・RenderLock・clearDeferredReposition)とフォーク独自機能(縦字形先読み・.bin管理・PickDirectory)を両立させる形で解決。`version = v0.5.0-fork1.6`。実機確認済み(2026-08-23、X3で縦書き・ルビ・SDフォント・ページ送り・透過スリープ画像)。
+- **clang-format適用(2026-08-23)**: 上流v0.5.0のコードはフォークの整形ルール(変更行のみ)に従ってないため、CI(build)がclang-formatで失敗した。`./bin/fork-clang-format-fix <BASE_SHA>`(BASE_SHA=マージ前HEAD)で6ファイル(`htmlEntities.cpp`など)の変更行のみ整形して解決。ロジック変更なし。**上流の大規模なマージを取り込んだときは、まずCIのclang-formatチェックが通るか確認し、通らない場合はfork-clang-format-fixで整形してからpushする**。
 
 ### ページ描画・画像
 
