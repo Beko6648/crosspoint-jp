@@ -7,9 +7,15 @@ name: Build & Publish SD Card Fonts
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
     paths:
-      - 'lib/EpdFont/scripts/sd-fonts.yaml'
+      # Font catalog, converter, codepoint ranges, and dependencies.
+      - 'lib/EpdFont/scripts/**'
+      # Committed source fonts can be selected by sd-fonts.yaml entries.
+      - 'lib/EpdFont/builtinFonts/source/**'
+      - 'scripts/generate-font-manifest.py'
+      # Run once when the publishing workflow itself changes.
+      - '.github/workflows/release-fonts.yml'
 
 jobs:
   build-fonts:
@@ -48,6 +54,11 @@ jobs:
           --output dist/fonts.json
           --descriptions-from lib/EpdFont/scripts/sd-fonts.yaml
 
+      - name: Package font licenses and attributions
+        run: >
+          python3 scripts/package-font-licenses.py
+          --output dist/FONT-LICENSES.zip
+
       - name: Update docs/fonts.json for gh-pages
         run: cp dist/fonts.json docs/fonts.json
 
@@ -68,7 +79,8 @@ jobs:
             Pre-built `.cpfont` font files for CrossPoint Reader.
 
             Download individual files or use **Settings > System > Download Fonts** on the device.
+            `FONT-LICENSES.zip` contains the OFL 1.1 text and source attributions.
 
-            See [SD Card Fonts documentation](docs/sd-card-fonts.md) for details.
+            Select **Settings > System > Download Fonts** on the device to install a font.
           files: dist/*
           make_latest: false    # don't override the latest firmware release

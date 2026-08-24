@@ -16,6 +16,32 @@
 #include "network/HttpDownloader.h"
 #include "network/TlsHeapReclaim.h"
 
+namespace {
+struct PendingFontFile {
+  std::string finalPath;
+  std::string tempPath;
+  std::string backupPath;
+  bool backupCreated = false;
+  bool installed = false;
+};
+
+void removePendingTemps(const std::vector<PendingFontFile>& files) {
+  for (const auto& file : files) Storage.remove(file.tempPath.c_str());
+}
+
+void restoreFontBackups(std::vector<PendingFontFile>& files) {
+  for (auto it = files.rbegin(); it != files.rend(); ++it) {
+    if (it->installed) Storage.remove(it->finalPath.c_str());
+    if (it->backupCreated && Storage.exists(it->backupPath.c_str())) {
+      if (!Storage.rename(it->backupPath.c_str(), it->finalPath.c_str())) {
+        LOG_ERR("FONT", "Failed to restore font backup: %s", it->finalPath.c_str());
+      }
+    }
+  }
+  removePendingTemps(files);
+}
+}  // namespace
+
 FontDownloadActivity::FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("FontDownload", renderer, mappedInput), fontInstaller_(sdFontSystem.registry()) {}
 
@@ -129,6 +155,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
       ManifestFile file;
       file.name = fileObj["name"] | "";
       file.size = fileObj["size"] | 0;
+      file.sha256 = fileObj["sha256"] | "";
       family.totalSize += file.size;
       family.files.push_back(std::move(file));
     }
@@ -145,7 +172,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
         if (Storage.openFileForRead("FONT", path, f)) {
           size_t actual = f.fileSize();
           f.close();
-          if (actual != file.size) {
+          if (actual != file.size || !fontInstaller_.verifySha256File(path, file.sha256.c_str())) {
             family.hasUpdate = true;
             break;
           }
@@ -206,6 +233,30 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     return;
   }
 
+  std::vector<PendingFontFile> pending;
+  pending.reserve(family.files.size());
+  for (const auto& file : family.files) {
+    char finalPath[128];
+    FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), finalPath, sizeof(finalPath));
+    PendingFontFile entry;
+    entry.finalPath = finalPath;
+    entry.tempPath = entry.finalPath + ".update.tmp";
+    entry.backupPath = entry.finalPath + ".update.bak";
+
+    // Recover a file interrupted between moving the old version aside and
+    // promoting the verified temporary file. A completed replacement leaves
+    // both final and backup; the final is authoritative in that case.
+    if (Storage.exists(entry.backupPath.c_str())) {
+      if (Storage.exists(entry.finalPath.c_str())) {
+        Storage.remove(entry.backupPath.c_str());
+      } else if (!Storage.rename(entry.backupPath.c_str(), entry.finalPath.c_str())) {
+        LOG_ERR("FONT", "Failed to recover interrupted update: %s", entry.finalPath.c_str());
+      }
+    }
+    Storage.remove(entry.tempPath.c_str());
+    pending.push_back(std::move(entry));
+  }
+
   for (size_t i = 0; i < family.files.size(); i++) {
     const auto& file = family.files[i];
 
@@ -217,22 +268,20 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     }
     requestUpdateAndWait();
 
-    char destPath[128];
-    FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), destPath, sizeof(destPath));
-
     std::string url = baseUrl_ + file.name;
 
     // The progress screen can refill font caches between files, so reclaim
     // again immediately before the next TLS handshake.
     reclaimHeapForTls(renderer, "FONT");
 
-    auto result = HttpDownloader::downloadToFile(url, destPath, [this](size_t downloaded, size_t total) {
+    auto result = HttpDownloader::downloadToFile(url, pending[i].tempPath, [this](size_t downloaded, size_t total) {
       fileProgress_ = downloaded;
       fileTotal_ = total;
       requestUpdate(true);
     });
 
     if (result != HttpDownloader::OK) {
+      removePendingTemps(pending);
       LOG_ERR("FONT", "Download failed: %s (%d)", file.name.c_str(), result);
       RenderLock lock(*this);
       state_ = ERROR;
@@ -240,9 +289,10 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       return;
     }
 
-    if (!fontInstaller_.validateCpfontFile(destPath)) {
-      LOG_ERR("FONT", "Invalid .cpfont: %s", destPath);
-      Storage.remove(destPath);
+    if (!fontInstaller_.validateCpfontFile(pending[i].tempPath.c_str()) ||
+        !fontInstaller_.verifySha256File(pending[i].tempPath.c_str(), file.sha256.c_str())) {
+      LOG_ERR("FONT", "Invalid or corrupt .cpfont: %s", pending[i].tempPath.c_str());
+      removePendingTemps(pending);
       RenderLock lock(*this);
       state_ = ERROR;
       errorMessage_ = "Invalid font file: " + file.name;
@@ -250,8 +300,36 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     }
   }
 
+  // Only replace installed files after every member of the family is complete
+  // and verified. If a rename fails, restore the previous versions.
+  for (auto& file : pending) {
+    Storage.remove(file.backupPath.c_str());
+    if (Storage.exists(file.finalPath.c_str())) {
+      if (!Storage.rename(file.finalPath.c_str(), file.backupPath.c_str())) {
+        LOG_ERR("FONT", "Failed to back up installed font: %s", file.finalPath.c_str());
+        restoreFontBackups(pending);
+        RenderLock lock(*this);
+        state_ = ERROR;
+        errorMessage_ = "Failed to install font update";
+        return;
+      }
+      file.backupCreated = true;
+    }
+    if (!Storage.rename(file.tempPath.c_str(), file.finalPath.c_str())) {
+      LOG_ERR("FONT", "Failed to install verified font: %s", file.finalPath.c_str());
+      restoreFontBackups(pending);
+      RenderLock lock(*this);
+      state_ = ERROR;
+      errorMessage_ = "Failed to install font update";
+      return;
+    }
+    file.installed = true;
+  }
+  for (const auto& file : pending) Storage.remove(file.backupPath.c_str());
+
   fontInstaller_.refreshRegistry();
   family.installed = true;
+  family.hasUpdate = false;
 
   {
     RenderLock lock(*this);

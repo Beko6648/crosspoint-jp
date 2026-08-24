@@ -11,11 +11,12 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int kBuiltinReaderFontCount = 3;
+constexpr int kBuiltinReaderFontCount = 1;
 constexpr CrossPointSettings::FONT_FAMILY kBuiltinReaderFonts[kBuiltinReaderFontCount] = {
-    CrossPointSettings::NOTOSERIF, CrossPointSettings::NOTOSANS, CrossPointSettings::OPENDYSLEXIC};
-constexpr StrId kBuiltinReaderFontLabels[kBuiltinReaderFontCount] = {StrId::STR_NOTO_SERIF, StrId::STR_NOTO_SANS,
-                                                                     StrId::STR_OPEN_DYSLEXIC};
+    CrossPointSettings::NOTOSANS};
+constexpr StrId kBuiltinReaderFontLabels[kBuiltinReaderFontCount] = {StrId::STR_NOTO_SANS};
+
+int builtInReaderFontIndex(uint8_t /*fontFamily*/) { return 0; }
 }  // namespace
 
 void FontSelectActivity::onEnter() {
@@ -35,8 +36,7 @@ void FontSelectActivity::onEnter() {
     if (currentExternal >= 0) {
       selectedIndex = kBuiltinReaderFontCount + currentExternal;
     } else {
-      const int familyIndex = static_cast<int>(SETTINGS.horizontal.fontFamily);
-      selectedIndex = (familyIndex < kBuiltinReaderFontCount) ? familyIndex : 0;
+      selectedIndex = builtInReaderFontIndex(SETTINGS.horizontal.fontFamily);
     }
   } else {
     // Built-in UI font + external fonts
@@ -151,8 +151,7 @@ void FontSelectActivity::render() {
     if (currentExternal >= 0) {
       currentIndex = kBuiltinReaderFontCount + currentExternal;
     } else {
-      const int familyIndex = static_cast<int>(SETTINGS.horizontal.fontFamily);
-      currentIndex = (familyIndex < kBuiltinReaderFontCount) ? familyIndex : 0;
+      currentIndex = builtInReaderFontIndex(SETTINGS.horizontal.fontFamily);
     }
   } else {
     const int currentFont = FontMgr.getUiSelectedIndex();

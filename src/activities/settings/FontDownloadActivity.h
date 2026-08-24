@@ -36,6 +36,7 @@ class FontDownloadActivity : public Activity {
   struct ManifestFile {
     std::string name;
     size_t size = 0;
+    std::string sha256;
   };
 
   struct ManifestFamily {

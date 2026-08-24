@@ -131,6 +131,39 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
     except (FileNotFoundError, RuntimeError) as e:
         return name, False, str(e)
 
+    if family.get("codepoints_from_styles", False) and "codepoints_file" in family:
+        return name, False, "codepoints_from_styles cannot be combined with codepoints_file"
+
+    generated_codepoints_file = None
+    if family.get("codepoints_from_styles", False):
+        # Some Japanese display fonts cover only a curated subset of CJK.  A
+        # full CJK interval would otherwise create thousands of zero-glyph
+        # placeholders, wasting SD space and interval metadata.  Generate a
+        # whitelist from the actual selected source styles instead.
+        from fontTools.ttLib import TTFont
+
+        codepoints = set()
+        for font_path in resolved_styles.values():
+            font = TTFont(str(font_path))
+            try:
+                for table in font["cmap"].tables:
+                    codepoints.update(table.cmap.keys())
+            finally:
+                font.close()
+        if family.get("include_controls", False):
+            # EPUB layout uses C0 controls and U+200B for structural whitespace
+            # (including empty paragraphs). They have no source-font glyph, but
+            # must remain as zero-size placeholders instead of falling back to
+            # the visible replacement glyph at render time.
+            codepoints.update(range(0x20))
+            codepoints.add(0x200B)  # Zero Width Space: explicit blank line marker
+        generated_codepoints_file = DOWNLOAD_DIR / name / "supported_codepoints.txt"
+        generated_codepoints_file.write_text(
+            "# Generated from the configured source styles; do not edit.\n"
+            + "".join(f"{codepoint:04X}\n" for codepoint in sorted(codepoints)),
+            encoding="utf-8",
+        )
+
     # Build the fontconvert_sdcard.py command
     cmd = [sys.executable, str(FONTCONVERT)]
 
@@ -159,6 +192,8 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
     if "codepoints_file" in family:
         cp_file = SCRIPT_DIR / family["codepoints_file"]
         cmd.extend(["--codepoints-file", str(cp_file)])
+    elif generated_codepoints_file is not None:
+        cmd.extend(["--codepoints-file", str(generated_codepoints_file)])
 
     # Run fontconvert_sdcard.py
     try:

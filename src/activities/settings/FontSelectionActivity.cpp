@@ -19,9 +19,7 @@ void FontSelectionActivity::onEnter() {
   fonts_.clear();
   fonts_.reserve(CrossPointSettings::BUILTIN_FONT_COUNT + (registry_ ? registry_->getFamilyCount() : 0));
 
-  fonts_.push_back({I18N.get(StrId::STR_NOTO_SERIF), true, 0});
-  fonts_.push_back({I18N.get(StrId::STR_NOTO_SANS), true, 1});
-  fonts_.push_back({I18N.get(StrId::STR_OPEN_DYSLEXIC), true, 2});
+  fonts_.push_back({I18N.get(StrId::STR_NOTO_SANS), true, CrossPointSettings::NOTOSANS});
 
   if (registry_) {
     const auto& families = registry_->getFamilies();
@@ -41,9 +39,7 @@ void FontSelectionActivity::onEnter() {
       }
     }
   } else {
-    selectedIndex_ = SETTINGS.getDirectionSettings(isVertical_).fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT
-                         ? SETTINGS.getDirectionSettings(isVertical_).fontFamily
-                         : 0;
+    selectedIndex_ = 0;
   }
 
   requestUpdate();
@@ -75,7 +71,7 @@ void FontSelectionActivity::loop() {
 
 void FontSelectionActivity::handleSelection() {
   const auto& font = fonts_[selectedIndex_];
-  if (font.settingIndex < CrossPointSettings::BUILTIN_FONT_COUNT) {
+  if (font.isBuiltin) {
     SETTINGS.getDirectionSettings(isVertical_).fontFamily = font.settingIndex;
     SETTINGS.getDirectionSettings(isVertical_).sdFontFamilyName[0] = '\0';
   } else if (registry_) {
@@ -114,9 +110,7 @@ void FontSelectionActivity::render(RenderLock&&) {
       }
     }
   } else {
-    currentFontIndex = SETTINGS.getDirectionSettings(isVertical_).fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT
-                           ? SETTINGS.getDirectionSettings(isVertical_).fontFamily
-                           : 0;
+    currentFontIndex = 0;
   }
 
   GUI.drawList(

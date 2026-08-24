@@ -6,7 +6,7 @@
 
 // Direction-specific reader settings (horizontal / vertical writing)
 struct DirectionSettings {
-  uint8_t fontFamily = 0;  // CrossPointSettings::NOTOSERIF
+  uint8_t fontFamily = 1;  // CrossPointSettings::NOTOSANS
   char sdFontFamilyName[32] = "";
   uint8_t fontSize = 1;            // CrossPointSettings::MEDIUM
   uint8_t lineSpacing = 155;       // 90-220 (%)
@@ -126,9 +126,12 @@ class CrossPointSettings {
   // Swapped: Next, Previous
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
 
-  // Font family options (built-in fonts only; SD card fonts use sdFontFamilyName)
+  // Font family values saved by older releases. Keep NOTOSERIF and
+  // OPENDYSLEXIC so existing settings can be migrated safely, but do not
+  // expose either as a built-in choice.
+  // SD card fonts use sdFontFamilyName.
   enum FONT_FAMILY { NOTOSERIF = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
-  static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
+  static constexpr uint8_t BUILTIN_FONT_COUNT = 1;
   // Font size options
   enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
   // Legacy line spacing enum values kept for backward compatibility migration.
@@ -209,7 +212,7 @@ class CrossPointSettings {
   uint8_t statusBarBattery = 0;
   // Direction-specific reader settings
   DirectionSettings horizontal;
-  DirectionSettings vertical = {0, "", 1, 155, 15, 0, 0, 0, 10, 1, 1};  // charSpacing=15 for vertical, rubyEnabled=1
+  DirectionSettings vertical = {1, "", 1, 155, 15, 0, 0, 0, 10, 1, 1};  // charSpacing=15 for vertical, rubyEnabled=1
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
   // EPUB reading orientation settings
