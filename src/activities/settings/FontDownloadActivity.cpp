@@ -25,6 +25,15 @@ struct PendingFontFile {
   bool installed = false;
 };
 
+constexpr int FONT_DOWNLOAD_MAX_RETRIES = 3;
+
+bool isRetryableFontDownloadFailure(const HttpDownloader::DownloadError result) {
+  if (result != HttpDownloader::HTTP_ERROR) return false;
+
+  const int httpCode = HttpDownloader::lastHttpCode;
+  return httpCode <= 0 || httpCode == 408 || httpCode == 429 || httpCode >= 500;
+}
+
 void removePendingTemps(const std::vector<PendingFontFile>& files) {
   for (const auto& file : files) Storage.remove(file.tempPath.c_str());
 }
@@ -270,15 +279,27 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     std::string url = baseUrl_ + file.name;
 
-    // The progress screen can refill font caches between files, so reclaim
-    // again immediately before the next TLS handshake.
-    reclaimHeapForTls(renderer, "FONT");
+    HttpDownloader::DownloadError result = HttpDownloader::HTTP_ERROR;
+    for (int attempt = 0; attempt < FONT_DOWNLOAD_MAX_RETRIES; ++attempt) {
+      if (attempt > 0) {
+        LOG_DBG("FONT", "Retrying download %d/%d: %s", attempt + 1, FONT_DOWNLOAD_MAX_RETRIES, file.name.c_str());
+        delay(1000);
+      }
 
-    auto result = HttpDownloader::downloadToFile(url, pending[i].tempPath, [this](size_t downloaded, size_t total) {
-      fileProgress_ = downloaded;
-      fileTotal_ = total;
-      requestUpdate(true);
-    });
+      // The progress screen can refill font caches between files, so reclaim
+      // again immediately before every TLS handshake.
+      reclaimHeapForTls(renderer, "FONT");
+      Storage.remove(pending[i].tempPath.c_str());
+      result = HttpDownloader::downloadToFile(url, pending[i].tempPath, [this](size_t downloaded, size_t total) {
+        fileProgress_ = downloaded;
+        fileTotal_ = total;
+        requestUpdate(true);
+      }, 30000);
+      if (result == HttpDownloader::OK || !isRetryableFontDownloadFailure(result)) break;
+
+      LOG_ERR("FONT", "Download attempt %d/%d failed: %s (err=%d http=%d)", attempt + 1,
+              FONT_DOWNLOAD_MAX_RETRIES, file.name.c_str(), static_cast<int>(result), HttpDownloader::lastHttpCode);
+    }
 
     if (result != HttpDownloader::OK) {
       removePendingTemps(pending);
