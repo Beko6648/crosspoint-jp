@@ -8,8 +8,8 @@
 #include <WiFi.h>
 #include <base64.h>
 
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <utility>
 
@@ -22,16 +22,19 @@ namespace {
 void logHttpFailure(const char* operation, const std::string& url, int errorCode) {
   const String localIp = WiFi.localIP().toString();
   const String errorText = HTTPClient::errorToString(errorCode);
-  LOG_ERR("HTTP", "%s failed: code=%d (%s), wifi=%d rssi=%d ip=%s heap=%u maxAlloc=%u url=%s", operation,
-          errorCode, errorText.c_str(), static_cast<int>(WiFi.status()), WiFi.RSSI(), localIp.c_str(),
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap(), url.c_str());
+  LOG_ERR("HTTP", "%s failed: code=%d (%s), wifi=%d rssi=%d ip=%s heap=%u maxAlloc=%u url=%s", operation, errorCode,
+          errorText.c_str(), static_cast<int>(WiFi.status()), WiFi.RSSI(), localIp.c_str(), ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), url.c_str());
 }
 
 class FileWriteStream final : public Stream {
  public:
   FileWriteStream(FsFile& file, size_t total, size_t initialDownloaded, HttpDownloader::ProgressCallback progress,
                   HttpDownloader::CancelCallback shouldCancel)
-      : file_(file), total_(total), downloaded_(initialDownloaded), progress_(std::move(progress)),
+      : file_(file),
+        total_(total),
+        downloaded_(initialDownloaded),
+        progress_(std::move(progress)),
         shouldCancel_(std::move(shouldCancel)) {}
 
   size_t write(uint8_t byte) override { return write(&byte, 1); }
@@ -135,7 +138,8 @@ bool streamHttpResponse(HTTPClient& http, FileWriteStream& output) {
     if (!copyResponseBytes(*client, output, chunkSize)) return false;
 
     uint8_t trailing[2] = {};
-    if (client->readBytes(trailing, sizeof(trailing)) != sizeof(trailing) || trailing[0] != '\r' || trailing[1] != '\n') {
+    if (client->readBytes(trailing, sizeof(trailing)) != sizeof(trailing) || trailing[0] != '\r' ||
+        trailing[1] != '\n') {
       return false;
     }
   }

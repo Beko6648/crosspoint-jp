@@ -332,8 +332,7 @@ bool FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       result = HttpDownloader::downloadToFile(
           url, pending[i].tempPath,
           [this, &lastDisplayedPercent](size_t downloaded, size_t total) {
-            const int percent =
-                total > 0 ? static_cast<int>((static_cast<uint64_t>(downloaded) * 100) / total) : 0;
+            const int percent = total > 0 ? static_cast<int>((static_cast<uint64_t>(downloaded) * 100) / total) : 0;
             if (downloaded < total && percent < lastDisplayedPercent + FONT_DOWNLOAD_PROGRESS_STEP_PERCENT) return;
 
             fileProgress_ = downloaded;
@@ -341,7 +340,8 @@ bool FontDownloadActivity::downloadFamily(ManifestFamily& family) {
             lastDisplayedPercent = percent;
             requestUpdate(true);
           },
-          30000, "", "", resumeFrom, [this] {
+          30000, "", "", resumeFrom,
+          [this] {
             mappedInput.update();
             return mappedInput.wasPressed(MappedInputManager::Button::Back);
           });
