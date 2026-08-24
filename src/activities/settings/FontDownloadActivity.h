@@ -68,7 +68,7 @@ class FontDownloadActivity : public Activity {
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
-  void downloadFamily(ManifestFamily& family);
+  bool downloadFamily(ManifestFamily& family);
   void downloadAll();
   bool isDownloadAllSelected() const { return selectedIndex_ == 0 && !families_.empty(); }
   int familyIndexFromList(int listIndex) const { return listIndex - 1; }
