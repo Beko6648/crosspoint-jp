@@ -96,6 +96,14 @@ jobs:
           body: |
             CrossPoint Yomuka向けのSDカードフォントです。
 
+            ## 主要な日本語フォント
+
+            - [BIZ UD Gothic](https://github.com/${{ github.repository }}/releases/download/sd-fonts/Yomuka-Font-BIZUDGothic.zip)
+            - [BIZ UD Mincho](https://github.com/${{ github.repository }}/releases/download/sd-fonts/Yomuka-Font-BIZUDMincho.zip)
+            - [Noto Sans JP](https://github.com/${{ github.repository }}/releases/download/sd-fonts/Yomuka-Font-NotoSansJp.zip)
+            - [Noto Serif JP](https://github.com/${{ github.repository }}/releases/download/sd-fonts/Yomuka-Font-NotoSerifJp.zip)
+            - [Zen Maru Gothic](https://github.com/${{ github.repository }}/releases/download/sd-fonts/Yomuka-Font-ZenMaruGothic.zip)
+
             ## 推奨：PCでZIPをSDカードへ展開
 
             1. 使用したい `Yomuka-Font-<フォント名>.zip` をダウンロードします。
