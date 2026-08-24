@@ -23,8 +23,10 @@ struct SdCardFontFamilyInfo {
 class SdCardFontRegistry {
  public:
   static constexpr int MAX_SD_FAMILIES = 128;
-  static constexpr const char* FONTS_DIR = "/fonts";
-  static constexpr const char* DOT_FONTS_DIR = "/.fonts";
+  // New installs use a hidden SD-card directory.  Keep scanning /fonts so
+  // existing manual installs remain available after the migration.
+  static constexpr const char* FONTS_DIR = "/.fonts";
+  static constexpr const char* PUBLIC_FONTS_DIR = "/fonts";
   static constexpr const char* LEGACY_FONTS_DIR = "/.crosspoint/fonts";
 
   // Scan SD card, populate families_. Returns true if any families found.

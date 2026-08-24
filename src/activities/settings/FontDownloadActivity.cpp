@@ -99,7 +99,7 @@ void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
 bool FontDownloadActivity::fetchAndParseManifest() {
   // Download manifest to SD card temp file, then parse from file.
   // This avoids holding both TLS buffers and manifest data in RAM.
-  static constexpr const char* MANIFEST_TMP = "/fonts_manifest.tmp";
+  static constexpr const char* MANIFEST_TMP = "/.fonts_manifest.tmp";
 
   const size_t heapBefore = ESP.getFreeHeap();
   auto result = HttpDownloader::downloadToFile(FONT_MANIFEST_URL, MANIFEST_TMP, nullptr);

@@ -289,7 +289,7 @@
       status.textContent = 'Uploading... 0%';
 
       try {
-        const uploadPath = '/fonts/' + family + '/';
+        const uploadPath = '/.fonts/' + family + '/';
         await uploadFontWebSocket(file, uploadPath, (sent, total) => {
           status.textContent = 'Uploading... ' + Math.round(sent / total * 100) + '%';
         });
