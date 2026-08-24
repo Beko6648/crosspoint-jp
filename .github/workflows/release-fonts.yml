@@ -1,9 +1,8 @@
 name: Build & Publish SD Card Fonts
 
 # Fonts change rarely — run manually when font sources or the conversion
-# pipeline are updated.  Publishes .cpfont files + fonts.json manifest as
-# GitHub Release assets under the fixed "sd-fonts" tag so the device
-# firmware can fetch them from a stable URL.
+# pipeline are updated. Publishes individual .cpfont files for device downloads
+# and SD-ready per-family ZIP archives under the fixed "sd-fonts" tag.
 on:
   workflow_dispatch:
   push:
@@ -46,6 +45,22 @@ jobs:
           mkdir -p dist
           find lib/EpdFont/scripts/output -name '*.cpfont' -exec cp {} dist/ \;
 
+      - name: Package SD-ready font archives
+        run: |
+          set -euo pipefail
+          mkdir -p packages
+          for family_dir in lib/EpdFont/scripts/output/*; do
+            [ -d "${family_dir}" ] || continue
+            family="$(basename "${family_dir}")"
+            install_dir="packages/${family}/.fonts/${family}"
+            mkdir -p "${install_dir}"
+            cp "${family_dir}"/*.cpfont "${install_dir}/"
+            (
+              cd "packages/${family}"
+              zip -q -r "${GITHUB_WORKSPACE}/dist/Yomuka-Font-${family}.zip" .fonts
+            )
+          done
+
       - name: Generate manifest
         run: >
           python3 scripts/generate-font-manifest.py
@@ -79,11 +94,22 @@ jobs:
           tag_name: sd-fonts
           name: SD Card Fonts
           body: |
-            Pre-built `.cpfont` font files for CrossPoint Reader.
+            CrossPoint Yomuka向けのSDカードフォントです。
 
-            Download individual files or use **Settings > System > Download Fonts** on the device.
-            `FONT-LICENSES.zip` contains the OFL 1.1 text and source attributions.
+            ## 推奨：PCでZIPをSDカードへ展開
 
-            Select **Settings > System > Download Fonts** on the device to install a font.
+            1. 使用したい `Yomuka-Font-<フォント名>.zip` をダウンロードします。
+            2. ZIPをSDカード直下へ展開します。
+            3. `/.fonts/<フォント名>/` にフォントが配置されたことを確認します。
+            4. SDカードを端末へ戻して再起動し、読書フォント設定から選択します。
+
+            日本語フォントは容量が大きいため、この方法を推奨します。
+
+            ## 端末からダウンロード
+
+            **設定 > システム > フォントをダウンロード**からも導入できますが、
+            日本語フォントは完了まで時間がかかる場合があります。
+
+            `FONT-LICENSES.zip`にはOFL 1.1本文と各フォントの出典情報が含まれます。
           files: dist/*
           make_latest: false    # don't override the latest firmware release
