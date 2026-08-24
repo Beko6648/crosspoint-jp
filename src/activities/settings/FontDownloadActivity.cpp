@@ -290,15 +290,18 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       // again immediately before every TLS handshake.
       reclaimHeapForTls(renderer, "FONT");
       Storage.remove(pending[i].tempPath.c_str());
-      result = HttpDownloader::downloadToFile(url, pending[i].tempPath, [this](size_t downloaded, size_t total) {
-        fileProgress_ = downloaded;
-        fileTotal_ = total;
-        requestUpdate(true);
-      }, 30000);
+      result = HttpDownloader::downloadToFile(
+          url, pending[i].tempPath,
+          [this](size_t downloaded, size_t total) {
+            fileProgress_ = downloaded;
+            fileTotal_ = total;
+            requestUpdate(true);
+          },
+          30000);
       if (result == HttpDownloader::OK || !isRetryableFontDownloadFailure(result)) break;
 
-      LOG_ERR("FONT", "Download attempt %d/%d failed: %s (err=%d http=%d)", attempt + 1,
-              FONT_DOWNLOAD_MAX_RETRIES, file.name.c_str(), static_cast<int>(result), HttpDownloader::lastHttpCode);
+      LOG_ERR("FONT", "Download attempt %d/%d failed: %s (err=%d http=%d)", attempt + 1, FONT_DOWNLOAD_MAX_RETRIES,
+              file.name.c_str(), static_cast<int>(result), HttpDownloader::lastHttpCode);
     }
 
     if (result != HttpDownloader::OK) {
