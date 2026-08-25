@@ -60,6 +60,7 @@
 ### フォント・SD
 
 - **拡張フォント「NotoSerifJp-Ext」とフォントビルドスクリプトの拡張**(2026-08-18): JIS X 0213に加えて**CJK拡張A漢字(U+3400-4DBF・全6,592字)**を収録した明朝フォントを配布。Noto Serif CJK JP フル版ベースで収録漢字**約30,007字**(既存Plus版の約2.2倍)。フォントビルドスクリプト(`fontconvert_sdcard.py`)に`arrows`(上流v1.3.0と同一・上流配布物とバイナリ一致を検証済み)と`cjk_exta`(フォーク独自)プリセットを追加。拡張B(U+20000-)は縦書き表示非対応のため未収録。配布: `fonts/NotoSerifJp-Ext/`。実機確認済み(2026-08-18)。
+  - **生成定義を sd-fonts.yaml に追加**(2026-08-25): 上流v0.6.0取込時に、NotoSerifJpExt の生成定義が yaml に無いことが判明。既存 .cpfont のバイナリ解析で収録範囲を逆算し、`intervals: ascii,greek,punctuation,arrows,symbols,jp_number_symbols,boxdrawing,cjk,cjk_exta`・ソース=Noto Serif CJK JP フル版 OTF として yaml に追加。※ プリセット展開では既存 .cpfont より約873字多い(29,840字)が、収録範囲が広いだけで実用上問題なし。既存配布物は差し替えず維持。
 - **フォントのダウンロード配布元をフォークの`sd-fonts`に変更**(2026-08-19): 端末の「設定 > フォントをダウンロード」が取得する `fonts.json`(マニフェスト)の参照先を、従来の`zrn-ns/crosspoint-jp`からフォークの`Beko6648/crosspoint-jp`に変更(`FontDownloadActivity.h` の `FONT_MANIFEST_URL`・commit `323694a`)。フォークの`sd-fonts`リリースに**日本語5ファミリー**(NotoSansJp / BIZUDGothic / NotoSerifJp / BIZUDMincho / **NotoSerifJpExt**)を公開。実機でDL候補一覧にオリジナル(NotoSerifJpExt含む5種)が表示されることを確認済み。**※ OTAアップデート先(`latestReleaseUrl`・`OtaUpdater.cpp`)は引き続き`zrn-ns/crosspoint-jp`を参照**(今回は変更していない。フォントDLとOTAで参照先が非対称)。
 - **SDフォントのkern行キャッシュ**(2026-08-20): 大きなSDフォントのkern表を連続確保できない場合、必要な行だけをSDカードから読む方式に切り替える。メモリ断片化時の確保失敗を抑え、読書・ホーム画面を安定化。`SdCardFont.cpp/h` の `kernRowCache`（行キャッシュ）は**フォーク独自実装**（上流v0.4.1には無い。上流v0.4.1のkern基本部分を移植したうえで追加した改善）。実機確認済み(2026-08-20)。
 
