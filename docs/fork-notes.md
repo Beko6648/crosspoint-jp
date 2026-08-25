@@ -9,7 +9,7 @@
 - ベースの変遷: 本家v0.3.7派生 → 上流 v0.3.8.2 → v0.4.0 → v0.4.1(一部移植) → v0.5.0 → **v0.6.0(現在)**。
 - 一部の上流機能は意図的に取り込んでいない（下記「意図的に取り込んでいない上流機能」参照）。
 
-### 上流 v0.6.0 で取り込まれた上流機能（2026-08-25・FW転送済み・本体適用待ち）
+### 上流 v0.6.0 で取り込まれた上流機能（2026-08-25・実機確認済み）
 
 ベース更新時に上流から入ってきた機能。フォーク独自実装ではない（下の「フォーク独自実装」には含めない）。
 
@@ -23,7 +23,7 @@
   - フォントライセンス（OFL-1.1.txt）・`package-font-licenses.py` を追加。
 - **clang-format適用(教訓)**: 上流v0.6.0のコードはフォークの整形ルール(変更行のみ)に従ってないため、`./bin/fork-clang-format-fix main`で変更行のみ整形して解決（GfxRenderer.cpp・FontSelectActivity.cpp の2ファイルが整形対象）。**上流の大規模マージを取り込んだときは、まずCIのclang-formatチェックを通し、通らない場合はfork-clang-format-fixで整形してからpushする**。
 
-**v0.6.0 統合の進捗（2026-08-25）**: 上流 v0.6.0 を main に統合・バージョン `v0.6.0-fork1.7` に更新・全CI success。フォークの `sd-fonts` 配布元を上流形式（sha256付き fonts.json + `Yomuka-Font-*.zip` + `FONT-LICENSES.zip`）に追従し、フォントDL・sha256検証の実機確認済み。FW は `yomuka-v0.6.0-fork1.7.bin`（build 07aeffb・sha256 `a4d7409d...`）を `/Firmware/` に WebDAV 転送済み（PROPFIND サイズ検証OK）。**本体適用は未実施（本体は v0.5.0-fork1.6 のまま）**。
+**v0.6.0 統合の進捗（2026-08-25・実機確認済み）**: 上流 v0.6.0 を main に統合・バージョン `v0.6.0-fork1.7` に更新・全CI success。フォークの `sd-fonts` 配布元を上流形式（sha256付き fonts.json + `Yomuka-Font-*.zip` + `FONT-LICENSES.zip`）に追従し、フォントDL・sha256検証の実機確認済み。FW は `yomuka-v0.6.0-fork1.7.bin`（build 07aeffb・sha256 `a4d7409d...`）を `/Firmware/` に WebDAV 転送し、**本体適用済み（/api/status で v0.6.0-fork1.7 を確認・2026-08-25）**。
 
 ### 上流 v0.5.0 で取り込まれた上流機能（2026-08-23・実機確認済み）
 
