@@ -176,6 +176,11 @@ bool isCjkCodepointForSplit(const uint32_t cp) {
   // Horizontal bars use dedicated vertical glyphs and must occupy one cell
   // each instead of being merged into a sideways text run.
   if (cp == 0x2014 || cp == 0x2015) return true;
+  // Ellipsis / two-dot leader also use dedicated vertical glyphs. Splitting
+  // them per cell prevents a very long run (e.g. 300+ consecutive …) from
+  // being buffered as a single unbreakable word that overflows the line and
+  // renders dots across the whole screen.
+  if (cp == 0x2026 || cp == 0x2025) return true;  // … ‥
   // Symbols that remain upright in Japanese vertical text. Splitting them
   // prevents a trailing symbol from being joined to an ASCII run (e.g. 1△).
   if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆
