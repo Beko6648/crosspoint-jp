@@ -3,6 +3,7 @@
 #include <EpdFontFamily.h>
 #include <VerticalTextUtils.h>
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,10 +15,15 @@
 class GfxRenderer;
 
 class ParsedText {
-  std::vector<std::string> words;
+  // A large <ruby> base must remain in memory until its <rt> is parsed.  A
+  // vector<string> then needs one growing contiguous array of string objects;
+  // on an X3's fragmented heap, that allocation can throw bad_alloc and abort
+  // the firmware even when total free heap appears sufficient.  deque grows in
+  // small blocks, so the largest allocation stays bounded.
+  std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
   std::vector<bool> wordContinues;     // true = word attaches to previous (no space before it)
-  std::vector<std::string> rubyTexts;  // words と並列、ルビなしは空文字列
+  std::deque<std::string> rubyTexts;   // words と並列、ルビなしは空文字列
   std::vector<VerticalTextUtils::VerticalBehavior> wordVerticalBehaviors;
   // インライン画像（本文中の文字として扱う画像）。sparse方式: 画像のあるWordの情報だけを、
   // words 内の画像マーカー(U+FFFC)の出現順に保持する。画像でないWordの空要素は持たない

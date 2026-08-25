@@ -251,13 +251,13 @@ void setup() {
   halTiltSensor.begin();
 
 #ifdef ENABLE_SERIAL_LOG
-  if (gpio.isUsbConnected()) {
-    Serial.begin(115200);
-    const unsigned long start = millis();
-    while (!Serial && (millis() - start) < 500) {
-      delay(10);
-    }
-  }
+  // X3 infers USB connection from charging current.  At full charge that
+  // current becomes zero even while USB is attached, so conditional Serial
+  // initialization prevents flashing and diagnostic logs.  Initialize USB CDC
+  // unconditionally and keep writes non-blocking when no host is connected.
+  delay(250);
+  Serial.begin(115200);
+  logSerial.setTxTimeoutMs(1);
 #endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
