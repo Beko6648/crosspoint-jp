@@ -117,7 +117,8 @@ bool isSingleCjkWord(const std::string& word) {
 // line-head character avoids extending text beyond the configured viewport.
 // Continuation tokens include the remaining base characters of a ruby group,
 // so every adjustment also keeps those groups on one line.
-size_t adjustHorizontalKinsokuBreak(const std::vector<std::string>& words, const std::vector<bool>& continuesVec,
+template <typename WordContainer>
+size_t adjustHorizontalKinsokuBreak(const WordContainer& words, const std::vector<bool>& continuesVec,
                                     const size_t lineStart, size_t breakAt) {
   auto keepContinuationTogether = [&]() {
     while (breakAt > lineStart + 1 && breakAt < continuesVec.size() && continuesVec[breakAt]) {
@@ -154,15 +155,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
                          const bool attachToPrevious) {
   if (word.empty()) return;
 
-  // Pre-allocate to match the 750-word flush threshold in characterData().
-  // Without reserve(), std::vector doubles capacity on each reallocation (e.g. 512→1024),
-  // requiring both old and new arrays in memory simultaneously. On a fragmented 380KB heap
-  // this contiguous allocation can fail and call abort() (no C++ exceptions on ESP32).
-  if (words.capacity() == 0) {
-    words.reserve(800);
+  // words/rubyTexts use deque because a ruby base may legitimately exceed the
+  // normal parser flush limit.  Reserve only the small parallel metadata
+  // vectors; they do not need a large contiguous allocation as the text grows.
+  if (wordStyles.capacity() == 0) {
     wordStyles.reserve(800);
     wordContinues.reserve(800);
-    rubyTexts.reserve(800);
     // sparse方式: inlineImages は画像のあるWordの情報だけを持ち（空要素を並列でpushしない）、
     // 画像は稀なので予約不要。全Word分の空要素を保持する旧並列方式よりメモリ消費が大幅に小さい。
   }

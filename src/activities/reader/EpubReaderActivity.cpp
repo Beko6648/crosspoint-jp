@@ -537,17 +537,23 @@ void EpubReaderActivity::loop() {
   const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
 
   if (skipChapter) {
-    lastPageTurnTime = millis();
-    // We don't want to delete the section mid-render, so grab the semaphore
-    {
-      RenderLock lock(*this);
-      nextPageNumber = 0;
-      const bool skipForward = verticalMode ? !nextTriggered : nextTriggered;
-      currentSpineIndex = skipForward ? currentSpineIndex + 1 : currentSpineIndex - 1;
-      section.reset();
+    // If there is no adjacent chapter in the requested direction, leave the
+    // normal page-turn path in charge.  Assigning an out-of-range spine index
+    // here previously wrapped a one-chapter book to its beginning or end.
+    const bool skipForward = verticalMode ? !nextTriggered : nextTriggered;
+    const int targetSpineIndex = skipForward ? currentSpineIndex + 1 : currentSpineIndex - 1;
+    if (targetSpineIndex >= 0 && targetSpineIndex < epub->getSpineItemsCount()) {
+      lastPageTurnTime = millis();
+      // We don't want to delete the section mid-render, so grab the semaphore.
+      {
+        RenderLock lock(*this);
+        nextPageNumber = 0;
+        currentSpineIndex = targetSpineIndex;
+        section.reset();
+      }
+      requestUpdate();
+      return;
     }
-    requestUpdate();
-    return;
   }
 
   // No current section, attempt to rerender the book
