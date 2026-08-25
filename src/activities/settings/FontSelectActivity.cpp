@@ -12,8 +12,7 @@
 
 namespace {
 constexpr int kBuiltinReaderFontCount = 1;
-constexpr CrossPointSettings::FONT_FAMILY kBuiltinReaderFonts[kBuiltinReaderFontCount] = {
-    CrossPointSettings::NOTOSANS};
+constexpr CrossPointSettings::FONT_FAMILY kBuiltinReaderFonts[kBuiltinReaderFontCount] = {CrossPointSettings::NOTOSANS};
 constexpr StrId kBuiltinReaderFontLabels[kBuiltinReaderFontCount] = {StrId::STR_NOTO_SANS};
 
 int builtInReaderFontIndex(uint8_t /*fontFamily*/) { return 0; }
