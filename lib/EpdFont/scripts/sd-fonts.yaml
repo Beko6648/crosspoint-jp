@@ -5,12 +5,18 @@
 #
 # Adding a new font family = adding a block here. No code changes needed.
 #
+# All families currently use SIL Open Font License 1.1.  The release
+# pipeline packages the license text and per-family attribution metadata.
+default_license: OFL-1.1
+
 # Fields:
 #   name:        Output family name (used in filenames and on-device UI)
 #   description: Human-readable description (shown in download UI and manifest)
 #   intervals:   Comma-separated Unicode interval presets for fontconvert_sdcard.py
 #   sizes:       Point sizes to generate
-#   force_autohint: (optional) Force FreeType auto-hinter instead of native hinting
+  #   force_autohint: (optional) Force FreeType auto-hinter instead of native hinting
+#   include_controls: (optional) Keep layout controls as zero-size placeholders
+#                     when codepoints_from_styles is used
 #   styles:      Map of style name -> font source
 #                  path: relative to lib/EpdFont (for committed fonts)
 #                  url:  download URL (for fonts not in the repo)
@@ -62,6 +68,20 @@ families:
       bold:       {url: "https://raw.githubusercontent.com/notofonts/NotoSerif/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Bold.ttf"}
       italic:     {url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-BoldItalic.ttf"}
+
+  # Canonical SD package for the built-in reader serif. Keep
+  # NotoSerifExtended as a legacy download name for existing installations.
+  - name: NotoSerif
+    description: "Standard serif (Latin, Greek, Cyrillic)"
+    # Keep the built-in reader coverage (currency, arrows, math, ligatures)
+    # when moving this family to SD, and extend it with Greek.
+    intervals: builtin,latin-ext,greek,cyrillic,symbols
+    sizes: [12, 14, 16, 18]
+    styles:
+      regular:    {path: "builtinFonts/source/NotoSerif/NotoSerif-Regular.ttf"}
+      bold:       {path: "builtinFonts/source/NotoSerif/NotoSerif-Bold.ttf"}
+      italic:     {path: "builtinFonts/source/NotoSerif/NotoSerif-Italic.ttf"}
+      bolditalic: {path: "builtinFonts/source/NotoSerif/NotoSerif-BoldItalic.ttf"}
 
   - name: Merriweather
     description: "Warm serif for long-form reading (Latin, Cyrillic)"
@@ -199,43 +219,66 @@ families:
       italic:     {url: "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/main/fonts/ttf/AtkinsonHyperlegibleNext-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/main/fonts/ttf/AtkinsonHyperlegibleNext-BoldItalic.ttf"}
 
+  # Canonical SD package for the former built-in accessibility font.
+  - name: OpenDyslexic
+    description: "Accessibility font designed for dyslexia (Latin, Greek, Cyrillic)"
+    intervals: builtin,latin-ext,greek,cyrillic,symbols
+    sizes: [8, 10, 12, 14, 16, 18]
+    styles:
+      regular:    {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Regular.otf"}
+      bold:       {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Bold.otf"}
+      italic:     {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Italic.otf"}
+      bolditalic: {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-BoldItalic.otf"}
+
   # ── Japanese ─────────────────────────────────────────────────────────
 
   - name: NotoSansJp
-    description: "Sans-serif Japanese (JIS X 0213)"
-    intervals: ascii,latin1,punctuation,arrows,cjk
-    codepoints_file: codepoints/japanese_jis0213.txt
+    description: "Sans-serif Japanese with reading symbols"
+    # Match the manually verified SD package: full BMP CJK coverage plus
+    # common reading symbols and the supplementary-plane character 𠮟.
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"}
       bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf"}
 
   - name: BIZUDGothic
-    description: "UD Gothic Japanese (MORISAWA, optimized for readability)"
-    intervals: ascii,latin1,punctuation,arrows,cjk
-    codepoints_file: codepoints/japanese_jis0213.txt
+    description: "UD Gothic Japanese (MORISAWA, with reading symbols)"
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/googlefonts/morisawa-biz-ud-gothic/raw/main/fonts/ttf/BIZUDGothic-Regular.ttf"}
       bold:    {url: "https://github.com/googlefonts/morisawa-biz-ud-gothic/raw/main/fonts/ttf/BIZUDGothic-Bold.ttf"}
 
   - name: NotoSerifJp
-    description: "Serif Japanese (JIS X 0213)"
-    intervals: ascii,latin1,punctuation,arrows,cjk
-    codepoints_file: codepoints/japanese_jis0213.txt
+    description: "Serif Japanese with reading symbols"
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 400}}
       bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 700}}
 
   - name: BIZUDMincho
-    description: "UD Mincho Japanese (MORISAWA, optimized for readability)"
-    intervals: ascii,latin1,punctuation,arrows,cjk
-    codepoints_file: codepoints/japanese_jis0213.txt
+    description: "UD Mincho Japanese (MORISAWA, with reading symbols)"
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/googlefonts/morisawa-biz-ud-mincho/raw/main/fonts/ttf/BIZUDMincho-Regular.ttf"}
       bold:    {url: "https://github.com/googlefonts/morisawa-biz-ud-mincho/raw/main/fonts/ttf/BIZUDMincho-Bold.ttf"}
+
+  - name: ZenMaruGothic
+    description: "Rounded Japanese Gothic (optional; curated CJK coverage)"
+    intervals: builtin,latin-ext,greek,cyrillic,symbols,boxdrawing,enclosed,jp_number_symbols,cjk,jp-supplementary-common
+    # Use only glyphs actually present in the configured Regular and Bold
+    # sources. This avoids large runs of empty CJK placeholders.
+    codepoints_from_styles: true
+    # Empty EPUB paragraphs use U+200B (and C0 controls) during layout.
+    # Keep them non-visible rather than rendering a replacement glyph.
+    include_controls: true
+    sizes: [8, 10, 12, 14, 16, 18]
+    styles:
+      regular: {url: "https://raw.githubusercontent.com/googlefonts/zen-marugothic/main/fonts/ttf/ZenMaruGothic-Regular.ttf"}
+      bold:    {url: "https://raw.githubusercontent.com/googlefonts/zen-marugothic/main/fonts/ttf/ZenMaruGothic-Bold.ttf"}
 
   # ── Additional scripts (no complex shaping needed) ─────────────────────
 

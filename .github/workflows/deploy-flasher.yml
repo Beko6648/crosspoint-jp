@@ -2,7 +2,7 @@ name: Deploy Flasher
 
 on:
   workflow_run:
-    workflows: ["Dev Build", "Compile Release"]
+    workflows: ["Dev Build", "Compile Release", "Build & Publish SD Card Fonts"]
     types: [completed]
   workflow_dispatch:
 
@@ -27,7 +27,13 @@ jobs:
           set -euo pipefail
           REPO="${{ github.repository }}"
 
-          mkdir -p _site/dev _site/stable
+          mkdir -p _site/dev _site/stable _site/fonts
+
+          # Device-downloadable fonts. GitHub Pages serves these directly,
+          # avoiding the large signed redirect used by GitHub Release assets.
+          gh release download sd-fonts --repo "${REPO}" --pattern "*.cpfont" --dir _site/fonts
+          gh release download sd-fonts --repo "${REPO}" --pattern "fonts.json" --dir _site/fonts
+          gh release download sd-fonts --repo "${REPO}" --pattern "FONT-LICENSES.zip" --dir _site/fonts
 
           # Dev manifest (latest prerelease, exclude non-firmware releases)
           DEV_TAG=$(gh api "repos/${REPO}/releases" --jq '[.[] | select(.prerelease == true and (.tag_name | startswith("dev-")))] | first | .tag_name // empty')

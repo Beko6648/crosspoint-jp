@@ -22,14 +22,18 @@ class FontInstaller {
   /// Validate a family name: alphanumeric + hyphen + underscore only, no path traversal.
   static bool isValidFamilyName(const char* name);
 
-  /// Ensure /fonts/<family>/ directory exists.
+  /// Ensure /.fonts/<family>/ directory exists.
   bool ensureFamilyDir(const char* familyName);
 
   /// Validate a .cpfont file on disk (check magic bytes).
   bool validateCpfontFile(const char* path);
 
+  /// Compare a file with a lowercase hexadecimal SHA-256 from the font manifest.
+  /// An empty expected hash is accepted for legacy manifests.
+  bool verifySha256File(const char* path, const char* expectedHex);
+
   /// Build the full SD path for a font file.
-  /// Writes "/fonts/<family>/<filename>" to outBuf.
+  /// Writes "/.fonts/<family>/<filename>" to outBuf.
   static void buildFontPath(const char* family, const char* filename, char* outBuf, size_t outBufSize);
 
   /// Delete a family directory and all .cpfont files in it.

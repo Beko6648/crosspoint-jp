@@ -99,9 +99,9 @@ bool SdCardFontRegistry::discover() {
   families_.clear();
   families_.reserve(MAX_SD_FAMILIES);
 
-  // Prefer the current public directory, then the hidden compatibility
-  // directory, then the original CrossPoint metadata location.
-  const char* fontDirs[] = {FONTS_DIR, DOT_FONTS_DIR, LEGACY_FONTS_DIR};
+  // Prefer the hidden install directory, then the former public directory,
+  // then the original CrossPoint metadata location.
+  const char* fontDirs[] = {FONTS_DIR, PUBLIC_FONTS_DIR, LEGACY_FONTS_DIR};
   bool foundDirectory = false;
   for (const char* fontDir : fontDirs) {
     FsFile root = Storage.open(fontDir);
@@ -147,7 +147,7 @@ bool SdCardFontRegistry::discover() {
   }
 
   if (!foundDirectory) {
-    LOG_ERR("SDREG", "Fonts directories not found: %s, %s, or %s", FONTS_DIR, DOT_FONTS_DIR, LEGACY_FONTS_DIR);
+    LOG_ERR("SDREG", "Fonts directories not found: %s, %s, or %s", FONTS_DIR, PUBLIC_FONTS_DIR, LEGACY_FONTS_DIR);
     return false;
   }
 

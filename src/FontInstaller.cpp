@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <mbedtls/sha256.h>
 
 #include <cctype>
 #include <cstring>
@@ -70,6 +71,66 @@ bool FontInstaller::validateCpfontFile(const char* path) {
   }
 
   return true;
+}
+
+bool FontInstaller::verifySha256File(const char* path, const char* expectedHex) {
+  if (expectedHex == nullptr || expectedHex[0] == '\0') return true;  // Legacy manifest without hashes.
+  if (strlen(expectedHex) != 64) {
+    LOG_ERR("FONT", "Invalid SHA-256 length for: %s", path);
+    return false;
+  }
+
+  FsFile file;
+  if (!Storage.openFileForRead("FONT", path, file)) {
+    LOG_ERR("FONT", "Cannot open for SHA-256: %s", path);
+    return false;
+  }
+
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  mbedtls_sha256_starts(&sha, /*is224=*/0);
+
+  uint8_t buffer[512];
+  size_t remaining = file.fileSize();
+  bool readOk = true;
+  while (remaining > 0) {
+    const size_t wanted = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+    const int got = file.read(buffer, wanted);
+    if (got <= 0 || static_cast<size_t>(got) != wanted) {
+      readOk = false;
+      break;
+    }
+    mbedtls_sha256_update(&sha, buffer, wanted);
+    remaining -= wanted;
+  }
+
+  uint8_t digest[32];
+  if (readOk) mbedtls_sha256_finish(&sha, digest);
+  mbedtls_sha256_free(&sha);
+  file.close();
+  if (!readOk) {
+    LOG_ERR("FONT", "Failed to read for SHA-256: %s", path);
+    return false;
+  }
+
+  static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+  char actualHex[65];
+  for (size_t i = 0; i < sizeof(digest); ++i) {
+    actualHex[i * 2] = HEX_DIGITS[digest[i] >> 4];
+    actualHex[i * 2 + 1] = HEX_DIGITS[digest[i] & 0x0F];
+  }
+  actualHex[64] = '\0';
+
+  bool matches = true;
+  for (size_t i = 0; i < 64; ++i) {
+    const char expected = static_cast<char>(std::tolower(static_cast<unsigned char>(expectedHex[i])));
+    if (actualHex[i] != expected) {
+      matches = false;
+      break;
+    }
+  }
+  if (!matches) LOG_ERR("FONT", "SHA-256 mismatch: %s", path);
+  return matches;
 }
 
 void FontInstaller::buildFontPath(const char* family, const char* filename, char* outBuf, size_t outBufSize) {
