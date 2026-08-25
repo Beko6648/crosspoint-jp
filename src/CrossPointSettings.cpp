@@ -166,6 +166,9 @@ bool CrossPointSettings::loadFromBinaryFile() {
     readAndValidate(inputFile, sideButtonLayout, SIDE_BUTTON_LAYOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, horizontal.fontFamily, FONT_FAMILY_COUNT);
+    if (horizontal.fontFamily == NOTOSERIF || horizontal.fontFamily == OPENDYSLEXIC) {
+      horizontal.fontFamily = NOTOSANS;
+    }
     vertical.fontFamily = horizontal.fontFamily;
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, horizontal.fontSize, FONT_SIZE_COUNT);
@@ -322,27 +325,15 @@ int CrossPointSettings::getReaderFontIdForSize(bool isVertical, uint8_t fontSize
     return -(fm.getSelectedIndex() + 1000);
   }
   switch (ds.fontFamily) {
-    case NOTOSERIF:
-    default:
-      switch (fontSize) {
-        case SMALL: return NOTOSERIF_12_FONT_ID;
-        case LARGE: return NOTOSERIF_16_FONT_ID;
-        case EXTRA_LARGE: return NOTOSERIF_18_FONT_ID;
-        case MEDIUM: default: return NOTOSERIF_14_FONT_ID;
-      }
     case NOTOSANS:
+    case NOTOSERIF:     // Legacy saved value: fall back to resident Noto Sans.
+    case OPENDYSLEXIC:  // Legacy saved value: fall back to resident Noto Sans.
+    default:
       switch (fontSize) {
         case SMALL: return NOTOSANS_12_FONT_ID;
         case LARGE: return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE: return NOTOSANS_18_FONT_ID;
         case MEDIUM: default: return NOTOSANS_14_FONT_ID;
-      }
-    case OPENDYSLEXIC:
-      switch (fontSize) {
-        case SMALL: return OPENDYSLEXIC_8_FONT_ID;
-        case LARGE: return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE: return OPENDYSLEXIC_14_FONT_ID;
-        case MEDIUM: default: return OPENDYSLEXIC_10_FONT_ID;
       }
   }
 }
@@ -350,20 +341,10 @@ int CrossPointSettings::getReaderFontIdForSize(bool isVertical, uint8_t fontSize
 int CrossPointSettings::getBuiltInReaderFontId(bool isVertical) const {
   const auto& ds = getDirectionSettings(isVertical);
   switch (ds.fontFamily) {
-    case NOTOSERIF:
-    default:
-      switch (ds.fontSize) {
-        case SMALL:
-          return NOTOSERIF_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return NOTOSERIF_14_FONT_ID;
-        case LARGE:
-          return NOTOSERIF_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSERIF_18_FONT_ID;
-      }
     case NOTOSANS:
+    case NOTOSERIF:     // Legacy saved value.
+    case OPENDYSLEXIC:  // Legacy saved value.
+    default:
       switch (ds.fontSize) {
         case SMALL:
           return NOTOSANS_12_FONT_ID;
@@ -374,18 +355,6 @@ int CrossPointSettings::getBuiltInReaderFontId(bool isVertical) const {
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
-      }
-    case OPENDYSLEXIC:
-      switch (ds.fontSize) {
-        case SMALL:
-          return OPENDYSLEXIC_8_FONT_ID;
-        case MEDIUM:
-        default:
-          return OPENDYSLEXIC_10_FONT_ID;
-        case LARGE:
-          return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return OPENDYSLEXIC_14_FONT_ID;
       }
   }
 }
@@ -418,20 +387,10 @@ int CrossPointSettings::getHeadingFontId(const int headingLevel, bool isVertical
 
   // Built-in font: resolve with heading size
   switch (ds.fontFamily) {
-    case NOTOSERIF:
-    default:
-      switch (headingSize) {
-        case SMALL:
-          return NOTOSERIF_12_FONT_ID;
-        case MEDIUM:
-        default:
-          return NOTOSERIF_14_FONT_ID;
-        case LARGE:
-          return NOTOSERIF_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSERIF_18_FONT_ID;
-      }
     case NOTOSANS:
+    case NOTOSERIF:     // Legacy saved value.
+    case OPENDYSLEXIC:  // Legacy saved value.
+    default:
       switch (headingSize) {
         case SMALL:
           return NOTOSANS_12_FONT_ID;
@@ -442,18 +401,6 @@ int CrossPointSettings::getHeadingFontId(const int headingLevel, bool isVertical
           return NOTOSANS_16_FONT_ID;
         case EXTRA_LARGE:
           return NOTOSANS_18_FONT_ID;
-      }
-    case OPENDYSLEXIC:
-      switch (headingSize) {
-        case SMALL:
-          return OPENDYSLEXIC_8_FONT_ID;
-        case MEDIUM:
-        default:
-          return OPENDYSLEXIC_10_FONT_ID;
-        case LARGE:
-          return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return OPENDYSLEXIC_14_FONT_ID;
       }
   }
 }
@@ -478,12 +425,10 @@ int CrossPointSettings::getTableFontId(bool isVertical) const {
   // Built-in font: use SMALL (smallest available)
   if (ds.fontSize == SMALL) return 0;  // already at smallest size
   switch (ds.fontFamily) {
-    case NOTOSERIF:
-    default:
-      return NOTOSERIF_12_FONT_ID;
     case NOTOSANS:
+    case NOTOSERIF:     // Legacy saved value.
+    case OPENDYSLEXIC:  // Legacy saved value.
+    default:
       return NOTOSANS_12_FONT_ID;
-    case OPENDYSLEXIC:
-      return OPENDYSLEXIC_8_FONT_ID;
   }
 }

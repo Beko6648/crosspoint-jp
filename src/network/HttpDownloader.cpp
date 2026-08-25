@@ -8,8 +8,8 @@
 #include <WiFi.h>
 #include <base64.h>
 
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <utility>
 
@@ -22,15 +22,20 @@ namespace {
 void logHttpFailure(const char* operation, const std::string& url, int errorCode) {
   const String localIp = WiFi.localIP().toString();
   const String errorText = HTTPClient::errorToString(errorCode);
-  LOG_ERR("HTTP", "%s failed: code=%d (%s), wifi=%d rssi=%d ip=%s heap=%u maxAlloc=%u url=%s", operation,
-          errorCode, errorText.c_str(), static_cast<int>(WiFi.status()), WiFi.RSSI(), localIp.c_str(),
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap(), url.c_str());
+  LOG_ERR("HTTP", "%s failed: code=%d (%s), wifi=%d rssi=%d ip=%s heap=%u maxAlloc=%u url=%s", operation, errorCode,
+          errorText.c_str(), static_cast<int>(WiFi.status()), WiFi.RSSI(), localIp.c_str(), ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap(), url.c_str());
 }
 
 class FileWriteStream final : public Stream {
  public:
-  FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress)
-      : file_(file), total_(total), progress_(std::move(progress)) {}
+  FileWriteStream(FsFile& file, size_t total, size_t initialDownloaded, HttpDownloader::ProgressCallback progress,
+                  HttpDownloader::CancelCallback shouldCancel)
+      : file_(file),
+        total_(total),
+        downloaded_(initialDownloaded),
+        progress_(std::move(progress)),
+        shouldCancel_(std::move(shouldCancel)) {}
 
   size_t write(uint8_t byte) override { return write(&byte, 1); }
 
@@ -54,13 +59,20 @@ class FileWriteStream final : public Stream {
 
   size_t downloaded() const { return downloaded_; }
   bool ok() const { return writeOk_; }
+  bool shouldAbort() {
+    if (shouldCancel_ && shouldCancel_()) aborted_ = true;
+    return aborted_;
+  }
+  bool aborted() const { return aborted_; }
 
  private:
   FsFile& file_;
   size_t total_;
   size_t downloaded_ = 0;
   bool writeOk_ = true;
+  bool aborted_ = false;
   HttpDownloader::ProgressCallback progress_;
+  HttpDownloader::CancelCallback shouldCancel_;
 };
 
 constexpr size_t HTTP_STREAM_BUFFER_SIZE = 512;
@@ -70,6 +82,7 @@ bool copyResponseBytes(NetworkClient& client, FileWriteStream& output, size_t re
   uint8_t buffer[HTTP_STREAM_BUFFER_SIZE];
   unsigned long lastDataAt = millis();
   while (remaining > 0) {
+    if (output.shouldAbort()) return false;
     if (!client.connected()) return false;
 
     const size_t available = client.available();
@@ -125,7 +138,8 @@ bool streamHttpResponse(HTTPClient& http, FileWriteStream& output) {
     if (!copyResponseBytes(*client, output, chunkSize)) return false;
 
     uint8_t trailing[2] = {};
-    if (client->readBytes(trailing, sizeof(trailing)) != sizeof(trailing) || trailing[0] != '\r' || trailing[1] != '\n') {
+    if (client->readBytes(trailing, sizeof(trailing)) != sizeof(trailing) || trailing[0] != '\r' ||
+        trailing[1] != '\n') {
       return false;
     }
   }
@@ -253,7 +267,8 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
 
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,
                                                              ProgressCallback progress, int timeoutMs,
-                                                             const std::string& username, const std::string& password) {
+                                                             const std::string& username, const std::string& password,
+                                                             size_t resumeFrom, CancelCallback shouldCancel) {
   // Use NetworkClientSecure for HTTPS, regular NetworkClient for HTTP
   std::unique_ptr<NetworkClient> client;
   if (UrlUtils::isHttpsUrl(url)) {
@@ -276,6 +291,13 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
   http.addHeader("User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
 
+  const bool resumeRequested = resumeFrom > 0 && Storage.exists(destPath.c_str());
+  if (resumeRequested) {
+    http.addHeader("Range", "bytes=" + String(resumeFrom) + "-");
+  } else {
+    resumeFrom = 0;
+  }
+
   if (!username.empty() && !password.empty()) {
     std::string credentials = username + ":" + password;
     String encoded = base64::encode(credentials.c_str());
@@ -284,10 +306,16 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   const int httpCode = http.GET();
   lastHttpCode = httpCode;
-  if (httpCode != HTTP_CODE_OK) {
+  const bool resuming = resumeRequested && httpCode == HTTP_CODE_PARTIAL_CONTENT;
+  if (httpCode != HTTP_CODE_OK && !resuming) {
     logHttpFailure("Download", url, httpCode);
     http.end();
     return HTTP_ERROR;
+  }
+
+  if (resumeRequested && !resuming) {
+    LOG_DBG("HTTP", "Range request ignored; restarting download from zero");
+    resumeFrom = 0;
   }
 
   const int64_t reportedLength = http.getSize();
@@ -298,25 +326,34 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     LOG_DBG("HTTP", "Content-Length: unknown");
   }
 
-  // Remove existing file if present
-  if (Storage.exists(destPath.c_str())) {
+  // A server that does not support Range replies with 200. Start over in that
+  // case rather than appending a complete response to a partial file.
+  if (!resuming && Storage.exists(destPath.c_str())) {
     Storage.remove(destPath.c_str());
   }
 
-  // Open file for writing
+  // Append only after a successful 206 response. Otherwise write a clean file.
   FsFile file;
-  if (!Storage.openFileForWrite("HTTP", destPath.c_str(), file)) {
+  const bool fileOpened = resuming ? static_cast<bool>(file = Storage.open(destPath.c_str(), O_WRONLY | O_APPEND))
+                                   : Storage.openFileForWrite("HTTP", destPath.c_str(), file);
+  if (!fileOpened) {
     LOG_ERR("HTTP", "Failed to open file for writing");
     http.end();
     return FILE_ERROR;
   }
 
   // Stream in small pieces to avoid HTTPClient's temporary 4 KB receive buffer.
-  FileWriteStream fileStream(file, contentLength, progress);
+  const size_t totalLength = contentLength > 0 ? resumeFrom + contentLength : 0;
+  FileWriteStream fileStream(file, totalLength, resumeFrom, std::move(progress), std::move(shouldCancel));
   const bool streamOk = streamHttpResponse(http, fileStream);
 
   file.close();
   http.end();
+
+  if (fileStream.aborted()) {
+    LOG_INF("HTTP", "Download cancelled (written=%zu)", fileStream.downloaded());
+    return ABORTED;
+  }
 
   if (!streamOk) {
     LOG_ERR("HTTP", "Response stream failed (len=%zu, written=%zu)", contentLength, fileStream.downloaded());
@@ -344,8 +381,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   // Verify download size if known
-  if (contentLength > 0 && downloaded != contentLength) {
-    LOG_ERR("HTTP", "Size mismatch: got %zu, expected %zu", downloaded, contentLength);
+  if (totalLength > 0 && downloaded != totalLength) {
+    LOG_ERR("HTTP", "Size mismatch: got %zu, expected %zu", downloaded, totalLength);
     Storage.remove(destPath.c_str());
     return HTTP_ERROR;
   }

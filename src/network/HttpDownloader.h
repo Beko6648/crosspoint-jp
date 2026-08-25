@@ -11,6 +11,7 @@
 class HttpDownloader {
  public:
   using ProgressCallback = std::function<void(size_t downloaded, size_t total)>;
+  using CancelCallback = std::function<bool()>;
 
   enum DownloadError {
     OK = 0,
@@ -41,5 +42,6 @@ class HttpDownloader {
    */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr, int timeoutMs = 0,
-                                      const std::string& username = "", const std::string& password = "");
+                                      const std::string& username = "", const std::string& password = "",
+                                      size_t resumeFrom = 0, CancelCallback shouldCancel = nullptr);
 };

@@ -2230,7 +2230,13 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
       }
       const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(displayCp);
       if (punctuation && punctuation->rotate) {
-        const int columnWidth = getLineHeight(effectiveFontId);
+        // The vertical body cell follows the measured CJK em, not the font's
+        // line height. They differ substantially for some SD fonts (notably
+        // Zen Maru Gothic), which otherwise shifts rotated halfwidth ｰ to the
+        // right of its surrounding Japanese text.
+        const int measuredColumnWidth =
+            getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", static_cast<EpdFontFamily::Style>(style & EpdFontFamily::BOLD_ITALIC));
+        const int columnWidth = measuredColumnWidth > 0 ? measuredColumnWidth : getLineHeight(effectiveFontId);
         int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
         int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
 

@@ -8,6 +8,8 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <cstdint>
+
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -15,6 +17,45 @@
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "network/TlsHeapReclaim.h"
+
+namespace {
+struct PendingFontFile {
+  std::string finalPath;
+  std::string tempPath;
+  std::string backupPath;
+  bool backupCreated = false;
+  bool installed = false;
+};
+
+constexpr int FONT_DOWNLOAD_MAX_RETRIES = 3;
+// E-paper redraws take roughly 670 ms, so redrawing for every 512-byte network
+// write can keep the render task busy for the entire download. Four progress
+// updates per file still provide useful feedback without throttling reception.
+constexpr int FONT_DOWNLOAD_PROGRESS_STEP_PERCENT = 25;
+
+bool isRetryableFontDownloadFailure(const HttpDownloader::DownloadError result) {
+  if (result != HttpDownloader::HTTP_ERROR) return false;
+
+  const int httpCode = HttpDownloader::lastHttpCode;
+  return httpCode <= 0 || httpCode == 408 || httpCode == 429 || httpCode >= 500;
+}
+
+void removePendingTemps(const std::vector<PendingFontFile>& files) {
+  for (const auto& file : files) Storage.remove(file.tempPath.c_str());
+}
+
+void restoreFontBackups(std::vector<PendingFontFile>& files) {
+  for (auto it = files.rbegin(); it != files.rend(); ++it) {
+    if (it->installed) Storage.remove(it->finalPath.c_str());
+    if (it->backupCreated && Storage.exists(it->backupPath.c_str())) {
+      if (!Storage.rename(it->backupPath.c_str(), it->finalPath.c_str())) {
+        LOG_ERR("FONT", "Failed to restore font backup: %s", it->finalPath.c_str());
+      }
+    }
+  }
+  removePendingTemps(files);
+}
+}  // namespace
 
 FontDownloadActivity::FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("FontDownload", renderer, mappedInput), fontInstaller_(sdFontSystem.registry()) {}
@@ -73,7 +114,7 @@ void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
 bool FontDownloadActivity::fetchAndParseManifest() {
   // Download manifest to SD card temp file, then parse from file.
   // This avoids holding both TLS buffers and manifest data in RAM.
-  static constexpr const char* MANIFEST_TMP = "/fonts_manifest.tmp";
+  static constexpr const char* MANIFEST_TMP = "/.fonts_manifest.tmp";
 
   const size_t heapBefore = ESP.getFreeHeap();
   auto result = HttpDownloader::downloadToFile(FONT_MANIFEST_URL, MANIFEST_TMP, nullptr);
@@ -129,6 +170,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
       ManifestFile file;
       file.name = fileObj["name"] | "";
       file.size = fileObj["size"] | 0;
+      file.sha256 = fileObj["sha256"] | "";
       family.totalSize += file.size;
       family.files.push_back(std::move(file));
     }
@@ -145,7 +187,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
         if (Storage.openFileForRead("FONT", path, f)) {
           size_t actual = f.fileSize();
           f.close();
-          if (actual != file.size) {
+          if (actual != file.size || !fontInstaller_.verifySha256File(path, file.sha256.c_str())) {
             family.hasUpdate = true;
             break;
           }
@@ -169,8 +211,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
 void FontDownloadActivity::downloadAll() {
   for (size_t i = 0; i < families_.size(); i++) {
     if (families_[i].installed && !families_[i].hasUpdate) continue;
-    downloadFamily(families_[i]);
-    if (state_ == ERROR) return;
+    if (!downloadFamily(families_[i])) return;
   }
 
   {
@@ -187,7 +228,7 @@ size_t FontDownloadActivity::totalUninstalledSize() const {
   return total;
 }
 
-void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
+bool FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   {
     RenderLock lock(*this);
     state_ = DOWNLOADING;
@@ -203,60 +244,175 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     RenderLock lock(*this);
     state_ = ERROR;
     errorMessage_ = "Failed to create font directory";
-    return;
+    return false;
+  }
+
+  std::vector<PendingFontFile> pending;
+  pending.reserve(family.files.size());
+  for (const auto& file : family.files) {
+    char finalPath[128];
+    FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), finalPath, sizeof(finalPath));
+    PendingFontFile entry;
+    entry.finalPath = finalPath;
+    entry.tempPath = entry.finalPath + ".update.tmp";
+    entry.backupPath = entry.finalPath + ".update.bak";
+
+    // Recover a file interrupted between moving the old version aside and
+    // promoting the verified temporary file. A completed replacement leaves
+    // both final and backup; the final is authoritative in that case.
+    if (Storage.exists(entry.backupPath.c_str())) {
+      if (Storage.exists(entry.finalPath.c_str())) {
+        Storage.remove(entry.backupPath.c_str());
+      } else if (!Storage.rename(entry.backupPath.c_str(), entry.finalPath.c_str())) {
+        LOG_ERR("FONT", "Failed to recover interrupted update: %s", entry.finalPath.c_str());
+      }
+    }
+    // Keep partial files from a cancelled or interrupted transfer. Each file
+    // is resumed with HTTP Range on the next attempt and verified before use.
+    pending.push_back(std::move(entry));
   }
 
   for (size_t i = 0; i < family.files.size(); i++) {
     const auto& file = family.files[i];
 
+    size_t resumeFrom = 0;
+    if (Storage.exists(pending[i].tempPath.c_str())) {
+      FsFile partialFile;
+      if (Storage.openFileForRead("FONT", pending[i].tempPath, partialFile)) {
+        resumeFrom = partialFile.fileSize();
+        partialFile.close();
+      }
+      if (resumeFrom > file.size) {
+        Storage.remove(pending[i].tempPath.c_str());
+        resumeFrom = 0;
+      } else if (resumeFrom == file.size &&
+                 (!fontInstaller_.validateCpfontFile(pending[i].tempPath.c_str()) ||
+                  !fontInstaller_.verifySha256File(pending[i].tempPath.c_str(), file.sha256.c_str()))) {
+        Storage.remove(pending[i].tempPath.c_str());
+        resumeFrom = 0;
+      }
+    }
+
     {
       RenderLock lock(*this);
       currentFileIndex_ = i;
-      fileProgress_ = 0;
+      fileProgress_ = resumeFrom;
       fileTotal_ = file.size;
     }
     requestUpdateAndWait();
 
-    char destPath[128];
-    FontInstaller::buildFontPath(family.name.c_str(), file.name.c_str(), destPath, sizeof(destPath));
+    // A prior run may already have downloaded and verified this whole file.
+    if (resumeFrom == file.size) continue;
 
     std::string url = baseUrl_ + file.name;
 
-    // The progress screen can refill font caches between files, so reclaim
-    // again immediately before the next TLS handshake.
-    reclaimHeapForTls(renderer, "FONT");
+    HttpDownloader::DownloadError result = HttpDownloader::HTTP_ERROR;
+    for (int attempt = 0; attempt < FONT_DOWNLOAD_MAX_RETRIES; ++attempt) {
+      if (attempt > 0) {
+        LOG_DBG("FONT", "Retrying download %d/%d: %s", attempt + 1, FONT_DOWNLOAD_MAX_RETRIES, file.name.c_str());
+        delay(1000);
+      }
 
-    auto result = HttpDownloader::downloadToFile(url, destPath, [this](size_t downloaded, size_t total) {
-      fileProgress_ = downloaded;
-      fileTotal_ = total;
-      requestUpdate(true);
-    });
+      // The progress screen can refill font caches between files, so reclaim
+      // again immediately before every TLS handshake.
+      reclaimHeapForTls(renderer, "FONT");
+      if (Storage.exists(pending[i].tempPath.c_str())) {
+        FsFile partialFile;
+        if (Storage.openFileForRead("FONT", pending[i].tempPath, partialFile)) {
+          resumeFrom = partialFile.fileSize();
+          partialFile.close();
+        }
+        if (resumeFrom > file.size) {
+          Storage.remove(pending[i].tempPath.c_str());
+          resumeFrom = 0;
+        }
+      }
+      int lastDisplayedPercent =
+          file.size > 0 ? static_cast<int>((static_cast<uint64_t>(resumeFrom) * 100) / file.size) : 0;
+      result = HttpDownloader::downloadToFile(
+          url, pending[i].tempPath,
+          [this, &lastDisplayedPercent](size_t downloaded, size_t total) {
+            const int percent = total > 0 ? static_cast<int>((static_cast<uint64_t>(downloaded) * 100) / total) : 0;
+            if (downloaded < total && percent < lastDisplayedPercent + FONT_DOWNLOAD_PROGRESS_STEP_PERCENT) return;
+
+            fileProgress_ = downloaded;
+            fileTotal_ = total;
+            lastDisplayedPercent = percent;
+            requestUpdate(true);
+          },
+          30000, "", "", resumeFrom,
+          [this] {
+            mappedInput.update();
+            return mappedInput.wasPressed(MappedInputManager::Button::Back);
+          });
+      if (result == HttpDownloader::OK || !isRetryableFontDownloadFailure(result)) break;
+
+      LOG_ERR("FONT", "Download attempt %d/%d failed: %s (err=%d http=%d)", attempt + 1, FONT_DOWNLOAD_MAX_RETRIES,
+              file.name.c_str(), static_cast<int>(result), HttpDownloader::lastHttpCode);
+    }
+
+    if (result == HttpDownloader::ABORTED) {
+      LOG_INF("FONT", "Download cancelled: %s", file.name.c_str());
+      RenderLock lock(*this);
+      state_ = FAMILY_LIST;
+      return false;
+    }
 
     if (result != HttpDownloader::OK) {
       LOG_ERR("FONT", "Download failed: %s (%d)", file.name.c_str(), result);
       RenderLock lock(*this);
       state_ = ERROR;
       errorMessage_ = "Download failed: " + file.name;
-      return;
+      return false;
     }
 
-    if (!fontInstaller_.validateCpfontFile(destPath)) {
-      LOG_ERR("FONT", "Invalid .cpfont: %s", destPath);
-      Storage.remove(destPath);
+    if (!fontInstaller_.validateCpfontFile(pending[i].tempPath.c_str()) ||
+        !fontInstaller_.verifySha256File(pending[i].tempPath.c_str(), file.sha256.c_str())) {
+      LOG_ERR("FONT", "Invalid or corrupt .cpfont: %s", pending[i].tempPath.c_str());
+      removePendingTemps(pending);
       RenderLock lock(*this);
       state_ = ERROR;
       errorMessage_ = "Invalid font file: " + file.name;
-      return;
+      return false;
     }
   }
 
+  // Only replace installed files after every member of the family is complete
+  // and verified. If a rename fails, restore the previous versions.
+  for (auto& file : pending) {
+    Storage.remove(file.backupPath.c_str());
+    if (Storage.exists(file.finalPath.c_str())) {
+      if (!Storage.rename(file.finalPath.c_str(), file.backupPath.c_str())) {
+        LOG_ERR("FONT", "Failed to back up installed font: %s", file.finalPath.c_str());
+        restoreFontBackups(pending);
+        RenderLock lock(*this);
+        state_ = ERROR;
+        errorMessage_ = "Failed to install font update";
+        return false;
+      }
+      file.backupCreated = true;
+    }
+    if (!Storage.rename(file.tempPath.c_str(), file.finalPath.c_str())) {
+      LOG_ERR("FONT", "Failed to install verified font: %s", file.finalPath.c_str());
+      restoreFontBackups(pending);
+      RenderLock lock(*this);
+      state_ = ERROR;
+      errorMessage_ = "Failed to install font update";
+      return false;
+    }
+    file.installed = true;
+  }
+  for (const auto& file : pending) Storage.remove(file.backupPath.c_str());
+
   fontInstaller_.refreshRegistry();
   family.installed = true;
+  family.hasUpdate = false;
 
   {
     RenderLock lock(*this);
     state_ = COMPLETE;
   }
+  return true;
 }
 
 // --- Input handling ---
@@ -435,6 +591,8 @@ void FontDownloadActivity::render(RenderLock&&) {
     int percentY = barY + metrics.progressBarHeight + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, percentY,
                               (std::to_string(static_cast<int>(progress * 100)) + "%").c_str());
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == COMPLETE) {
     renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_FONT_INSTALLED), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

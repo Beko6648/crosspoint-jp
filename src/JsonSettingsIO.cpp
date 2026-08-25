@@ -327,7 +327,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   auto loadDirection = [needsResave](JsonObject obj, DirectionSettings& ds) -> bool {
     if (obj.isNull()) return false;
     ds.fontFamily = obj["fontFamily"] | ds.fontFamily;
-    if (ds.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT) ds.fontFamily = 0;
+    if (ds.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT || ds.fontFamily == CrossPointSettings::NOTOSERIF ||
+        ds.fontFamily == CrossPointSettings::OPENDYSLEXIC) {
+      ds.fontFamily = CrossPointSettings::NOTOSANS;
+      if (needsResave) *needsResave = true;
+    }
     const char* sfn = obj["sdFontFamilyName"] | "";
     strncpy(ds.sdFontFamilyName, sfn, sizeof(ds.sdFontFamilyName) - 1);
     ds.sdFontFamilyName[sizeof(ds.sdFontFamilyName) - 1] = '\0';
@@ -372,8 +376,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     migrateBoth("firstLineIndent", &DirectionSettings::firstLineIndent);
     migrateBoth("fontSize", &DirectionSettings::fontSize);
     // fontFamily
-    uint8_t ff = doc["fontFamily"] | (uint8_t)0;
-    if (ff >= CrossPointSettings::BUILTIN_FONT_COUNT) ff = 0;
+    uint8_t ff = doc["fontFamily"] | (uint8_t)CrossPointSettings::NOTOSANS;
+    if (ff >= CrossPointSettings::FONT_FAMILY_COUNT || ff == CrossPointSettings::NOTOSERIF ||
+        ff == CrossPointSettings::OPENDYSLEXIC) {
+      ff = CrossPointSettings::NOTOSANS;
+    }
     s.horizontal.fontFamily = ff;
     s.vertical.fontFamily = ff;
     // sdFontFamilyName
@@ -399,7 +406,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     s.vertical.charSpacing = doc["verticalCharSpacing"] | s.vertical.charSpacing;
     // Clamp migrated values to valid ranges
     auto clampDs = [needsResave](DirectionSettings& d) {
-      if (d.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT) d.fontFamily = 0;
+      if (d.fontFamily >= CrossPointSettings::FONT_FAMILY_COUNT || d.fontFamily == CrossPointSettings::NOTOSERIF ||
+          d.fontFamily == CrossPointSettings::OPENDYSLEXIC) {
+        d.fontFamily = CrossPointSettings::NOTOSANS;
+        if (needsResave) *needsResave = true;
+      }
       if (d.fontSize >= CrossPointSettings::FONT_SIZE_COUNT) d.fontSize = 1;
       if (d.lineSpacing < CrossPointSettings::LINE_SPACING_MIN) d.lineSpacing = CrossPointSettings::LINE_SPACING_MIN;
       if (d.lineSpacing > CrossPointSettings::LINE_SPACING_MAX) d.lineSpacing = CrossPointSettings::LINE_SPACING_MAX;

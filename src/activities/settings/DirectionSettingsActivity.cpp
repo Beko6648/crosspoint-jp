@@ -271,14 +271,10 @@ void DirectionSettingsActivity::render(RenderLock&&) {
               return info ? std::string(info->name) : tr(STR_EXTERNAL_FONT);
             }
             switch (ds().fontFamily) {
-              case CrossPointSettings::NOTOSERIF:
-                return std::string(I18N.get(StrId::STR_NOTO_SERIF));
               case CrossPointSettings::NOTOSANS:
                 return std::string(I18N.get(StrId::STR_NOTO_SANS));
-              case CrossPointSettings::OPENDYSLEXIC:
-                return std::string(I18N.get(StrId::STR_OPEN_DYSLEXIC));
               default:
-                return std::string(I18N.get(StrId::STR_NOTO_SERIF));
+                return std::string(I18N.get(StrId::STR_NOTO_SANS));
             }
           }
         }

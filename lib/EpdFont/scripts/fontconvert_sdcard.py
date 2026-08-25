@@ -46,6 +46,17 @@ INTERVAL_PRESETS = {
     "ethiopic":    [(0x1200, 0x137F), (0x1380, 0x139F), (0x2D80, 0x2DDF)],
     "vietnamese":  [(0x01A0, 0x01B0), (0x1EA0, 0x1EF9)],
     "punctuation": [(0x2000, 0x206F)],
+    # Common reading symbols which are not covered by ASCII, CJK, or the
+    # older Japanese-oriented presets below.  Keep these separate so a font
+    # package can opt in without adding a broad Unicode block full of empty
+    # placeholders for fonts which do not implement every symbol.
+    "currency":    [(0x20A0, 0x20CF)],
+    "math":        [(0x2200, 0x22FF)],
+    "enclosed":    [(0x2460, 0x24FF)],
+    # High-frequency supplementary-plane kanji missing from the BMP CJK
+    # preset. Add further characters only when supported by the source font
+    # and justified by actual reader content.
+    "jp-supplementary-common": [(0x20B9F, 0x20B9F)],  # 𠮟
     "arrows":      [(0x2190, 0x21FF)],
     "cjk_exta":    [(0x3400, 0x4DBF)],
     "symbols": [
@@ -54,6 +65,7 @@ INTERVAL_PRESETS = {
         (0x226A, 0x226B),  # ≪ ≫
         (0x25A0, 0x25FF),
         (0x2600, 0x26FF),
+        (0x2122, 0x2122),  # ™
         (0x2715, 0x2715),  # ✕
     ],
     "jp_number_symbols": [

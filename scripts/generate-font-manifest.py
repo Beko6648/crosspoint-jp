@@ -17,6 +17,7 @@ convention <FamilyName>_<size>.cpfont.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import struct
@@ -34,7 +35,9 @@ STYLE_TOC_ENTRY_SIZE = 32
 STYLE_TOC_ENTRY_FORMAT = "<B31x"
 
 CPFONT_MAGIC = b"CPFONT\x00\x00"
-CPFONT_VERSION = 4
+# The style-id byte at the start of each 32-byte TOC entry is unchanged in
+# v5; v5 only repurposes the trailing reserved bytes for vertical glyph data.
+SUPPORTED_CPFONT_VERSIONS = {4, 5}
 
 STYLE_NAMES = {0: "regular", 1: "bold", 2: "italic", 3: "bolditalic"}
 
@@ -51,7 +54,7 @@ def load_descriptions_from_yaml(yaml_path: Path) -> dict[str, str]:
         print("WARNING: pyyaml not installed, cannot load descriptions from YAML", file=sys.stderr)
         return {}
 
-    with open(yaml_path) as f:
+    with open(yaml_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     return {f["name"]: f["description"] for f in config.get("families", []) if "description" in f}
@@ -76,9 +79,9 @@ def read_cpfont_styles(filepath: Path) -> list[str]:
             )
             return []
 
-        if version != CPFONT_VERSION:
+        if version not in SUPPORTED_CPFONT_VERSIONS:
             print(
-                f"  WARNING: {filepath.name} version {version} != {CPFONT_VERSION}, skipping",
+                f"  WARNING: {filepath.name} unsupported version {version}, skipping",
                 file=sys.stderr,
             )
             return []
@@ -161,6 +164,7 @@ def build_manifest(
                 {
                     "name": filepath.name,
                     "size": filepath.stat().st_size,
+                    "sha256": hashlib.sha256(filepath.read_bytes()).hexdigest(),
                 }
             )
 
