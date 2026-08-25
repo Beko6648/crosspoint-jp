@@ -280,6 +280,19 @@ families:
       regular: {url: "https://raw.githubusercontent.com/googlefonts/zen-marugothic/main/fonts/ttf/ZenMaruGothic-Regular.ttf"}
       bold:    {url: "https://raw.githubusercontent.com/googlefonts/zen-marugothic/main/fonts/ttf/ZenMaruGothic-Bold.ttf"}
 
+  # ── Fork-specific extended serif ──────────────────────────────────────
+  # NotoSerifJpExt adds CJK Extension A (U+3400-4DBF) on top of the standard
+  # NotoSerifJp coverage, using the full Noto Serif CJK JP OTF as the source.
+  # This is a fork-only family (not present upstream). The intervals below
+  # reproduce the coverage of the originally distributed .cpfont files.
+  - name: NotoSerifJpExt
+    description: "Serif Japanese extended（JIS X 0213 + 拡張A漢字・矢印を収録）"
+    intervals: ascii,greek,punctuation,arrows,symbols,jp_number_symbols,boxdrawing,cjk,cjk_exta
+    sizes: [8, 10, 12, 14, 16, 18]
+    styles:
+      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Regular.otf"}
+      bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Bold.otf"}
+
   # ── Additional scripts (no complex shaping needed) ─────────────────────
 
   - name: NotoSansArmenian
