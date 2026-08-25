@@ -756,6 +756,46 @@
       ]
     },
     {
+      "name": "NotoSerifJpExt",
+      "description": "Serif Japanese extended\uff08JIS X 0213 + \u62e1\u5f35A\u6f22\u5b57\u30fb\u77e2\u5370\u3092\u53ce\u9332\uff09",
+      "styles": [
+        "regular",
+        "bold"
+      ],
+      "files": [
+        {
+          "name": "NotoSerifJpExt_10.cpfont",
+          "size": 7010219,
+          "sha256": "5309c0125867859e02992f69ea94ac1c5d6ef4103cee4c203447e8e46f5c15bd"
+        },
+        {
+          "name": "NotoSerifJpExt_12.cpfont",
+          "size": 9881592,
+          "sha256": "a5b5465f677d6edadbde74ae6236931f615717f06c119d05773fde5528af884a"
+        },
+        {
+          "name": "NotoSerifJpExt_14.cpfont",
+          "size": 13222713,
+          "sha256": "7c90891ac46adce152e6cf222de03bfef718a652548b8998c1102540320fc0f9"
+        },
+        {
+          "name": "NotoSerifJpExt_16.cpfont",
+          "size": 16197744,
+          "sha256": "46f6c3bda782b6f0e7726f83082d804d918b58fc9b65fac87df8d93b4883d16e"
+        },
+        {
+          "name": "NotoSerifJpExt_18.cpfont",
+          "size": 20354924,
+          "sha256": "321579a1b1410b717970f0fc769e3087c880bec2636d5d5cdc882a16ecbdb8c6"
+        },
+        {
+          "name": "NotoSerifJpExt_8.cpfont",
+          "size": 5219279,
+          "sha256": "895028b7b184618b65c1ebe501b55670bcf18a509bdaf11ded1c1405c1ef33a2"
+        }
+      ]
+    },
+    {
       "name": "OpenDyslexic",
       "description": "Accessibility font designed for dyslexia (Latin, Greek, Cyrillic)",
       "styles": [
