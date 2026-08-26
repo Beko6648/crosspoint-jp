@@ -255,10 +255,11 @@ families:
     intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
-      # Keep the established reader appearance: the normal face is Medium
-      # (wght 500), with a distinct Bold face for EPUB emphasis.
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 500}}
-      bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 700}}
+      # Use the static faces directly: Medium for ordinary reading text and
+      # Bold for EPUB emphasis.  This matches the established Yomuka package
+      # and avoids depending on variable-font instance generation.
+      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Medium.otf"}
+      bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Bold.otf"}
 
   - name: BIZUDMincho
     description: "UD Mincho Japanese (MORISAWA, with reading symbols)"
