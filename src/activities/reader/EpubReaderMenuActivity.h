@@ -12,6 +12,9 @@ class EpubReaderMenuActivity final : public Activity {
  public:
   // Menu actions available from the reader menu.
   enum class MenuAction {
+    OPEN_READING_POSITION,
+    OPEN_DISPLAY_LAYOUT,
+    OPEN_BOOK_MANAGEMENT,
     SELECT_CHAPTER,
     BOOKMARKS,
     TOGGLE_BOOKMARK,
@@ -53,10 +56,16 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasBookmarks, Epub::CacheGenerationStatus cacheStatus);
+  enum class MenuMode { Root, ReadingPosition, DisplayLayout, BookManagement };
+
+  static std::vector<MenuItem> buildMenuItems(MenuMode mode, bool hasBookmarks,
+                                              Epub::CacheGenerationStatus cacheStatus);
 
   // Fixed menu layout
-  const std::vector<MenuItem> menuItems;
+  std::vector<MenuItem> menuItems;
+  MenuMode menuMode = MenuMode::Root;
+  const bool hasBookmarks;
+  const Epub::CacheGenerationStatus cacheStatus;
   int selectedIndex = 0;
 
   ButtonNavigator buttonNavigator;
@@ -77,4 +86,5 @@ class EpubReaderMenuActivity final : public Activity {
   bool currentValueIsEditable() const;
   bool changeCurrentValue(int delta, bool toggleValue = false);
   std::string getMenuItemValue(MenuAction action) const;
+  void openMenuMode(MenuMode mode);
 };

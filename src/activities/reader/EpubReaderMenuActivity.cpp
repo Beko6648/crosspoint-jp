@@ -17,7 +17,9 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const bool verticalMode, const bool hasBookmarks,
                                                const Epub::CacheGenerationStatus cacheStatus)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasBookmarks, cacheStatus)),
+      menuItems(buildMenuItems(MenuMode::Root, hasBookmarks, cacheStatus)),
+      hasBookmarks(hasBookmarks),
+      cacheStatus(cacheStatus),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -26,28 +28,51 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       verticalMode(verticalMode) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(
-    const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
+    const MenuMode mode, const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
   std::vector<MenuItem> items;
-  items.reserve(10);
-  items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
-  if (hasBookmarks) items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
-  items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
-  items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
-  items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
-  items.push_back({MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING});
-  items.push_back({MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT});
-  items.push_back({MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET});
-  items.push_back({MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES});
-  items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
-  if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
-    const StrId label = cacheStatus == Epub::CacheGenerationStatus::Resumable
-                            ? StrId::STR_GENERATE_REMAINING_BOOK_CACHE
-                            : StrId::STR_GENERATE_BOOK_CACHE;
-    items.push_back({MenuAction::GENERATE_CACHE, label});
+  switch (mode) {
+    case MenuMode::Root:
+      items = {{MenuAction::OPEN_READING_POSITION, StrId::STR_READING_POSITION},
+               {MenuAction::OPEN_DISPLAY_LAYOUT, StrId::STR_DISPLAY_LAYOUT},
+               {MenuAction::OPEN_BOOK_MANAGEMENT, StrId::STR_BOOK_MANAGEMENT},
+               {MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS},
+               {MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON}};
+      break;
+    case MenuMode::ReadingPosition:
+      items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+      if (hasBookmarks) items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
+      items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
+      items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
+      break;
+    case MenuMode::DisplayLayout:
+      items = {{MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
+               {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
+               {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
+               {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET},
+               {MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES},
+               {MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN}};
+      break;
+    case MenuMode::BookManagement:
+      if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
+        const StrId label = cacheStatus == Epub::CacheGenerationStatus::Resumable
+                                ? StrId::STR_GENERATE_REMAINING_BOOK_CACHE
+                                : StrId::STR_GENERATE_BOOK_CACHE;
+        items.push_back({MenuAction::GENERATE_CACHE, label});
+      }
+      items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
+      items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
+      items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
+      break;
   }
-  items.push_back({MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS});
-  items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   return items;
+}
+
+void EpubReaderMenuActivity::openMenuMode(const MenuMode mode) {
+  menuMode = mode;
+  menuItems = buildMenuItems(menuMode, hasBookmarks, cacheStatus);
+  selectedIndex = 0;
+  editingValue = false;
+  requestUpdate();
 }
 
 void EpubReaderMenuActivity::onEnter() {
@@ -99,6 +124,18 @@ void EpubReaderMenuActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const auto selectedAction = menuItems[selectedIndex].action;
+    if (selectedAction == MenuAction::OPEN_READING_POSITION) {
+      openMenuMode(MenuMode::ReadingPosition);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_DISPLAY_LAYOUT) {
+      openMenuMode(MenuMode::DisplayLayout);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_BOOK_MANAGEMENT) {
+      openMenuMode(MenuMode::BookManagement);
+      return;
+    }
     if (currentValueIsEditable()) {
       editingValue = true;
       requestUpdate();
@@ -115,6 +152,10 @@ void EpubReaderMenuActivity::loop() {
     finish();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (menuMode != MenuMode::Root) {
+      openMenuMode(MenuMode::Root);
+      return;
+    }
     ActivityResult result;
     result.isCancelled = true;
     result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, layoutChanged};
