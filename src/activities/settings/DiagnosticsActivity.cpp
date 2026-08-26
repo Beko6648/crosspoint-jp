@@ -132,6 +132,8 @@ void DiagnosticsActivity::collectSnapshot() {
     }
   }
   bookCacheStatus = hasActiveBook ? book->getCacheGenerationStatus() : Epub::CacheGenerationStatus::NotGenerated;
+  bookFingerprint = 0;
+  bookFingerprintAvailable = hasActiveBook && book->getSourceFingerprint(&bookFingerprint);
   readerVertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
   const auto& direction = SETTINGS.getDirectionSettings(readerVertical);
   readerFont = direction.sdFontFamilyName[0] == '\0' ? "Noto Sans" : direction.sdFontFamilyName;
@@ -163,6 +165,9 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("active_book=%s\n", hasActiveBook ? "true" : "false");
   if (hasActiveBook) {
     file.printf("active_book_cache_status=%s\n", cacheStatusName(bookCacheStatus));
+    if (bookFingerprintAvailable) {
+      file.printf("active_book_source_fingerprint=%016llx\n", static_cast<unsigned long long>(bookFingerprint));
+    }
     file.printf("active_book_spine_index=%d\n", bookSpineIndex);
     file.printf("active_book_page_index=%d\n", bookPageIndex);
     file.printf("active_book_page_count=%d\n", bookPageCount);

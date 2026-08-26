@@ -113,6 +113,12 @@ Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
                                                             : CacheGenerationStatus::NotGenerated;
 }
 
+bool Epub::getSourceFingerprint(uint64_t* fingerprint) const {
+  if (fingerprint == nullptr) return false;
+  ZipFile sourceZip(filepath);
+  return sourceZip.getArchiveFingerprint(fingerprint);
+}
+
 void Epub::clearFullCacheGeneratedMarker() const {
   Storage.remove((cachePath + fullCacheMarkerTmpFile).c_str());
   Storage.remove((cachePath + fullCacheMarkerFile).c_str());

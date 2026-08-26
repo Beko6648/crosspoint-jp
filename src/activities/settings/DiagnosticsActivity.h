@@ -46,6 +46,8 @@ class DiagnosticsActivity final : public Activity {
   std::shared_ptr<Epub> book;
   bool hasActiveBook = false;
   Epub::CacheGenerationStatus bookCacheStatus = Epub::CacheGenerationStatus::NotGenerated;
+  bool bookFingerprintAvailable = false;
+  uint64_t bookFingerprint = 0;
   int bookSpineIndex = -1;
   int bookPageIndex = -1;
   int bookPageCount = 0;
