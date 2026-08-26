@@ -36,6 +36,16 @@ class HalStorage::StorageLock {
   ~StorageLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
 };
 
+uint64_t HalStorage::totalBytes() const {
+  StorageLock lock;
+  return SDCard.sdTotalBytes();
+}
+
+uint64_t HalStorage::usedBytes() {
+  StorageLock lock;
+  return SDCard.sdUsedBytes();
+}
+
 #define HAL_STORAGE_WRAPPED_CALL(method, ...) \
   HalStorage::StorageLock lock;               \
   return SDCard.method(__VA_ARGS__);

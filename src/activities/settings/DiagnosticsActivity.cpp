@@ -36,30 +36,6 @@ std::string deviceDescription() {
   return std::string("X3 (") + x3DisplayControllerName() + ")";
 }
 
-int countReadingCacheDirectories() {
-  auto root = Storage.open("/.crosspoint");
-  if (!root || !root.isDirectory()) {
-    if (root) root.close();
-    return 0;
-  }
-
-  int count = 0;
-  char name[128];
-  for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-    const bool isDirectory = entry.isDirectory();
-    entry.getName(name, sizeof(name));
-    entry.close();
-    if (!isDirectory) continue;
-
-    const std::string_view entryName(name);
-    if (entryName.rfind("epub_", 0) == 0 || entryName.rfind("xtc_", 0) == 0 || entryName.rfind("txt_", 0) == 0) {
-      ++count;
-    }
-  }
-  root.close();
-  return count;
-}
-
 std::vector<std::string> splitLogLines(const std::string& logs) {
   std::vector<std::string> lines;
   size_t start = 0;
@@ -84,6 +60,83 @@ std::string makeReportPath() {
     return std::string(kDiagnosticsDirectory) + "/" + filename;
   }
   return std::string(kDiagnosticsDirectory) + "/report_boot_" + std::to_string(millis()) + ".txt";
+}
+
+bool isReadingCacheDirectory(const std::string_view name) {
+  return name.rfind("epub_", 0) == 0 || name.rfind("xtc_", 0) == 0 || name.rfind("txt_", 0) == 0;
+}
+
+uint64_t directorySize(const std::string& path, bool& complete) {
+  auto directory = Storage.open(path.c_str());
+  if (!directory || !directory.isDirectory()) {
+    if (directory) directory.close();
+    complete = false;
+    return 0;
+  }
+
+  uint64_t total = 0;
+  char name[128];
+  for (auto entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    const std::string childPath = path + "/" + name;
+    if (isDirectory) {
+      entry.close();
+      total += directorySize(childPath, complete);
+    } else {
+      total += entry.size();
+      entry.close();
+    }
+    delay(0);
+  }
+  directory.close();
+  return total;
+}
+
+struct ReadingCacheUsage {
+  int directoryCount = 0;
+  uint64_t bytes = 0;
+  bool complete = true;
+};
+
+ReadingCacheUsage collectReadingCacheUsage() {
+  ReadingCacheUsage usage;
+  auto root = Storage.open("/.crosspoint");
+  if (!root || !root.isDirectory()) {
+    if (root) root.close();
+    usage.complete = false;
+    return usage;
+  }
+
+  char name[128];
+  for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    entry.close();
+    if (!isDirectory || !isReadingCacheDirectory(name)) continue;
+    ++usage.directoryCount;
+    usage.bytes += directorySize(std::string("/.crosspoint/") + name, usage.complete);
+    delay(0);
+  }
+  root.close();
+  return usage;
+}
+
+std::string formatBytes(const uint64_t bytes) {
+  constexpr uint64_t kKiB = 1024;
+  constexpr uint64_t kMiB = kKiB * 1024;
+  constexpr uint64_t kGiB = kMiB * 1024;
+  char buffer[32];
+  if (bytes >= kGiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f GB", static_cast<double>(bytes) / kGiB);
+  } else if (bytes >= kMiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f MB", static_cast<double>(bytes) / kMiB);
+  } else if (bytes >= kKiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f KB", static_cast<double>(bytes) / kKiB);
+  } else {
+    snprintf(buffer, sizeof(buffer), "%llu B", static_cast<unsigned long long>(bytes));
+  }
+  return buffer;
 }
 
 std::string extensionOf(const std::string& path) {
@@ -118,7 +171,13 @@ void DiagnosticsActivity::collectSnapshot() {
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
-  cacheDirectoryCount = sdReady ? countReadingCacheDirectories() : 0;
+  sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
+  sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
+  if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
+  const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
+  cacheDirectoryCount = cacheUsage.directoryCount;
+  readingCacheBytes = cacheUsage.bytes;
+  readingCacheSizeComplete = cacheUsage.complete;
   hasActiveBook = static_cast<bool>(book);
   openBookType = "none";
   openBookSize = 0;
@@ -156,10 +215,15 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("device=%s\n", gpio.deviceIsX3() ? "X3" : "X4");
   if (gpio.deviceIsX3()) file.printf("display_controller=%s\n", x3DisplayControllerName());
   file.printf("sd_ready=%s\n", sdReady ? "true" : "false");
+  file.printf("sd_total_bytes=%llu\n", static_cast<unsigned long long>(sdTotalBytes));
+  file.printf("sd_used_bytes=%llu\n", static_cast<unsigned long long>(sdUsedBytes));
+  file.printf("sd_free_bytes=%llu\n", static_cast<unsigned long long>(sdTotalBytes - sdUsedBytes));
   file.printf("free_heap=%lu\n", static_cast<unsigned long>(freeHeap));
   file.printf("max_alloc_heap=%lu\n", static_cast<unsigned long>(maxAllocHeap));
   file.printf("min_free_heap=%lu\n", static_cast<unsigned long>(minFreeHeap));
   file.printf("reading_cache_directories=%d\n", cacheDirectoryCount);
+  file.printf("reading_cache_bytes=%llu\n", static_cast<unsigned long long>(readingCacheBytes));
+  file.printf("reading_cache_size_complete=%s\n", readingCacheSizeComplete ? "true" : "false");
   file.printf("open_book_type=%s\n", openBookType.c_str());
   file.printf("open_book_size=%lu\n", static_cast<unsigned long>(openBookSize));
   file.printf("active_book=%s\n", hasActiveBook ? "true" : "false");
@@ -211,10 +275,11 @@ void DiagnosticsActivity::renderOverview(const int x, int y, const int contentWi
   drawLine(std::string("Yomuka: ") + CROSSPOINT_VERSION);
   drawLine("Device: " + deviceDescription());
   drawLine(std::string("SD: ") + (sdReady ? "ready" : "unavailable"));
+  if (sdReady) drawLine("SD free: " + formatBytes(sdTotalBytes - sdUsedBytes));
   drawLine("Heap: " + std::to_string(freeHeap));
   drawLine("Max alloc: " + std::to_string(maxAllocHeap));
   drawLine("Min free: " + std::to_string(minFreeHeap));
-  drawLine("Cache dirs: " + std::to_string(cacheDirectoryCount));
+  drawLine("Cache: " + formatBytes(readingCacheBytes) + " (" + std::to_string(cacheDirectoryCount) + ")");
   if (hasActiveBook) {
     drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
     drawLine("Book page: " + std::to_string(bookPageIndex + 1) + "/" + std::to_string(bookPageCount));

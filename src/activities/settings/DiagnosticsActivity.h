@@ -35,6 +35,10 @@ class DiagnosticsActivity final : public Activity {
   uint32_t freeHeap = 0;
   uint32_t maxAllocHeap = 0;
   uint32_t minFreeHeap = 0;
+  uint64_t sdTotalBytes = 0;
+  uint64_t sdUsedBytes = 0;
+  uint64_t readingCacheBytes = 0;
+  bool readingCacheSizeComplete = false;
   int cacheDirectoryCount = 0;
   std::string openBookType;
   uint32_t openBookSize = 0;
