@@ -98,6 +98,35 @@ bool DirectionSettingsActivity::currentItemIsEditable() const {
          items[selectedIndex].type != Item::Type::FONT_FAMILY;
 }
 
+const char* DirectionSettingsActivity::currentItemDescription() const {
+  if (selectedIndex < 0 || selectedIndex >= static_cast<int>(items.size())) return "";
+  switch (items[selectedIndex].nameId) {
+    case StrId::STR_FONT_FAMILY:
+      return tr(STR_READER_SETTING_DESC_FONT_FAMILY);
+    case StrId::STR_FONT_SIZE:
+      return tr(STR_READER_SETTING_DESC_FONT_SIZE);
+    case StrId::STR_LINE_SPACING:
+      return tr(STR_READER_SETTING_DESC_LINE_SPACING);
+    case StrId::STR_CHAR_SPACING:
+      return tr(STR_READER_SETTING_DESC_CHAR_SPACING);
+    case StrId::STR_PARA_ALIGNMENT:
+      return I18N.get(isVertical ? StrId::STR_READER_SETTING_DESC_VERTICAL_ALIGNMENT
+                                  : StrId::STR_READER_SETTING_DESC_ALIGNMENT);
+    case StrId::STR_EXTRA_SPACING:
+      return tr(STR_READER_SETTING_DESC_EXTRA_SPACING);
+    case StrId::STR_HYPHENATION:
+      return tr(STR_READER_SETTING_DESC_HYPHENATION);
+    case StrId::STR_SCREEN_MARGIN:
+      return tr(STR_READER_SETTING_DESC_SCREEN_MARGIN);
+    case StrId::STR_FIRST_LINE_INDENT:
+      return tr(STR_READER_SETTING_DESC_FIRST_LINE_INDENT);
+    case StrId::STR_RUBY_ENABLED:
+      return tr(STR_READER_SETTING_DESC_RUBY);
+    default:
+      return "";
+  }
+}
+
 void DirectionSettingsActivity::onExit() {
   SETTINGS.saveToFile();
   Activity::onExit();
@@ -237,13 +266,14 @@ void DirectionSettingsActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight}, title, "");
 
   const int itemCount = static_cast<int>(items.size());
+  const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  const int listTop = metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.verticalSpacing;
+  const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
 
   // List
   GUI.drawList(
       renderer,
-      Rect{0, metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.buttonHintsHeight +
-                         metrics.verticalSpacing * 2)},
+      Rect{0, listTop, pageWidth, listBottom - listTop},
       itemCount, selectedIndex, [this](int index) { return std::string(I18N.get(items[index].nameId)); }, nullptr,
       nullptr,
       [this](int i) -> std::string {
@@ -302,6 +332,9 @@ void DirectionSettingsActivity::render(RenderLock&&) {
         return "";
       },
       editingValue);
+
+  GUI.drawHelpText(renderer, Rect{0, listBottom + metrics.verticalSpacing, pageWidth, helpTextHeight},
+                   currentItemDescription());
 
   // Button hints identify whether the selected item is being edited.
   const char* confirmLabel = tr(STR_SELECT);
