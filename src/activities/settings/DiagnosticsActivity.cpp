@@ -93,6 +93,18 @@ std::string extensionOf(const std::string& path) {
   return path.substr(dot + 1);
 }
 
+const char* cacheStatusName(const Epub::CacheGenerationStatus status) {
+  switch (status) {
+    case Epub::CacheGenerationStatus::NotGenerated:
+      return "not_generated";
+    case Epub::CacheGenerationStatus::Resumable:
+      return "resumable";
+    case Epub::CacheGenerationStatus::Complete:
+      return "complete";
+  }
+  return "unknown";
+}
+
 }  // namespace
 
 void DiagnosticsActivity::onEnter() {
@@ -107,16 +119,19 @@ void DiagnosticsActivity::collectSnapshot() {
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
   cacheDirectoryCount = sdReady ? countReadingCacheDirectories() : 0;
+  hasActiveBook = static_cast<bool>(book);
   openBookType = "none";
   openBookSize = 0;
-  if (sdReady && !APP_STATE.openEpubPath.empty()) {
-    openBookType = extensionOf(APP_STATE.openEpubPath);
-    auto book = Storage.open(APP_STATE.openEpubPath.c_str());
-    if (book) {
-      openBookSize = static_cast<uint32_t>(book.size());
-      book.close();
+  const std::string bookPath = hasActiveBook ? book->getPath() : APP_STATE.openEpubPath;
+  if (sdReady && !bookPath.empty()) {
+    openBookType = extensionOf(bookPath);
+    auto bookFile = Storage.open(bookPath.c_str());
+    if (bookFile) {
+      openBookSize = static_cast<uint32_t>(bookFile.size());
+      bookFile.close();
     }
   }
+  bookCacheStatus = hasActiveBook ? book->getCacheGenerationStatus() : Epub::CacheGenerationStatus::NotGenerated;
   readerVertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
   const auto& direction = SETTINGS.getDirectionSettings(readerVertical);
   readerFont = direction.sdFontFamilyName[0] == '\0' ? "Noto Sans" : direction.sdFontFamilyName;
@@ -145,6 +160,13 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("reading_cache_directories=%d\n", cacheDirectoryCount);
   file.printf("open_book_type=%s\n", openBookType.c_str());
   file.printf("open_book_size=%lu\n", static_cast<unsigned long>(openBookSize));
+  file.printf("active_book=%s\n", hasActiveBook ? "true" : "false");
+  if (hasActiveBook) {
+    file.printf("active_book_cache_status=%s\n", cacheStatusName(bookCacheStatus));
+    file.printf("active_book_spine_index=%d\n", bookSpineIndex);
+    file.printf("active_book_page_index=%d\n", bookPageIndex);
+    file.printf("active_book_page_count=%d\n", bookPageCount);
+  }
   file.printf("reader_writing_mode=%s\n", readerVertical ? "vertical" : "horizontal_or_auto");
   file.printf("reader_font=%s\n", readerFont.c_str());
   file.printf("reader_line_spacing=%u\n", readerLineSpacing);
@@ -188,6 +210,10 @@ void DiagnosticsActivity::renderOverview(const int x, int y, const int contentWi
   drawLine("Max alloc: " + std::to_string(maxAllocHeap));
   drawLine("Min free: " + std::to_string(minFreeHeap));
   drawLine("Cache dirs: " + std::to_string(cacheDirectoryCount));
+  if (hasActiveBook) {
+    drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
+    drawLine("Book page: " + std::to_string(bookPageIndex + 1) + "/" + std::to_string(bookPageCount));
+  }
   drawLine("Recent logs: " + std::to_string(recentLogLines.size()));
 
   y += lineHeight / 2;

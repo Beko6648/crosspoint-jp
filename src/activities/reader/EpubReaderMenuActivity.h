@@ -32,6 +32,7 @@ class EpubReaderMenuActivity final : public Activity {
     RUBY_OFFSET,
     SCREENSHOT,
     DISPLAY_QR,
+    DIAGNOSTICS,
     GO_HOME,
     GENERATE_CACHE,
     DELETE_CACHE,

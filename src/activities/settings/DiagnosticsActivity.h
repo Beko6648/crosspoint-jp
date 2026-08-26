@@ -1,8 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include <Epub.h>
 
 #include "activities/Activity.h"
 
@@ -10,6 +13,13 @@ class DiagnosticsActivity final : public Activity {
  public:
   explicit DiagnosticsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("Diagnostics", renderer, mappedInput) {}
+  DiagnosticsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> book,
+                      int spineIndex, int pageIndex, int pageCount)
+      : Activity("Diagnostics", renderer, mappedInput),
+        book(std::move(book)),
+        bookSpineIndex(spineIndex),
+        bookPageIndex(pageIndex),
+        bookPageCount(pageCount) {}
 
   void onEnter() override;
   void loop() override;
@@ -33,6 +43,12 @@ class DiagnosticsActivity final : public Activity {
   uint8_t readerLineSpacing = 0;
   uint8_t readerImageRendering = 0;
   uint8_t readerBookStyle = 0;
+  std::shared_ptr<Epub> book;
+  bool hasActiveBook = false;
+  Epub::CacheGenerationStatus bookCacheStatus = Epub::CacheGenerationStatus::NotGenerated;
+  int bookSpineIndex = -1;
+  int bookPageIndex = -1;
+  int bookPageCount = 0;
   std::string recentLogs;
   std::vector<std::string> recentLogLines;
   std::string savedReportPath;

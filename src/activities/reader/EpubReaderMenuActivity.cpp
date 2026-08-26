@@ -59,6 +59,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
                                 : StrId::STR_GENERATE_BOOK_CACHE;
         items.push_back({MenuAction::GENERATE_CACHE, label});
       }
+      items.push_back({MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS});
       items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
       items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
       items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});

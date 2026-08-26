@@ -21,6 +21,7 @@
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "activities/settings/DiagnosticsActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderDetailsActivity.h"
@@ -811,6 +812,14 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       // If no text or page loading failed, just close menu
       requestUpdate();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::DIAGNOSTICS: {
+      const int pageIndex = section ? section->currentPage : -1;
+      const int pageCount = section ? section->pageCount : 0;
+      startActivityForResult(
+          std::make_unique<DiagnosticsActivity>(renderer, mappedInput, epub, currentSpineIndex, pageIndex, pageCount),
+          [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
