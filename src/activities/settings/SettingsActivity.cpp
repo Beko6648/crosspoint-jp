@@ -92,11 +92,12 @@ void SettingsActivity::rebuildSettingsLists() {
                         SettingInfo::Action(StrId::STR_HORIZONTAL_SETTINGS, SettingAction::HorizontalSettings));
   readerSettings.insert(readerSettings.begin() + 1,
                         SettingInfo::Action(StrId::STR_VERTICAL_SETTINGS, SettingAction::VerticalSettings));
-  // Insert "Download Fonts" right after the direction settings so users discover it naturally
+  // Profiles come before font management: this keeps save/restore next to the
+  // reading settings it affects, while the following action covers font setup.
   readerSettings.insert(readerSettings.begin() + 2,
-                        SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
-  readerSettings.insert(readerSettings.begin() + 3,
                         SettingInfo::Action(StrId::STR_READER_PROFILES, SettingAction::ReaderProfiles));
+  readerSettings.insert(readerSettings.begin() + 3,
+                        SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Update currentSettings pointer and count for the active category
