@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "DirectionSettingsActivity.h"
 #include "DiagnosticsActivity.h"
+#include "ReaderProfilesActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectActivity.h"
 #include "FontSelectionActivity.h"
@@ -94,6 +95,8 @@ void SettingsActivity::rebuildSettingsLists() {
   // Insert "Download Fonts" right after the direction settings so users discover it naturally
   readerSettings.insert(readerSettings.begin() + 2,
                         SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
+  readerSettings.insert(readerSettings.begin() + 3,
+                        SettingInfo::Action(StrId::STR_READER_PROFILES, SettingAction::ReaderProfiles));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Update currentSettings pointer and count for the active category
@@ -404,6 +407,9 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
         break;
       case SettingAction::Diagnostics:
         startActivityForResult(std::make_unique<DiagnosticsActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ReaderProfiles:
+        startActivityForResult(std::make_unique<ReaderProfilesActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing

@@ -26,6 +26,7 @@ enum class SettingAction {
   HorizontalSettings,
   VerticalSettings,
   Diagnostics,
+  ReaderProfiles,
 };
 
 struct SettingInfo {

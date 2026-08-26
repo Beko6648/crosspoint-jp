@@ -28,6 +28,7 @@ class EpubReaderDetailsActivity final : public Activity {
   const std::vector<Item> items = {
       {EpubReaderMenuActivity::MenuAction::OPEN_GLOBAL_READER_SETTINGS, StrId::STR_READER_SETTINGS},
       {EpubReaderMenuActivity::MenuAction::STYLE_STATUS_BAR, StrId::STR_CUSTOMISE_STATUS_BAR},
+      {EpubReaderMenuActivity::MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON},
       {EpubReaderMenuActivity::MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR},
       {EpubReaderMenuActivity::MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE},
   };

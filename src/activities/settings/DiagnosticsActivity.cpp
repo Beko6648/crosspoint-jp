@@ -12,6 +12,8 @@
 #include <string_view>
 
 #include "components/UITheme.h"
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "fontIds.h"
 
 namespace {
@@ -84,6 +86,13 @@ std::string makeReportPath() {
   return std::string(kDiagnosticsDirectory) + "/report_boot_" + std::to_string(millis()) + ".txt";
 }
 
+std::string extensionOf(const std::string& path) {
+  const size_t slash = path.rfind('/');
+  const size_t dot = path.rfind('.');
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "unknown";
+  return path.substr(dot + 1);
+}
+
 }  // namespace
 
 void DiagnosticsActivity::onEnter() {
@@ -98,6 +107,22 @@ void DiagnosticsActivity::collectSnapshot() {
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
   cacheDirectoryCount = sdReady ? countReadingCacheDirectories() : 0;
+  openBookType = "none";
+  openBookSize = 0;
+  if (sdReady && !APP_STATE.openEpubPath.empty()) {
+    openBookType = extensionOf(APP_STATE.openEpubPath);
+    auto book = Storage.open(APP_STATE.openEpubPath.c_str());
+    if (book) {
+      openBookSize = static_cast<uint32_t>(book.size());
+      book.close();
+    }
+  }
+  readerVertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
+  const auto& direction = SETTINGS.getDirectionSettings(readerVertical);
+  readerFont = direction.sdFontFamilyName[0] == '\0' ? "Noto Sans" : direction.sdFontFamilyName;
+  readerLineSpacing = direction.lineSpacing;
+  readerImageRendering = SETTINGS.imageRendering;
+  readerBookStyle = SETTINGS.embeddedStyle;
   recentLogs = getLastLogs();
   recentLogLines = splitLogLines(recentLogs);
 }
@@ -118,6 +143,13 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("max_alloc_heap=%lu\n", static_cast<unsigned long>(maxAllocHeap));
   file.printf("min_free_heap=%lu\n", static_cast<unsigned long>(minFreeHeap));
   file.printf("reading_cache_directories=%d\n", cacheDirectoryCount);
+  file.printf("open_book_type=%s\n", openBookType.c_str());
+  file.printf("open_book_size=%lu\n", static_cast<unsigned long>(openBookSize));
+  file.printf("reader_writing_mode=%s\n", readerVertical ? "vertical" : "horizontal_or_auto");
+  file.printf("reader_font=%s\n", readerFont.c_str());
+  file.printf("reader_line_spacing=%u\n", readerLineSpacing);
+  file.printf("reader_book_style=%u\n", readerBookStyle);
+  file.printf("reader_image_rendering=%u\n", readerImageRendering);
   file.printf("captured_millis=%lu\n", static_cast<unsigned long>(millis()));
   file.print("\nRecent logs:\n");
   file.print(recentLogs.c_str());

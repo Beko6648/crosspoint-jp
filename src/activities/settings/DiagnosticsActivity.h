@@ -26,6 +26,13 @@ class DiagnosticsActivity final : public Activity {
   uint32_t maxAllocHeap = 0;
   uint32_t minFreeHeap = 0;
   int cacheDirectoryCount = 0;
+  std::string openBookType;
+  uint32_t openBookSize = 0;
+  std::string readerFont;
+  bool readerVertical = false;
+  uint8_t readerLineSpacing = 0;
+  uint8_t readerImageRendering = 0;
+  uint8_t readerBookStyle = 0;
   std::string recentLogs;
   std::vector<std::string> recentLogLines;
   std::string savedReportPath;

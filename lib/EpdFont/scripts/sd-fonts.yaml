@@ -255,7 +255,9 @@ families:
     intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 400}}
+      # Keep the established reader appearance: the normal face is Medium
+      # (wght 500), with a distinct Bold face for EPUB emphasis.
+      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 500}}
       bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 700}}
 
   - name: BIZUDMincho

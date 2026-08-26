@@ -738,6 +738,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                                // Reader settings (font/line spacing/margins etc.) may change pagination.
                                // Cache dir may have been deleted by ClearCacheActivity — recreate it.
                                if (epub) epub->setupCacheDir();
+                               // A profile can select a different installed SD font. Reload the
+                               // family for this book's active writing direction before resolving
+                               // font IDs and rebuilding the current section.
+                               ensureSdFontLoaded(verticalMode);
+                               configureRubyFont(verticalMode);
                                invalidateSectionPreservingPosition();
                                requestUpdate();
                              });
