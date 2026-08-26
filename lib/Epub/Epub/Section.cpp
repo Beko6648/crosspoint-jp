@@ -155,7 +155,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 87: retain complete ruby groups until their annotation is applied.
 // Version 88: invalidate caches after correcting ruby close-tag handling.
 // Version 89: balance all ruby close tags so enclosing emphasis cannot leak.
-constexpr uint8_t SECTION_FILE_VERSION = 89;
+// Version 90: apply vertical column placement when completing a page.
+constexpr uint8_t SECTION_FILE_VERSION = 90;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

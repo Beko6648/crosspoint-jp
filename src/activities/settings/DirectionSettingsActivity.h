@@ -20,6 +20,9 @@ class DirectionSettingsActivity final : public Activity {
     enum class Type { TOGGLE, ENUM, PRESET, FONT_FAMILY } type;
     uint8_t DirectionSettings::* valuePtr = nullptr;
     std::vector<StrId> enumValues;
+    // Optional persisted values for ENUM entries.  When empty, the displayed
+    // index is also the stored value.
+    std::vector<uint8_t> enumStorageValues;
     struct ValueRange {
       uint8_t min;
       uint8_t max;

@@ -138,6 +138,7 @@ class ChapterHtmlSlimParser {
   bool addExplicitBlankLine();
   bool consumeEmptyBlockCandidate(int depth);
   void makePages();
+  void completeCurrentPage();
   void flushTableAsGrid();
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
@@ -164,7 +165,7 @@ class ChapterHtmlSlimParser {
         fontId(fontId),
         lineCompression(lineCompression),
         extraParagraphSpacing(extraParagraphSpacing),
-        paragraphAlignment(verticalMode ? static_cast<uint8_t>(CssTextAlign::Justify) : paragraphAlignment),
+        paragraphAlignment(paragraphAlignment),
         viewportWidth(viewportWidth),
         viewportHeight(viewportHeight),
         hyphenationEnabled(hyphenationEnabled),

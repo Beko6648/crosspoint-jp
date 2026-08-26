@@ -3,6 +3,7 @@
 #include <FontManager.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Epub/css/CssStyle.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -35,40 +36,49 @@ void DirectionSettingsActivity::buildItems() {
 
   // Line Spacing opens its own detailed adjustment screen.
   items.push_back(
-      {StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {}, {90, 120, 155, 185, 220}});
+      {StrId::STR_LINE_SPACING, Item::Type::PRESET, &DirectionSettings::lineSpacing, {}, {}, {}, {90, 120, 155, 185, 220}});
 
   // Character Spacing (vertical only — horizontal char spacing is not supported by renderer)
   if (isVertical) {
     items.push_back(
-        {StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {}, {0, 8, 15, 30, 50}});
+        {StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {}, {}, {0, 8, 15, 30, 50}});
   }
 
-  // Paragraph Alignment (horizontal only). In vertical mode the column
-  // position is fixed right-to-left and paragraphAlignment is only consulted
-  // for first-line indent eligibility, so the setting is forced to Justify
-  // (see ChapterHtmlSlimParser ctor) and the UI entry is hidden.
-  if (!isVertical) {
+  // In vertical writing this controls the placement of completed columns.
+  // Keep the persisted CSS-alignment values compatible with prior settings,
+  // while presenting the three meaningful column-placement choices.
+  if (isVertical) {
+    items.push_back({StrId::STR_PARA_ALIGNMENT,
+                     Item::Type::ENUM,
+                     &DirectionSettings::paragraphAlignment,
+                     {StrId::STR_ALIGN_LEFT, StrId::STR_JUSTIFY, StrId::STR_ALIGN_RIGHT},
+                     {static_cast<uint8_t>(CssTextAlign::Left), static_cast<uint8_t>(CssTextAlign::Justify),
+                      static_cast<uint8_t>(CssTextAlign::Right)},
+                     {}});
+  } else {
     items.push_back({StrId::STR_PARA_ALIGNMENT,
                      Item::Type::ENUM,
                      &DirectionSettings::paragraphAlignment,
                      {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT},
+                     {},
                      {}});
   }
 
   // Extra Paragraph Spacing
   items.push_back({StrId::STR_EXTRA_SPACING,
                    Item::Type::PRESET,
-                   &DirectionSettings::extraParagraphSpacing,
-                   {},
-                   {},
-                   {0, 1, 2, 3, 4}});
+                    &DirectionSettings::extraParagraphSpacing,
+                    {},
+                    {},
+                    {},
+                    {0, 1, 2, 3, 4}});
 
   // Hyphenation
   items.push_back({StrId::STR_HYPHENATION, Item::Type::TOGGLE, &DirectionSettings::hyphenationEnabled, {}, {}});
 
   // Screen Margin
   items.push_back(
-      {StrId::STR_SCREEN_MARGIN, Item::Type::PRESET, &DirectionSettings::screenMargin, {}, {}, {5, 8, 10, 20, 40}});
+      {StrId::STR_SCREEN_MARGIN, Item::Type::PRESET, &DirectionSettings::screenMargin, {}, {}, {}, {5, 8, 10, 20, 40}});
 
   // First Line Indent
   items.push_back({StrId::STR_FIRST_LINE_INDENT, Item::Type::TOGGLE, &DirectionSettings::firstLineIndent, {}, {}});
@@ -110,8 +120,14 @@ void DirectionSettingsActivity::changeCurrentItem(const int delta, const bool ac
         return;
       }
       const uint8_t cur = ds().*(item.valuePtr);
-      const int next = std::clamp(static_cast<int>(cur) + delta, 0, static_cast<int>(item.enumValues.size()) - 1);
-      ds().*(item.valuePtr) = static_cast<uint8_t>(next);
+      int currentIndex = static_cast<int>(cur);
+      if (!item.enumStorageValues.empty()) {
+        const auto it = std::find(item.enumStorageValues.begin(), item.enumStorageValues.end(), cur);
+        // The obsolete vertical Centre value is equivalent to even placement.
+        currentIndex = it == item.enumStorageValues.end() ? 1 : static_cast<int>(it - item.enumStorageValues.begin());
+      }
+      const int next = std::clamp(currentIndex + delta, 0, static_cast<int>(item.enumValues.size()) - 1);
+      ds().*(item.valuePtr) = item.enumStorageValues.empty() ? static_cast<uint8_t>(next) : item.enumStorageValues[next];
       SETTINGS.saveToFile();
       break;
     }
@@ -247,7 +263,12 @@ void DirectionSettingsActivity::render(RenderLock&&) {
               return info ? (std::to_string(info->size) + "pt") : std::string("—");
             }
             const uint8_t val = ds().*(item.valuePtr);
-            return std::string(I18N.get(item.enumValues[val]));
+            int valueIndex = static_cast<int>(val);
+            if (!item.enumStorageValues.empty()) {
+              const auto it = std::find(item.enumStorageValues.begin(), item.enumStorageValues.end(), val);
+              valueIndex = it == item.enumStorageValues.end() ? 1 : static_cast<int>(it - item.enumStorageValues.begin());
+            }
+            return std::string(I18N.get(item.enumValues[valueIndex]));
           }
           case Item::Type::PRESET: {
             const uint8_t value = ds().*(item.valuePtr);
