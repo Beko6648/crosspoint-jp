@@ -44,7 +44,10 @@ constexpr int NUM_ITALIC_TAGS = sizeof(ITALIC_TAGS) / sizeof(ITALIC_TAGS[0]);
 const char* UNDERLINE_TAGS[] = {"u", "ins"};
 constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAGS[0]);
 
-const char* IMAGE_TAGS[] = {"img"};
+// EPUB fixed-layout covers commonly use SVG <image xlink:href="..."> rather
+// than HTML <img src="...">.  Both ultimately refer to a raster item in the
+// EPUB and can share the normal image extraction/rendering path.
+const char* IMAGE_TAGS[] = {"img", "image"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
 constexpr float MIN_CSS_FONT_SCALE = 0.75f;
@@ -522,15 +525,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
     self->noteEmptyBlockContent();
     std::string src;
+    std::string svgHref;
     std::string alt;
     if (atts != nullptr) {
       for (int i = 0; atts[i]; i += 2) {
         if (strcmp(atts[i], "src") == 0) {
           src = atts[i + 1];
+        } else if (strcmp(atts[i], "href") == 0 || strcmp(atts[i], "xlink:href") == 0) {
+          // SVG 1.1 uses xlink:href and SVG 2 uses href.  Prefer a real
+          // HTML src attribute if a malformed document supplies both.
+          svgHref = atts[i + 1];
         } else if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
         }
       }
+      if (src.empty()) src = svgHref;
 
       // imageRendering: 0=display, 1=placeholder (alt text only), 2=suppress entirely
       if (self->imageRendering == 2) {
