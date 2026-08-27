@@ -25,6 +25,7 @@
 #include "SdFirmwareUpdateActivity.h"
 #include "SdCardFontGlobals.h"
 #include "SettingsList.h"
+#include "SettingsBackupActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -80,6 +81,8 @@ const char* SettingsActivity::currentSettingDescription() const {
       return tr(STR_SETTINGS_DESC_DIAGNOSTICS);
     case SettingAction::ReaderProfiles:
       return tr(STR_SETTINGS_DESC_READER_PROFILES);
+    case SettingAction::SettingsBackup:
+      return tr(STR_SETTINGS_DESC_BACKUP);
     case SettingAction::AozoraBunko:
     case SettingAction::None:
       return "";
@@ -125,6 +128,7 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SETTINGS_BACKUP, SettingAction::SettingsBackup));
   // Direction-specific settings submenus at the top
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_HORIZONTAL_SETTINGS, SettingAction::HorizontalSettings));
@@ -449,6 +453,9 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
         break;
       case SettingAction::ReaderProfiles:
         startActivityForResult(std::make_unique<ReaderProfilesActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::SettingsBackup:
+        startActivityForResult(std::make_unique<SettingsBackupActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
