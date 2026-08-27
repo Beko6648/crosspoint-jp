@@ -245,58 +245,62 @@ bool skipBoundedString(FsFile& file, const size_t fileSize) {
   return file.seek(file.position() + length);
 }
 
-bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCount) {
+bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCount, const char*& failureReason) {
+  auto fail = [&failureReason](const char* reason) {
+    failureReason = reason;
+    return false;
+  };
   const size_t fileSize = file.size();
   if (fileSize < HEADER_SIZE + sizeof(uint16_t) || fileSize > UINT32_MAX || !file.seek(0) ||
       !readSectionHeader(file, header)) {
-    return false;
+    return fail("header");
   }
 
   uint32_t lutOffset = 0;
   uint32_t anchorMapOffset = 0;
   if (!readPodChecked(file, pageCount) || !readPodChecked(file, lutOffset) || !readPodChecked(file, anchorMapOffset) ||
       file.position() != HEADER_SIZE) {
-    return false;
+    return fail("header offsets");
   }
 
   const uint32_t lutSize = static_cast<uint32_t>(pageCount) * sizeof(uint32_t);
   if (lutOffset < HEADER_SIZE || lutOffset > fileSize || lutSize > fileSize - lutOffset ||
       anchorMapOffset != lutOffset + lutSize || anchorMapOffset > fileSize - sizeof(uint16_t)) {
-    return false;
+    return fail("LUT or anchor-map range");
   }
 
   uint32_t previousPageOffset = 0;
   uint32_t pageIndex = 0;
   uint32_t offsets[LUT_VALIDATION_BATCH_SIZE];
-  if (!file.seek(lutOffset)) return false;
+  if (!file.seek(lutOffset)) return fail("LUT seek");
   while (pageIndex < pageCount) {
     const size_t batchCount = std::min<size_t>(pageCount - pageIndex, LUT_VALIDATION_BATCH_SIZE);
     if (file.read(offsets, batchCount * sizeof(uint32_t)) != static_cast<int>(batchCount * sizeof(uint32_t))) {
-      return false;
+      return fail("LUT read");
     }
     for (size_t i = 0; i < batchCount; ++i, ++pageIndex) {
       const uint32_t pageOffset = offsets[i];
       if (pageOffset < HEADER_SIZE || pageOffset >= lutOffset ||
           (pageIndex == 0 ? pageOffset != HEADER_SIZE : pageOffset <= previousPageOffset)) {
-        return false;
+        return fail("page offset");
       }
       previousPageOffset = pageOffset;
     }
   }
   if (pageCount == 0 && lutOffset != HEADER_SIZE) {
-    return false;
+    return fail("empty-section LUT");
   }
 
-  if (!file.seek(anchorMapOffset)) return false;
+  if (!file.seek(anchorMapOffset)) return fail("anchor-map seek");
   uint16_t anchorCount = 0;
-  if (!readPodChecked(file, anchorCount)) return false;
+  if (!readPodChecked(file, anchorCount)) return fail("anchor count");
   for (uint16_t i = 0; i < anchorCount; ++i) {
     uint16_t page = 0;
     if (!skipBoundedString(file, fileSize) || !readPodChecked(file, page) || page >= pageCount) {
-      return false;
+      return fail("anchor page");
     }
   }
-  return file.position() == fileSize;
+  return file.position() == fileSize || fail("trailing data");
 }
 }  // namespace
 
@@ -461,9 +465,10 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 
   SectionHeader header;
   uint16_t validatedPageCount = 0;
-  if (!validateSectionCache(file, header, validatedPageCount)) {
+  const char* validationFailure = "unknown";
+  if (!validateSectionCache(file, header, validatedPageCount, validationFailure)) {
     file.close();
-    LOG_ERR("SCT", "Section cache validation failed");
+    LOG_ERR("SCT", "Section cache validation failed: %s", validationFailure);
     epub->clearCachePromptSeenMarker();
     clearCache();
     return false;
@@ -652,10 +657,26 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   }
 
   const uint32_t anchorMapOffset = file.position();
-  serialization::writePod(file, static_cast<uint16_t>(anchors.size()));
+  uint16_t validAnchorCount = 0;
+  size_t droppedAnchorCount = 0;
   for (const auto& [anchor, page] : anchors) {
+    (void)anchor;
+    if (page < pageCount && validAnchorCount < UINT16_MAX) {
+      ++validAnchorCount;
+    } else {
+      ++droppedAnchorCount;
+    }
+  }
+  if (droppedAnchorCount > 0) {
+    LOG_DBG("SCT", "Dropped %u anchor(s) without a generated page", static_cast<unsigned>(droppedAnchorCount));
+  }
+  serialization::writePod(file, validAnchorCount);
+  uint16_t anchorsWritten = 0;
+  for (const auto& [anchor, page] : anchors) {
+    if (page >= pageCount || anchorsWritten == validAnchorCount) continue;
     serialization::writeString(file, anchor);
     serialization::writePod(file, page);
+    ++anchorsWritten;
   }
 
   file.seek(HEADER_SIZE - sizeof(uint32_t) * 2 - sizeof(pageCount));
@@ -670,10 +691,18 @@ bool Section::finalizeSectionFile(const std::vector<uint32_t>& lut,
   FsFile validationFile;
   SectionHeader validatedHeader;
   uint16_t validatedPageCount = 0;
+  const char* validationFailure = "open";
+  size_t validationFileSize = 0;
   if (!Storage.openFileForRead("SCT", tmpSectionPath, validationFile) ||
-      !validateSectionCache(validationFile, validatedHeader, validatedPageCount) || validatedPageCount != pageCount) {
+      !validateSectionCache(validationFile, validatedHeader, validatedPageCount, validationFailure) ||
+      validatedPageCount != pageCount) {
+    validationFileSize = validationFile.size();
+    if (validatedPageCount != pageCount && strcmp(validationFailure, "open") == 0) {
+      validationFailure = "page count";
+    }
     validationFile.close();
-    LOG_ERR("SCT", "Generated section cache failed validation");
+    LOG_ERR("SCT", "Generated section cache failed validation: %s (size=%lu, pages=%u, validated=%u)",
+            validationFailure, static_cast<unsigned long>(validationFileSize), pageCount, validatedPageCount);
     Storage.remove(tmpSectionPath.c_str());
     return false;
   }
