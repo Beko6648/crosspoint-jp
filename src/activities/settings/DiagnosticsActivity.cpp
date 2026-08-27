@@ -335,8 +335,9 @@ void DiagnosticsActivity::render(RenderLock&&) {
     renderLogs(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT), tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
+  // Button-hint space is deliberately narrower than the page heading, so use
+  // short action labels while retaining the descriptive titles above.
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), tr(STR_DIAGNOSTICS_LOG_BUTTON), "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

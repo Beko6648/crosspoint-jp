@@ -49,6 +49,44 @@ bool SettingsActivity::currentSettingIsEditable() const {
   return setting.type == SettingType::ENUM && setting.nameId != StrId::STR_FONT_FAMILY;
 }
 
+const char* SettingsActivity::currentSettingDescription() const {
+  const int settingIndex = selectedSettingIndex - 1;
+  if (settingIndex < 0 || settingIndex >= settingsCount || currentSettings == nullptr) return "";
+
+  switch ((*currentSettings)[settingIndex].action) {
+    case SettingAction::RemapFrontButtons:
+      return tr(STR_SETTINGS_DESC_REMAP_FRONT_BUTTONS);
+    case SettingAction::CustomiseStatusBar:
+      return tr(STR_SETTINGS_DESC_STATUS_BAR);
+    case SettingAction::Network:
+      return tr(STR_SETTINGS_DESC_NETWORK);
+    case SettingAction::ClearCache:
+      return tr(STR_SETTINGS_DESC_CLEAR_READING_CACHE);
+    case SettingAction::SdFirmwareUpdate:
+      return tr(STR_SETTINGS_DESC_SD_FIRMWARE_UPDATE);
+    case SettingAction::Language:
+      return tr(STR_SETTINGS_DESC_LANGUAGE);
+    case SettingAction::DownloadFonts:
+      return tr(STR_SETTINGS_DESC_DOWNLOAD_FONTS);
+    case SettingAction::SelectUiFont:
+      return tr(STR_SETTINGS_DESC_UI_FONT);
+    case SettingAction::GenerateAllCache:
+      return tr(STR_SETTINGS_DESC_GENERATE_ALL_CACHE);
+    case SettingAction::HorizontalSettings:
+      return tr(STR_SETTINGS_DESC_HORIZONTAL_SETTINGS);
+    case SettingAction::VerticalSettings:
+      return tr(STR_SETTINGS_DESC_VERTICAL_SETTINGS);
+    case SettingAction::Diagnostics:
+      return tr(STR_SETTINGS_DESC_DIAGNOSTICS);
+    case SettingAction::ReaderProfiles:
+      return tr(STR_SETTINGS_DESC_READER_PROFILES);
+    case SettingAction::AozoraBunko:
+    case SettingAction::None:
+      return "";
+  }
+  return "";
+}
+
 void SettingsActivity::rebuildSettingsLists() {
   displaySettings.clear();
   readerSettings.clear();
@@ -455,14 +493,13 @@ void SettingsActivity::render(RenderLock&&) {
                  tabs, selectedSettingIndex == 0);
 
   const auto& settings = *currentSettings;
+  const int listTop =
+      metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+  const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
   GUI.drawList(
       renderer,
-      Rect{
-          listSideInset,
-          metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing,
-          pageWidth - listSideInset * 2,
-          pageHeight - (metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight +
-                        metrics.buttonHintsHeight + metrics.verticalSpacing * 2)},
+      Rect{listSideInset, listTop, pageWidth - listSideInset * 2, listBottom - listTop},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
@@ -512,6 +549,10 @@ void SettingsActivity::render(RenderLock&&) {
         return valueText;
       },
       editingValue);
+
+  GUI.drawHelpText(renderer, Rect{listSideInset, listBottom + metrics.verticalSpacing, pageWidth - listSideInset * 2,
+                                  helpTextHeight},
+                   currentSettingDescription());
 
   // Draw help text
   const char* confirmLabel = tr(STR_SELECT);
