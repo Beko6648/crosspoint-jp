@@ -26,7 +26,7 @@ class DiagnosticsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class Page : uint8_t { Overview, Logs };
+  enum class Page : uint8_t { Overview, Logs, Details };
   enum class SaveResult : uint8_t { None, Saved, Failed };
 
   Page page = Page::Overview;
@@ -35,6 +35,7 @@ class DiagnosticsActivity final : public Activity {
   uint32_t freeHeap = 0;
   uint32_t maxAllocHeap = 0;
   uint32_t minFreeHeap = 0;
+  uint32_t snapshotDurationMs = 0;
   uint64_t sdTotalBytes = 0;
   uint64_t sdUsedBytes = 0;
   uint64_t readingCacheBytes = 0;
@@ -63,4 +64,5 @@ class DiagnosticsActivity final : public Activity {
   bool saveReport();
   void renderOverview(int x, int y, int contentWidth, int lineHeight);
   void renderLogs(int x, int y, int contentWidth, int lineHeight);
+  void renderDetails(int x, int y, int contentWidth, int lineHeight);
 };

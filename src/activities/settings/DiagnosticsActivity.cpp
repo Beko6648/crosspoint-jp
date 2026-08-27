@@ -167,6 +167,7 @@ void DiagnosticsActivity::onEnter() {
 }
 
 void DiagnosticsActivity::collectSnapshot() {
+  const uint32_t startedAt = millis();
   sdReady = Storage.ready();
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
@@ -201,6 +202,7 @@ void DiagnosticsActivity::collectSnapshot() {
   readerBookStyle = SETTINGS.embeddedStyle;
   recentLogs = getLastLogs();
   recentLogLines = splitLogLines(recentLogs);
+  snapshotDurationMs = millis() - startedAt;
 }
 
 bool DiagnosticsActivity::saveReport() {
@@ -241,6 +243,7 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("reader_line_spacing=%u\n", readerLineSpacing);
   file.printf("reader_book_style=%u\n", readerBookStyle);
   file.printf("reader_image_rendering=%u\n", readerImageRendering);
+  file.printf("snapshot_duration_ms=%lu\n", static_cast<unsigned long>(snapshotDurationMs));
   file.printf("captured_millis=%lu\n", static_cast<unsigned long>(millis()));
   file.print("\nRecent logs:\n");
   file.print(recentLogs.c_str());
@@ -262,7 +265,7 @@ void DiagnosticsActivity::loop() {
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
       mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    page = page == Page::Overview ? Page::Logs : Page::Overview;
+    page = page == Page::Overview ? Page::Logs : page == Page::Logs ? Page::Details : Page::Overview;
     requestUpdate();
   }
 }
@@ -315,6 +318,29 @@ void DiagnosticsActivity::renderLogs(const int x, int y, const int contentWidth,
   }
 }
 
+void DiagnosticsActivity::renderDetails(const int x, int y, const int contentWidth, const int lineHeight) {
+  const auto drawLine = [this, x, &y, lineHeight](const std::string& text) {
+    renderer.drawText(UI_10_FONT_ID, x, y, text.c_str());
+    y += lineHeight;
+  };
+
+  drawLine("Snapshot: " + std::to_string(snapshotDurationMs) + " ms");
+  drawLine("Cache scan: " + std::string(readingCacheSizeComplete ? "complete" : "incomplete"));
+  drawLine("Logs captured: " + std::to_string(recentLogLines.size()));
+  drawLine(std::string("Active book: ") + (hasActiveBook ? "yes" : "no"));
+  if (!hasActiveBook) return;
+
+  drawLine("Book type: " + openBookType + " (" + formatBytes(openBookSize) + ")");
+  drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
+  if (bookFingerprintAvailable) {
+    char fingerprint[24];
+    snprintf(fingerprint, sizeof(fingerprint), "%016llx", static_cast<unsigned long long>(bookFingerprint));
+    drawLine(std::string("Source ID: ") + fingerprint);
+  }
+  drawLine("Spine/page: " + std::to_string(bookSpineIndex) + "/" + std::to_string(bookPageIndex + 1) + "/" +
+           std::to_string(bookPageCount));
+}
+
 void DiagnosticsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -325,19 +351,26 @@ void DiagnosticsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DIAGNOSTICS));
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  renderer.drawText(UI_10_FONT_ID, x, y,
-                    page == Page::Overview ? tr(STR_DIAGNOSTICS_OVERVIEW) : tr(STR_DIAGNOSTICS_RECENT_LOGS));
+  const char* pageTitle = page == Page::Overview   ? tr(STR_DIAGNOSTICS_OVERVIEW)
+                          : page == Page::Logs     ? tr(STR_DIAGNOSTICS_RECENT_LOGS)
+                                                   : tr(STR_DIAGNOSTICS_DETAILS);
+  renderer.drawText(UI_10_FONT_ID, x, y, pageTitle);
   y += lineHeight + metrics.verticalSpacing;
 
   if (page == Page::Overview) {
     renderOverview(x, y, contentWidth, lineHeight);
-  } else {
+  } else if (page == Page::Logs) {
     renderLogs(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
+  } else {
+    renderDetails(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
   // Button-hint space is deliberately narrower than the page heading, so use
   // short action labels while retaining the descriptive titles above.
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), tr(STR_DIAGNOSTICS_LOG_BUTTON), "");
+  const char* nextPageLabel = page == Page::Overview   ? tr(STR_DIAGNOSTICS_LOG_BUTTON)
+                              : page == Page::Logs     ? tr(STR_DIAGNOSTICS_DETAILS_BUTTON)
+                                                        : tr(STR_DIAGNOSTICS_OVERVIEW);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), nextPageLabel, "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
