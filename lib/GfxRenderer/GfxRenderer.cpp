@@ -7,6 +7,7 @@
 #include <Logging.h>
 #include <SdCardFont.h>
 #include <Utf8.h>
+#include "../../src/fontIds.h"
 
 #include <algorithm>
 #include <cstring>
@@ -20,31 +21,29 @@
 // Reader font IDs (from fontIds.h) - used to determine when to use external
 // Chinese font UI fonts should NOT use external font
 namespace {
-// UI font IDs that should NOT use external reader font
-// Values must match src/fontIds.h
+// UI font IDs that should NOT use external reader fonts. Keep these tied to
+// the generated definitions instead of stale hash literals.
 constexpr int UI_FONT_IDS[] = {
-    -1246724383,  // UI_10_FONT_ID - for status display (battery, page number,
-                  // etc.)
-    -359249323,   // UI_12_FONT_ID - for status display
-    -2089201234,  // UI_20_FONT_ID - primary UI font (menus, titles, settings)
-    1073217904    // SMALL_FONT_ID
+    UI_10_FONT_ID,
+    UI_12_FONT_ID,
+    SMALL_FONT_ID,
 };
 constexpr int UI_FONT_COUNT = sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
 
-// Reader font IDs - values must match src/fontIds.h
+// Reader font IDs. These are generated from the current built-in font set.
 constexpr int READER_FONT_IDS[] = {
-    -1905494168,  // BOOKERLY_12_FONT_ID
-    1233852315,   // BOOKERLY_14_FONT_ID
-    1588566790,   // BOOKERLY_16_FONT_ID
-    681638548,    // BOOKERLY_18_FONT_ID
-    -1559651934,  // NOTOSANS_12_FONT_ID
-    -1014561631,  // NOTOSANS_14_FONT_ID
-    -1422711852,  // NOTOSANS_16_FONT_ID
-    1237754772,   // NOTOSANS_18_FONT_ID
-    1331369208,   // OPENDYSLEXIC_8_FONT_ID
-    -1374689004,  // OPENDYSLEXIC_10_FONT_ID
-    -795539541,   // OPENDYSLEXIC_12_FONT_ID
-    -1676627620   // OPENDYSLEXIC_14_FONT_ID
+    NOTOSERIF_12_FONT_ID,
+    NOTOSERIF_14_FONT_ID,
+    NOTOSERIF_16_FONT_ID,
+    NOTOSERIF_18_FONT_ID,
+    NOTOSANS_12_FONT_ID,
+    NOTOSANS_14_FONT_ID,
+    NOTOSANS_16_FONT_ID,
+    NOTOSANS_18_FONT_ID,
+    OPENDYSLEXIC_8_FONT_ID,
+    OPENDYSLEXIC_10_FONT_ID,
+    OPENDYSLEXIC_12_FONT_ID,
+    OPENDYSLEXIC_14_FONT_ID,
 };
 constexpr int READER_FONT_COUNT = sizeof(READER_FONT_IDS) / sizeof(READER_FONT_IDS[0]);
 
