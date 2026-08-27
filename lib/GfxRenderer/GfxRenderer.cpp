@@ -85,6 +85,19 @@ bool isAsciiLetter(const uint32_t cp) { return (cp >= 'A' && cp <= 'Z') || (cp >
 
 int clampExternalAdvance(const int baseWidth, const int spacing) { return std::max(1, baseWidth + spacing); }
 
+constexpr uint32_t kUiEmojiPlaceholder = 0x30FB;      // ・
+constexpr uint32_t kReaderEmojiPlaceholder = 0x3013;  // 〓
+
+// Color emoji are not available on the monochrome display.  Keep the source
+// text intact, but draw a compact, predictable placeholder instead of the
+// font's missing-glyph question mark.  The common modern emoji blocks cover
+// emoji used in filenames, EPUB metadata, and ordinary EPUB text.
+bool isEmojiCodepoint(const uint32_t cp) { return cp >= 0x1F000 && cp <= 0x1FAFF; }
+
+uint32_t displayCodepoint(const uint32_t cp, const bool uiFont) {
+  return isEmojiCodepoint(cp) ? (uiFont ? kUiEmojiPlaceholder : kReaderEmojiPlaceholder) : cp;
+}
+
 // Halfwidth Japanese full stop and comma have horizontal-font side bearings
 // that do not describe a vertical cell. Render these two presentation forms
 // through the corresponding standard Japanese glyphs, while retaining the source
@@ -419,6 +432,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
       const char* ptr = text;
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
+        cp = displayCodepoint(cp, true);
         bool hasChar = false;
 
         // First check built-in CJK UI font (Flash access is fast)
@@ -699,6 +713,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       uint32_t cp;
 
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
+        cp = displayCodepoint(cp, true);
         bool rendered = false;
 
         // First check built-in CJK UI font (Flash access is fast)
@@ -1860,6 +1875,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     int32_t widthFP = 0;
     const uint8_t styleIdx = static_cast<uint8_t>(style);
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
+      cp = displayCodepoint(cp, false);
       widthFP += sdIt->second->getAdvanceOrLoad(cp, styleIdx);
     }
     const uint16_t scale = getSdCardFontScale(fontId);
@@ -2029,8 +2045,9 @@ int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text, con
     int lastAdvance = 0;
     const char* ptr = text;
     while (*ptr) {
-      const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
+      uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
       if (cp == 0) break;
+      cp = displayCodepoint(cp, false);
       int32_t advanceFp = sdIt->second->getAdvanceOrLoad(cp, styleIdx);
       if (fontScale != 256) advanceFp = static_cast<int32_t>(static_cast<int64_t>(advanceFp) * fontScale / 256);
       const int advance = fp4::toPixel(advanceFp);
@@ -2046,8 +2063,9 @@ int GfxRenderer::getTextAdvanceYVertical(const int fontId, const char* text, con
   int lastAdvance = 0;
   const char* ptr = text;
   while (*ptr) {
-    const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
+    uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
     if (cp == 0) break;
+    cp = displayCodepoint(cp, false);
     const EpdGlyph* glyph = font.getGlyph(cp, style);
     if (!glyph) continue;
 
@@ -2099,12 +2117,22 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
   const char* ptr = text;
 
   while (*ptr) {
-    uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
-    if (cp == 0) break;
+    const uint32_t sourceCp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr));
+    if (sourceCp == 0) break;
+    const bool emoji = isEmojiCodepoint(sourceCp);
+    const uint32_t cp = displayCodepoint(sourceCp, false);
 
     const uint32_t displayCp = verticalPresentationCodepoint(cp);
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyph* glyph = emoji ? font.getGlyphExact(kReaderEmojiPlaceholder, style) : font.getGlyph(cp, style);
+    if (emoji && !glyph) glyph = font.getGlyphExact(0x25A1, style);  // □
+    if (!glyph && emoji) {
+      const int advance = getLineHeight(effectiveFontId);
+      const int markerSize = std::max(4, advance - 4);
+      drawRect(x + std::max(1, (advance - markerSize) / 2), yPos + 2, markerSize, markerSize, black);
+      yPos += advance + advance * verticalCharSpacingPercent_ / 100;
+      continue;
+    }
     if (!glyph) continue;
 
     int32_t advFP = static_cast<int32_t>(glyph->advanceX);
@@ -2271,6 +2299,7 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
   int32_t yPosFP = fp4::fromPixel(y);
 
   while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
+    cp = displayCodepoint(cp, isUiFont(fontId));
     const EpdGlyph* glyph = font.getGlyph(cp, style);
     if (!glyph) {
       glyph = font.getGlyph('?', style);
@@ -2383,6 +2412,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       const char* ptr = text;
       uint32_t cp;
       while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&ptr)))) {
+        cp = displayCodepoint(cp, true);
         if (CjkUiFont21::hasCjkUiGlyph(cp)) {
           const uint8_t* bitmap = CjkUiFont21::getCjkUiGlyph(cp);
           const uint8_t width = CjkUiFont21::getCjkUiGlyphWidth(cp);
@@ -2433,6 +2463,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    cp = displayCodepoint(cp, isUiFont(fontId));
     // For ASCII characters, prefer EPD font (better quality for Latin text)
     // Only use CJK UI font for non-ASCII characters or when EPD font lacks the
     // glyph
@@ -2895,8 +2926,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
                              const bool pixelState, const EpdFontFamily::Style style) const {
   FontManager& fm = FontManager::getInstance();
 
+  const uint32_t displayCp = displayCodepoint(cp, isUiFont(fontId));
+
   // Cache character classification results to avoid repeated calls (perf opt)
-  const bool isCjk = isCjkCodepoint(cp);
+  const bool isCjk = isCjkCodepoint(displayCp);
 
   // SD-card cpfonts carry their own style data. Never let a legacy external
   // font override their CJK glyphs, or Bold degrades to the external Regular.
@@ -2904,10 +2937,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
     if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
-        const uint8_t* bitmap = extFont->getGlyph(cp);
+        const uint8_t* bitmap = extFont->getGlyph(displayCp);
         if (bitmap) {
           uint8_t minX = 0, advanceX = extFont->getCharWidth();
-          extFont->getGlyphMetrics(cp, &minX, &advanceX);
+          extFont->getGlyphMetrics(displayCp, &minX, &advanceX);
           int spacing = 0;
           if (isCjk) {
             spacing = cjkSpacing;
@@ -2921,8 +2954,8 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
           return;
         }
         // Missing glyph in external font - try built-in CJK UI font for CJK
-        if (isCjk && CjkUiFont21::hasCjkUiGlyph(cp)) {
-          renderBuiltinCjkGlyph(cp, x, *y, pixelState);
+        if (isCjk && CjkUiFont21::hasCjkUiGlyph(displayCp)) {
+          renderBuiltinCjkGlyph(displayCp, x, *y, pixelState);
           return;
         }
         // Fall through to built-in reader font rendering below
@@ -2933,8 +2966,8 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
     // Only fall back to external font if built-in doesn't have the glyph
     if (isCjk) {
       // First check built-in CJK UI font (Flash access is fast)
-      if (CjkUiFont21::hasCjkUiGlyph(cp)) {
-        renderBuiltinCjkGlyph(cp, x, *y, pixelState);
+      if (CjkUiFont21::hasCjkUiGlyph(displayCp)) {
+        renderBuiltinCjkGlyph(displayCp, x, *y, pixelState);
         return;
       }
 
@@ -2942,10 +2975,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
       if (fm.isUiFontEnabled()) {
         ExternalFont* uiExtFont = fm.getActiveUiFont();
         if (uiExtFont) {
-          const uint8_t* bitmap = uiExtFont->getGlyph(cp);
+          const uint8_t* bitmap = uiExtFont->getGlyph(displayCp);
           if (bitmap) {
             uint8_t minX = 0, advanceX = 0;
-            uiExtFont->getGlyphMetrics(cp, &minX, &advanceX);
+            uiExtFont->getGlyphMetrics(displayCp, &minX, &advanceX);
             renderExternalGlyph(bitmap, uiExtFont, x, *y, pixelState, advanceX, minX);
             return;
           }
@@ -2956,10 +2989,10 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
       if (fm.isExternalFontEnabled()) {
         ExternalFont* extFont = fm.getActiveFont();
         if (extFont) {
-          const uint8_t* bitmap = extFont->getGlyph(cp);
+          const uint8_t* bitmap = extFont->getGlyph(displayCp);
           if (bitmap) {
             uint8_t minX = 0, advanceX = 0;
-            extFont->getGlyphMetrics(cp, &minX, &advanceX);
+            extFont->getGlyphMetrics(displayCp, &minX, &advanceX);
             renderExternalGlyph(bitmap, extFont, x, *y, pixelState, advanceX, minX);
             return;
           }
@@ -2967,18 +3000,18 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
       }
     } else {
       // Non-CJK characters in UI - check built-in UI font first
-      if (CjkUiFont21::hasCjkUiGlyph(cp)) {
-        renderBuiltinCjkGlyph(cp, x, *y, pixelState);
+      if (CjkUiFont21::hasCjkUiGlyph(displayCp)) {
+        renderBuiltinCjkGlyph(displayCp, x, *y, pixelState);
         return;
       }
       // Then try external UI font if enabled
       if (fm.isUiFontEnabled()) {
         ExternalFont* uiExtFont = fm.getActiveUiFont();
         if (uiExtFont) {
-          const uint8_t* bitmap = uiExtFont->getGlyph(cp);
+          const uint8_t* bitmap = uiExtFont->getGlyph(displayCp);
           if (bitmap) {
             uint8_t minX = 0, advanceX = 0;
-            uiExtFont->getGlyphMetrics(cp, &minX, &advanceX);
+            uiExtFont->getGlyphMetrics(displayCp, &minX, &advanceX);
             renderExternalGlyph(bitmap, uiExtFont, x, *y, pixelState, advanceX, minX);
             return;
           }
@@ -2988,7 +3021,14 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
     }
   }
 
-  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  const bool emoji = isEmojiCodepoint(cp);
+  const EpdGlyph* glyph = emoji ? fontFamily.getGlyphExact(kReaderEmojiPlaceholder, style)
+                                : fontFamily.getGlyph(displayCp, style);
+  if (emoji && !glyph) glyph = fontFamily.getGlyphExact(0x25A1, style);  // □
+  if (emoji && !glyph && CjkUiFont21::hasCjkUiGlyph(0x25A1)) {
+    renderBuiltinCjkGlyph(0x25A1, x, *y, pixelState);
+    return;
+  }
   if (!glyph) {
     glyph = fontFamily.getGlyph('?', style);
   }
