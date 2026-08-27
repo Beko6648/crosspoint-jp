@@ -991,14 +991,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Balanced and Book Priority use an EPUB text-align when it is present.
   // CrossPoint Priority always keeps the reader's configured alignment.
   const bool preferCssAlignment = self->bookStyle != 0;
-  // Paragraph alignment governs horizontal text layout.  In vertical writing
-  // it instead controls the placement of finished columns, so preserve the
-  // established justified layout for the text within each column.
-  const auto layoutAlignment = self->verticalMode
-                                   ? CssTextAlign::Justify
-                                   : static_cast<CssTextAlign>(self->paragraphAlignment);
-  const auto userAlignmentBlockStyle =
-      BlockStyle::fromCssStyle(cssStyle, emSize, layoutAlignment, preferCssAlignment, self->viewportWidth);
+  const auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
+      cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
 
   auto bodyBlockStyle = userAlignmentBlockStyle;
   if (self->bookStyle == 1 && cssStyle.hasFontSize()) {
@@ -1053,8 +1047,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->startNewTextBlock(bodyBlockStyle);
   } else if (matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     self->currentCssStyle = cssStyle;
-    auto headerBlockStyle =
-        BlockStyle::fromCssStyle(cssStyle, emSize, layoutAlignment, preferCssAlignment, self->viewportWidth);
+    auto headerBlockStyle = BlockStyle::fromCssStyle(
+        cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), preferCssAlignment, self->viewportWidth);
 
     // Heading level (h1→1, h2→2, etc.)
     const int level = name[1] - '0';
@@ -1653,7 +1647,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     if (self->currentTextBlock && self->currentTextBlock->isEmpty()) {
       auto style = self->currentTextBlock->getBlockStyle();
       style.textAlignDefined = false;
-      style.alignment = self->verticalMode || self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None)
+      style.alignment = (self->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
                             ? CssTextAlign::Justify
                             : static_cast<CssTextAlign>(self->paragraphAlignment);
       style.marginLeft = 0;
@@ -1678,7 +1672,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   auto paragraphAlignmentBlockStyle = BlockStyle();
   paragraphAlignmentBlockStyle.textAlignDefined = true;
   // Resolve None sentinel to Justify for initial block (no CSS context yet)
-  const auto align = (this->verticalMode || this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+  const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
                          ? CssTextAlign::Justify
                          : static_cast<CssTextAlign>(this->paragraphAlignment);
   paragraphAlignmentBlockStyle.alignment = align;
@@ -1802,25 +1796,6 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::completeCurrentPage() {
   if (!currentPage) return;
-  if (verticalMode && paragraphAlignment != static_cast<uint8_t>(CssTextAlign::Right)) {
-    std::vector<PageElement*> columns;
-    int maxX = 0;
-    int minX = viewportWidth;
-    for (const auto& element : currentPage->elements) {
-      if (element->getTag() != TAG_PageLine) continue;
-      columns.push_back(element.get());
-      maxX = std::max(maxX, static_cast<int>(element->xPos));
-      minX = std::min(minX, static_cast<int>(element->xPos));
-    }
-    if (paragraphAlignment == static_cast<uint8_t>(CssTextAlign::Left)) {
-      for (auto* column : columns) column->xPos -= minX;
-    } else if (columns.size() > 1) {
-      for (size_t index = 0; index < columns.size(); ++index) {
-        columns[index]->xPos = static_cast<int16_t>(maxX - (maxX * static_cast<int>(index)) /
-                                                                 static_cast<int>(columns.size() - 1));
-      }
-    }
-  }
   completePageFn(std::move(currentPage));
   completedPageCount++;
 }
@@ -1833,8 +1808,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
     const int columnWidth = lineHeight;
-    // Preserve the common quarter-width gutter for every column. Ruby
-    // placement is user-adjustable and must not add any further column space.
+    // Preserve the common quarter-width gutter for ordinary columns.
     const int columnSpacing = columnWidth / 4;
 
     if (!currentPage) {
@@ -1842,13 +1816,21 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
       currentPageNextX = viewportWidth - columnWidth;  // start from right edge
     }
 
-    int columnX = currentPageNextX;
+    const auto rubyRightInset = [&]() {
+      if (!line->hasRuby()) return 0;
+      // Ruby is placed on the right of its base. Reserve only the part that
+      // extends beyond the body column, both at the page edge and between
+      // adjacent ruby-bearing columns.
+      return TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth);
+    };
+
+    int columnX = currentPageNextX - rubyRightInset();
     if (columnX < 0) {
       // Page full — emit and start new page
       completeCurrentPage();
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;
-      columnX = currentPageNextX;
+      columnX = currentPageNextX - rubyRightInset();
     }
 
     // Track cumulative words for footnote assignment
@@ -1871,10 +1853,12 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     }
 
     int rubyTopInset = 0;
-    if (line->hasRuby() && currentPage->elements.empty()) {
-      // Preserve any CSS top spacing and add only the missing room for ruby.
+    if (line->hasRuby()) {
       const int requiredBodyY = TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId);
-      rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+      // The first line must clear the page edge. Later ruby-bearing lines
+      // need the same leading so their annotation cannot overprint the body
+      // line immediately above them.
+      rubyTopInset = currentPage->elements.empty() ? std::max(0, requiredBodyY - currentPageNextY) : requiredBodyY;
     }
 
     if (currentPageNextY + rubyTopInset + lineHeight > viewportHeight) {
