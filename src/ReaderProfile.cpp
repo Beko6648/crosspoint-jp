@@ -130,10 +130,15 @@ bool readDirection(JsonObjectConst obj, DirectionSettings& target) {
       !readU8(obj, "hyphenationEnabled", 0, 1, target.hyphenationEnabled) ||
       !readU8(obj, "screenMargin", 5, 40, target.screenMargin) ||
       !readU8(obj, "firstLineIndent", 0, 1, target.firstLineIndent) ||
-      !readU8(obj, "rubyEnabled", 0, 1, target.rubyEnabled) || !readU8(obj, "rubyOffsetX", 0, 80, target.rubyOffsetX) ||
-      !readU8(obj, "rubyOffsetY", 0, 80, target.rubyOffsetY)) {
+      !readU8(obj, "rubyEnabled", 0, 1, target.rubyEnabled)) {
     return false;
   }
+
+  // Reader profiles created before the ruby-position fields are still valid.
+  // Their absence means the same neutral position as an untouched setting:
+  // user-visible offset 0, stored internally with the +16 bias.
+  if (!obj["rubyOffsetX"].isNull() && !readU8(obj, "rubyOffsetX", 0, 80, target.rubyOffsetX)) return false;
+  if (!obj["rubyOffsetY"].isNull() && !readU8(obj, "rubyOffsetY", 0, 80, target.rubyOffsetY)) return false;
   strncpy(target.sdFontFamilyName, familyName, sizeof(target.sdFontFamilyName) - 1);
   target.sdFontFamilyName[sizeof(target.sdFontFamilyName) - 1] = '\0';
   return true;
