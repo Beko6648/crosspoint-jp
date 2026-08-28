@@ -6,7 +6,13 @@
 005E
 0060
 007E
+# UI symbol coverage (Noto Sans JP SemiBold)
+2116
+2121
+2713
+273D
 273F
+2756
 3013
 FF62
 FF63
