@@ -6,6 +6,7 @@
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -99,7 +100,7 @@ int resolveRubyFont(const DirectionSettings& settings, const int bodyFontId) {
 
 void ReaderTestViewActivity::onEnter() {
   Activity::onEnter();
-  vertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
+  vertical = initialVertical >= 0 ? initialVertical != 0 : SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
   // SettingsActivity opens this screen with Confirm. Do not treat that
   // button release as a request to enter ruby adjustment.
   ignoreOpeningConfirmRelease = true;
@@ -115,7 +116,7 @@ void ReaderTestViewActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       rubyAdjustActive = false;
-      if (rubyAdjustChanged) SETTINGS.saveToFile();
+      persistRubyAdjust();
       rubyAdjustChanged = false;
       requestUpdate();
       return;
@@ -142,6 +143,31 @@ void ReaderTestViewActivity::loop() {
     rubyAdjustActive = true;
     rubyAdjustChanged = false;
     requestUpdate();
+  }
+}
+
+void ReaderTestViewActivity::persistRubyAdjust() {
+  if (!rubyAdjustChanged) return;
+  if (bookFingerprint == 0) {
+    SETTINGS.saveToFile();
+    return;
+  }
+
+  BookReaderSettings::Override value;
+  if (!BookReaderSettings::load(bookFingerprint, value)) {
+    LOG_ERR("BOOKSET", "Could not load book settings for test view");
+    return;
+  }
+  const auto current = BookReaderSettings::captureAll(SETTINGS);
+  auto& target = vertical ? value.vertical : value.horizontal;
+  const auto& source = vertical ? current.vertical : current.horizontal;
+  target.values.rubyEnabled = source.values.rubyEnabled;
+  target.values.rubyOffsetX = source.values.rubyOffsetX;
+  target.values.rubyOffsetY = source.values.rubyOffsetY;
+  target.fields |= BookReaderSettings::DirectionRubyEnabled | BookReaderSettings::DirectionRubyOffsetX |
+                   BookReaderSettings::DirectionRubyOffsetY;
+  if (!BookReaderSettings::save(bookFingerprint, value)) {
+    LOG_ERR("BOOKSET", "Could not save ruby settings from test view");
   }
 }
 

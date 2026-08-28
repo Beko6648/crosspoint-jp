@@ -9,6 +9,7 @@
 class BookReaderSettingsActivity final : public Activity {
  public:
   enum class Item : uint8_t {
+    TestView,
     Font,
     Size,
     Spacing,

@@ -8,6 +8,7 @@
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "activities/settings/ReaderTestViewActivity.h"
 
 namespace {
 
@@ -31,6 +32,12 @@ void BookReaderSettingsActivity::onEnter() {
 
 void BookReaderSettingsActivity::selectCurrent() {
   const Item item = static_cast<Item>(selectedIndex);
+  if (item == Item::TestView) {
+    startActivityForResult(std::make_unique<ReaderTestViewActivity>(renderer, mappedInput, fingerprint,
+                                                                    verticalMode ? 1 : 0),
+                           [this](const ActivityResult&) { requestUpdate(); });
+    return;
+  }
   BookReaderSettings::Override value;
   bool success = BookReaderSettings::load(fingerprint, value);
   if (success && item == Item::SaveAll) {
@@ -51,6 +58,8 @@ void BookReaderSettingsActivity::selectCurrent() {
       }
     };
     switch (item) {
+      case Item::TestView:
+        break;
       case Item::Font: toggleDirection(direction, currentDirection, kFontFields); break;
       case Item::Size: toggleDirection(direction, currentDirection, kSizeFields); break;
       case Item::Spacing: toggleDirection(direction, currentDirection, kSpacingFields); break;
@@ -95,6 +104,7 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
   };
   const auto& direction = verticalMode ? value.vertical : value.horizontal;
   switch (item) {
+    case Item::TestView: return false;
     case Item::Font: return hasDirection(direction, kFontFields);
     case Item::Size: return hasDirection(direction, kSizeFields);
     case Item::Spacing: return hasDirection(direction, kSpacingFields);
@@ -112,7 +122,8 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
 
 StrId BookReaderSettingsActivity::itemLabel(const Item item) {
   static constexpr StrId kLabels[] = {
-      StrId::STR_FONT_FAMILY, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING, StrId::STR_SCREEN_MARGIN,
+      StrId::STR_READER_TEST_VIEW, StrId::STR_FONT_FAMILY, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
+      StrId::STR_SCREEN_MARGIN,
       StrId::STR_RUBY_ENABLED,
       StrId::STR_BOOK_SETTINGS_WRITING_MODE, StrId::STR_BOOK_STYLE, StrId::STR_BOOK_SETTINGS_SAVE_CURRENT,
       StrId::STR_BOOK_SETTINGS_CLEAR,
@@ -157,7 +168,9 @@ void BookReaderSettingsActivity::render(RenderLock&&) {
     if (selected) renderer.fillRect(0, y, width - 1, 34, true);
     const Item item = static_cast<Item>(index);
     renderer.drawText(UI_10_FONT_ID, 20, y + 3, I18N.get(itemLabel(item)), !selected);
-    const char* state = isOverridden(item) ? tr(STR_BOOK_SETTINGS_THIS_BOOK) : tr(STR_BOOK_SETTINGS_GLOBAL);
+    const char* state = item == Item::TestView
+                            ? tr(STR_BOOK_SETTINGS_PREVIEW)
+                            : (isOverridden(item) ? tr(STR_BOOK_SETTINGS_THIS_BOOK) : tr(STR_BOOK_SETTINGS_GLOBAL));
     renderer.drawText(UI_10_FONT_ID, width - 95, y + 3, state, !selected);
   }
   if (resultText) renderer.drawCenteredText(UI_10_FONT_ID, top + 58 + kItemCount * 34, resultText);
