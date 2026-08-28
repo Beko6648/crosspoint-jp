@@ -72,6 +72,27 @@ INTERVAL_PRESETS = {
         (0x2160, 0x216B),
         (0x2170, 0x217B),
     ],
+    # Additional reading symbols selected per Japanese font family after
+    # checking both the regular and bold source cmaps.  Keep these split so
+    # unsupported symbols do not become empty placeholders in SD fonts.
+    "jp-extra-noto": [
+        (0x2116, 0x2116),  # №
+        (0x2121, 0x2121),  # ℡
+        (0x2713, 0x2713),  # ✓
+        (0x273D, 0x273D),  # ✽
+        (0x273F, 0x273F),  # ✿
+        (0x2756, 0x2756),  # ❖
+    ],
+    "jp-extra-biz": [
+        (0x2116, 0x2116),  # №
+        (0x2121, 0x2121),  # ℡
+        (0x2713, 0x2713),  # ✓
+        (0x2756, 0x2756),  # ❖
+    ],
+    "jp-extra-zen": [
+        (0x2116, 0x2116),  # №
+        (0x2121, 0x2121),  # ℡
+    ],
     "boxdrawing":  [(0x2500, 0x257F)],
     "cjk":         [(0x3000, 0x303F), (0x3040, 0x309F), (0x30A0, 0x30FF),
                     (0x4E00, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF)],
