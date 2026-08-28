@@ -42,6 +42,7 @@ class EpubReaderActivity final : public Activity {
   bool rubyAdjustIgnoreOpeningRelease = false;
   bool rubyAdjustChanged = false;
   bool currentPageBookmarked = false;
+  bool restoreGlobalReaderSettingsOnExit = false;
   enum class BookmarkNotice : uint8_t { NONE, ADDED, REMOVED, LIMIT };
   BookmarkNotice bookmarkNotice = BookmarkNotice::NONE;
   std::vector<BookmarkEntry> cachedBookmarks;
@@ -85,8 +86,11 @@ class EpubReaderActivity final : public Activity {
   void updateBookmarkFlag();
 
  public:
-  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub)
-      : Activity("EpubReader", renderer, mappedInput), epub(std::move(epub)) {}
+  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
+                              const bool restoreGlobalReaderSettingsOnExit = false)
+      : Activity("EpubReader", renderer, mappedInput),
+        epub(std::move(epub)),
+        restoreGlobalReaderSettingsOnExit(restoreGlobalReaderSettingsOnExit) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

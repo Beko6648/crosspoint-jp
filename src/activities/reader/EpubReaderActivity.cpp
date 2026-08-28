@@ -18,6 +18,8 @@
 #include <cstring>
 
 #include "BookCacheClearActivity.h"
+#include "BookReaderSettings.h"
+#include "BookReaderSettingsActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -383,6 +385,12 @@ void EpubReaderActivity::onExit() {
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->clearCache();
     fcm->freeKernLigatureData();
+  }
+
+  // A book override is only an in-memory effective configuration.  Restore
+  // the persisted Global reader settings before returning to the rest of UI.
+  if (restoreGlobalReaderSettingsOnExit && !SETTINGS.loadFromFile()) {
+    LOG_ERR("BOOKSET", "Could not restore Global reader settings after closing book");
   }
 }
 
@@ -812,6 +820,29 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       // If no text or page loading failed, just close menu
       requestUpdate();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::OPEN_BOOK_READER_SETTINGS: {
+      uint64_t fingerprint = 0;
+      if (!epub->getSourceFingerprint(&fingerprint)) break;
+      startActivityForResult(std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
+                             [this, fingerprint](const ActivityResult& result) {
+                               if (result.isCancelled) return;
+                               BookReaderSettings::Override bookOverride;
+                               const bool hasOverride = BookReaderSettings::load(fingerprint, bookOverride) &&
+                                                        BookReaderSettings::hasAnyField(bookOverride);
+                               if (hasOverride) {
+                                 BookReaderSettings::apply(bookOverride, SETTINGS);
+                               } else if (!SETTINGS.loadFromFile()) {
+                                 LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
+                                 return;
+                               }
+                               restoreGlobalReaderSettingsOnExit = hasOverride;
+                               ensureSdFontLoaded(verticalMode);
+                               configureRubyFont(verticalMode);
+                               invalidateSectionPreservingPosition();
+                               requestUpdate();
+                             });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DIAGNOSTICS: {
