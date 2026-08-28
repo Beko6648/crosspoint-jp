@@ -157,7 +157,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 89: balance all ruby close tags so enclosing emphasis cannot leak.
 // Version 90: apply vertical column placement when completing a page.
 // Version 91: reserve ruby leading for every horizontal line and vertical column.
-constexpr uint8_t SECTION_FILE_VERSION = 91;
+// Version 92: use configured line/column spacing as the ruby-clearance
+// baseline, adding only the remaining collision clearance.
+constexpr uint8_t SECTION_FILE_VERSION = 92;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

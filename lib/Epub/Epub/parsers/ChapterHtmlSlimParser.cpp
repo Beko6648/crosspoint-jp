@@ -1819,9 +1819,12 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     const auto rubyRightInset = [&]() {
       if (!line->hasRuby()) return 0;
       // Ruby is placed on the right of its base. Reserve only the part that
-      // extends beyond the body column, both at the page edge and between
-      // adjacent ruby-bearing columns.
-      return TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth);
+      // extends beyond the body column. Configured column spacing already
+      // provides clearance between columns, so add only the missing amount;
+      // the first column still has to clear the physical page edge entirely.
+      const int overflow = TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth);
+      if (!currentPage || currentPage->elements.empty()) return overflow;
+      return std::max(0, overflow - columnSpacing);
     };
 
     int columnX = currentPageNextX - rubyRightInset();
@@ -1855,10 +1858,16 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     int rubyTopInset = 0;
     if (line->hasRuby()) {
       const int requiredBodyY = TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId);
-      // The first line must clear the page edge. Later ruby-bearing lines
-      // need the same leading so their annotation cannot overprint the body
-      // line immediately above them.
-      rubyTopInset = currentPage->elements.empty() ? std::max(0, requiredBodyY - currentPageNextY) : requiredBodyY;
+      // Configured line spacing already contributes leading between body
+      // lines. Add only the clearance still missing for ruby; the first line
+      // has no preceding body line and only clears the page edge.
+      if (currentPage->elements.empty()) {
+        rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+      } else {
+        const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
+        const int existingLeading = std::max(0, lineHeight - bodyLineHeight);
+        rubyTopInset = std::max(0, requiredBodyY - existingLeading);
+      }
     }
 
     if (currentPageNextY + rubyTopInset + lineHeight > viewportHeight) {

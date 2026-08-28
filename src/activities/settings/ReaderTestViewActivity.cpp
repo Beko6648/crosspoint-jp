@@ -210,18 +210,24 @@ void ReaderTestViewActivity::render(RenderLock&&) {
                                                             SETTINGS.getReaderLineCompression(true)));
       const int columnSpacing = columnWidth / 4;
       int nextColumnX = left + contentWidth - columnWidth;
+      bool firstColumn = true;
       for (size_t sampleIndex = 0; sampleIndex < 9 && nextColumnX >= left; ++sampleIndex) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
         std::vector<std::shared_ptr<TextBlock>> columns;
         sample.layoutVerticalColumns(renderer, fontId, static_cast<uint16_t>(contentHeight),
                                      [&columns](std::shared_ptr<TextBlock> column) { columns.push_back(std::move(column)); });
         for (const auto& column : columns) {
-          const int rubyRightInset = column->hasRuby()
-                                         ? TextBlock::getVerticalRubyRightOverflow(renderer, fontId, columnWidth)
-                                         : 0;
+          int rubyRightInset = 0;
+          if (column->hasRuby()) {
+            const int overflow = TextBlock::getVerticalRubyRightOverflow(renderer, fontId, columnWidth);
+            // The first column must clear the page edge; configured column
+            // spacing is the baseline for every subsequent column.
+            rubyRightInset = firstColumn ? overflow : std::max(0, overflow - columnSpacing);
+          }
           const int columnX = nextColumnX - rubyRightInset;
           if (columnX < left) break;
           column->render(renderer, fontId, columnX, top, contentWidth, contentHeight, left, top, offsetX, offsetY);
+          firstColumn = false;
           nextColumnX = columnX - (columnWidth + columnSpacing);
         }
       }
