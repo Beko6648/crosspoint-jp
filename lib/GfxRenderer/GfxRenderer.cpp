@@ -2293,7 +2293,6 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
           if ((cp == 0xFF63 || cp == 0xFF70) && sdFont != nullptr &&
               std::strstr(sdFont->getFilePath(), "Noto") != nullptr) {
             if (cp == 0xFF70) {  // ｰ: slightly right and lower
-              drawX -= 7;
               drawY += 9;
             } else {  // ｣: retain the verified offset
               drawX -= 10;
