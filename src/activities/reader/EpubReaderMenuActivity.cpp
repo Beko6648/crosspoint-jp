@@ -55,7 +55,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
                {MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
                {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
                {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
-               {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET},
+               {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET_ADJUST},
                {MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES}};
       break;
     case MenuMode::BookManagement:

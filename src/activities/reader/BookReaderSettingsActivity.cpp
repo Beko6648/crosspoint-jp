@@ -124,7 +124,7 @@ StrId BookReaderSettingsActivity::itemLabel(const Item item) {
   static constexpr StrId kLabels[] = {
       StrId::STR_READER_TEST_VIEW, StrId::STR_FONT_FAMILY, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
       StrId::STR_SCREEN_MARGIN,
-      StrId::STR_RUBY_ENABLED,
+      StrId::STR_BOOK_SETTINGS_RUBY,
       StrId::STR_BOOK_SETTINGS_WRITING_MODE, StrId::STR_BOOK_STYLE, StrId::STR_BOOK_SETTINGS_SAVE_CURRENT,
       StrId::STR_BOOK_SETTINGS_CLEAR,
   };
