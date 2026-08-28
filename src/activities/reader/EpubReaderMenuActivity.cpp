@@ -15,7 +15,9 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const bool verticalMode, const bool hasBookmarks,
-                                               const Epub::CacheGenerationStatus cacheStatus)
+                                               const Epub::CacheGenerationStatus cacheStatus,
+                                               std::function<void()> onFirstLineIndentChanged,
+                                               std::function<void()> onInvertImagesChanged)
     : Activity("EpubReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems(MenuMode::Root, hasBookmarks, cacheStatus)),
       hasBookmarks(hasBookmarks),
@@ -25,7 +27,9 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent),
-      verticalMode(verticalMode) {}
+      verticalMode(verticalMode),
+      onFirstLineIndentChanged(std::move(onFirstLineIndentChanged)),
+      onInvertImagesChanged(std::move(onInvertImagesChanged)) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(
     const MenuMode mode, const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
@@ -33,7 +37,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   switch (mode) {
     case MenuMode::Root:
       items = {{MenuAction::OPEN_READING_POSITION, StrId::STR_READING_POSITION},
-               {MenuAction::OPEN_DISPLAY_LAYOUT, StrId::STR_DISPLAY_LAYOUT},
+               {MenuAction::OPEN_DISPLAY_LAYOUT, StrId::STR_BOOK_DISPLAY_SETTINGS},
                {MenuAction::OPEN_BOOK_MANAGEMENT, StrId::STR_BOOK_MANAGEMENT},
                {MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS},
                {MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON}};
@@ -45,7 +49,8 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
       items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
       break;
     case MenuMode::DisplayLayout:
-      items = {{MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
+      items = {{MenuAction::STYLE_FONT_FAMILY, StrId::STR_FONT_FAMILY},
+               {MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
                {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
                {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
                {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET},
@@ -253,6 +258,11 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
 std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) const {
   switch (action) {
+    case MenuAction::STYLE_FONT_FAMILY: {
+      const auto& settings = SETTINGS.getDirectionSettings(verticalMode);
+      if (settings.sdFontFamilyName[0] != '\0') return std::string(settings.sdFontFamilyName);
+      return std::string(I18N.get(StrId::STR_NOTO_SANS));
+    }
     case MenuAction::ROTATE_SCREEN:
       return std::string(I18N.get(orientationLabels[pendingOrientation]));
     case MenuAction::STYLE_FIRST_LINE_INDENT:
@@ -283,13 +293,21 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
     case MenuAction::STYLE_FIRST_LINE_INDENT: {
       auto& value = SETTINGS.getDirectionSettings(verticalMode).firstLineIndent;
       value = toggleValue ? !value : (delta < 0 ? 0 : 1);
-      SETTINGS.saveToFile();
+      if (onFirstLineIndentChanged) {
+        onFirstLineIndentChanged();
+      } else {
+        SETTINGS.saveToFile();
+      }
       layoutChanged = true;
       return true;
     }
     case MenuAction::STYLE_INVERT_IMAGES:
       SETTINGS.invertImages = toggleValue ? !SETTINGS.invertImages : (delta < 0 ? 0 : 1);
-      SETTINGS.saveToFile();
+      if (onInvertImagesChanged) {
+        onInvertImagesChanged();
+      } else {
+        SETTINGS.saveToFile();
+      }
       return true;
     case MenuAction::ROTATE_SCREEN:
       pendingOrientation = static_cast<uint8_t>(std::clamp(static_cast<int>(pendingOrientation) + delta, 0,

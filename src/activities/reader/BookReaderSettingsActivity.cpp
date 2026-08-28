@@ -50,7 +50,7 @@ void BookReaderSettingsActivity::selectCurrent() {
     const auto& currentDirection = verticalMode ? current.vertical : current.horizontal;
     auto toggleDirection = [&current](BookReaderSettings::DirectionOverride& target,
                                       const BookReaderSettings::DirectionOverride& source, const uint16_t fields) {
-      if ((target.fields & fields) == fields) {
+      if ((target.fields & fields) != 0) {
         target.fields &= ~fields;
       } else {
         target.values = source.values;
@@ -100,7 +100,7 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
   BookReaderSettings::Override value;
   if (!BookReaderSettings::load(fingerprint, value)) return false;
   const auto hasDirection = [](const BookReaderSettings::DirectionOverride& direction, const uint16_t fields) {
-    return (direction.fields & fields) == fields;
+    return (direction.fields & fields) != 0;
   };
   const auto& direction = verticalMode ? value.vertical : value.horizontal;
   switch (item) {

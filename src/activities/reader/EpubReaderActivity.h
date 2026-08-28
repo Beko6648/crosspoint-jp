@@ -6,6 +6,7 @@
 #include "BookmarkEntry.h"
 
 #include <optional>
+#include <cstdint>
 #include <vector>
 
 #include "EpubReaderMenuActivity.h"
@@ -43,6 +44,7 @@ class EpubReaderActivity final : public Activity {
   bool rubyAdjustChanged = false;
   bool currentPageBookmarked = false;
   bool restoreGlobalReaderSettingsOnExit = false;
+  uint64_t activeBookFingerprint = 0;
   enum class BookmarkNotice : uint8_t { NONE, ADDED, REMOVED, LIMIT };
   BookmarkNotice bookmarkNotice = BookmarkNotice::NONE;
   std::vector<BookmarkEntry> cachedBookmarks;
@@ -75,6 +77,9 @@ class EpubReaderActivity final : public Activity {
   void enterRubyAdjustMode();
   void exitRubyAdjustMode();
   void adjustRubyOffset(RubyAdjustAxis axis, int delta);
+  bool saveBookDirectionFields(uint16_t fields);
+  bool saveBookGlobalField(uint16_t field);
+  void restoreActiveBookOverride();
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
   void pregenerateCache();
@@ -87,10 +92,12 @@ class EpubReaderActivity final : public Activity {
 
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
-                              const bool restoreGlobalReaderSettingsOnExit = false)
+                              const bool restoreGlobalReaderSettingsOnExit = false,
+                              const uint64_t activeBookFingerprint = 0)
       : Activity("EpubReader", renderer, mappedInput),
         epub(std::move(epub)),
-        restoreGlobalReaderSettingsOnExit(restoreGlobalReaderSettingsOnExit) {}
+        restoreGlobalReaderSettingsOnExit(restoreGlobalReaderSettingsOnExit),
+        activeBookFingerprint(activeBookFingerprint) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

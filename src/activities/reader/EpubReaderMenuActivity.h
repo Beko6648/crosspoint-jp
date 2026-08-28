@@ -3,6 +3,7 @@
 #include <I18n.h>
 
 #include <string>
+#include <functional>
 #include <vector>
 
 #include "../Activity.h"
@@ -43,7 +44,9 @@ class EpubReaderMenuActivity final : public Activity {
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const bool verticalMode, const bool hasBookmarks,
-                                  Epub::CacheGenerationStatus cacheStatus);
+                                  Epub::CacheGenerationStatus cacheStatus,
+                                  std::function<void()> onFirstLineIndentChanged = nullptr,
+                                  std::function<void()> onInvertImagesChanged = nullptr);
 
   void onEnter() override;
   void onExit() override;
@@ -84,6 +87,8 @@ class EpubReaderMenuActivity final : public Activity {
   bool verticalMode = false;
   bool layoutChanged = false;
   bool editingValue = false;
+  std::function<void()> onFirstLineIndentChanged;
+  std::function<void()> onInvertImagesChanged;
 
   bool currentValueIsEditable() const;
   bool changeCurrentValue(int delta, bool toggleValue = false);
