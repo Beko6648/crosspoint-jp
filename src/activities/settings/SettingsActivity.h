@@ -28,6 +28,7 @@ enum class SettingAction {
   Diagnostics,
   ReaderProfiles,
   SettingsBackup,
+  ReaderTestView,
 };
 
 struct SettingInfo {

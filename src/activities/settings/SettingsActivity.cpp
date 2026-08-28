@@ -14,6 +14,7 @@
 #include "DirectionSettingsActivity.h"
 #include "DiagnosticsActivity.h"
 #include "ReaderProfilesActivity.h"
+#include "ReaderTestViewActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectActivity.h"
 #include "FontSelectionActivity.h"
@@ -83,6 +84,8 @@ const char* SettingsActivity::currentSettingDescription() const {
       return tr(STR_SETTINGS_DESC_READER_PROFILES);
     case SettingAction::SettingsBackup:
       return tr(STR_SETTINGS_DESC_BACKUP);
+    case SettingAction::ReaderTestView:
+      return tr(STR_READER_TEST_VIEW_DESC);
     case SettingAction::AozoraBunko:
     case SettingAction::None:
       return "";
@@ -140,6 +143,8 @@ void SettingsActivity::rebuildSettingsLists() {
                         SettingInfo::Action(StrId::STR_READER_PROFILES, SettingAction::ReaderProfiles));
   readerSettings.insert(readerSettings.begin() + 3,
                         SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
+  readerSettings.insert(readerSettings.begin() + 4,
+                        SettingInfo::Action(StrId::STR_READER_TEST_VIEW, SettingAction::ReaderTestView));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Update currentSettings pointer and count for the active category
@@ -456,6 +461,9 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
         break;
       case SettingAction::SettingsBackup:
         startActivityForResult(std::make_unique<SettingsBackupActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ReaderTestView:
+        startActivityForResult(std::make_unique<ReaderTestViewActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
