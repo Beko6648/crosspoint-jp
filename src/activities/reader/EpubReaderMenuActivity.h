@@ -16,6 +16,8 @@ class EpubReaderMenuActivity final : public Activity {
     OPEN_READING_POSITION,
     OPEN_DISPLAY_LAYOUT,
     OPEN_BOOK_MANAGEMENT,
+    OPEN_READING_BEHAVIOR,
+    OPEN_TOOLS,
     SELECT_CHAPTER,
     BOOKMARKS,
     TOGGLE_BOOKMARK,
@@ -61,7 +63,7 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  enum class MenuMode { Root, ReadingPosition, DisplayLayout, BookManagement };
+  enum class MenuMode { Root, ReadingPosition, DisplayLayout, ReadingBehavior, BookManagement, Tools };
 
   static std::vector<MenuItem> buildMenuItems(MenuMode mode, bool hasBookmarks,
                                               Epub::CacheGenerationStatus cacheStatus);

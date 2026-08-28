@@ -38,8 +38,10 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
     case MenuMode::Root:
       items = {{MenuAction::OPEN_READING_POSITION, StrId::STR_READING_POSITION},
                {MenuAction::OPEN_DISPLAY_LAYOUT, StrId::STR_BOOK_DISPLAY_SETTINGS},
-               {MenuAction::OPEN_BOOK_MANAGEMENT, StrId::STR_BOOK_MANAGEMENT},
-               {MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS},
+               {MenuAction::OPEN_READING_BEHAVIOR, StrId::STR_READING_BEHAVIOR},
+               {MenuAction::OPEN_BOOK_MANAGEMENT, StrId::STR_BOOK_CACHE},
+               {MenuAction::OPEN_TOOLS, StrId::STR_READER_TOOLS},
+               {MenuAction::READER_SETTINGS, StrId::STR_READER_SETTINGS},
                {MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON}};
       break;
     case MenuMode::ReadingPosition:
@@ -54,8 +56,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
                {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
                {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
                {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET},
-               {MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES},
-               {MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN}};
+               {MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES}};
       break;
     case MenuMode::BookManagement:
       if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
@@ -64,10 +65,16 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
                                 : StrId::STR_GENERATE_BOOK_CACHE;
         items.push_back({MenuAction::GENERATE_CACHE, label});
       }
-      items.push_back({MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS});
-      items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
-      items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
       items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
+      break;
+    case MenuMode::ReadingBehavior:
+      items = {{MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN},
+               {MenuAction::TILT_PAGE_TURN, StrId::STR_TILT_PAGE_TURN}};
+      break;
+    case MenuMode::Tools:
+      items = {{MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON},
+               {MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR},
+               {MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS}};
       break;
   }
   return items;
@@ -140,6 +147,14 @@ void EpubReaderMenuActivity::loop() {
     }
     if (selectedAction == MenuAction::OPEN_BOOK_MANAGEMENT) {
       openMenuMode(MenuMode::BookManagement);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_READING_BEHAVIOR) {
+      openMenuMode(MenuMode::ReadingBehavior);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_TOOLS) {
+      openMenuMode(MenuMode::Tools);
       return;
     }
     if (currentValueIsEditable()) {
@@ -270,6 +285,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
                                                                          : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_INVERT_IMAGES:
       return SETTINGS.invertImages ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
+    case MenuAction::TILT_PAGE_TURN:
+      return SETTINGS.tiltPageTurn ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_LINE_SPACING: {
       const uint8_t spacing = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
       char valueBuf[16];
@@ -284,7 +301,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
 bool EpubReaderMenuActivity::currentValueIsEditable() const {
   const auto action = menuItems[selectedIndex].action;
   return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_INVERT_IMAGES ||
-         action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN;
+         action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
+         action == MenuAction::TILT_PAGE_TURN;
 }
 
 bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool toggleValue) {
@@ -308,6 +326,15 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
       } else {
         SETTINGS.saveToFile();
       }
+      return true;
+    case MenuAction::TILT_PAGE_TURN:
+      SETTINGS.tiltPageTurn = toggleValue ? (SETTINGS.tiltPageTurn ? CrossPointSettings::TILT_OFF
+                                                                    : CrossPointSettings::TILT_NORMAL)
+                                           : static_cast<uint8_t>(std::clamp(
+                                                 static_cast<int>(SETTINGS.tiltPageTurn) + delta,
+                                                 static_cast<int>(CrossPointSettings::TILT_OFF),
+                                                 static_cast<int>(CrossPointSettings::TILT_NVERTED)));
+      SETTINGS.saveToFile();
       return true;
     case MenuAction::ROTATE_SCREEN:
       pendingOrientation = static_cast<uint8_t>(std::clamp(static_cast<int>(pendingOrientation) + delta, 0,
