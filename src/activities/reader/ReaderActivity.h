@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 
 #include "../Activity.h"
@@ -11,7 +12,9 @@ class Txt;
 class ReaderActivity final : public Activity {
   std::string initialBookPath;
   std::string currentBookPath;  // Track current book path for navigation
-  static std::unique_ptr<Epub> loadEpub(const std::string& path);
+  bool activeBookHasReaderOverride = false;
+  uint64_t activeBookFingerprint = 0;
+  std::unique_ptr<Epub> loadEpub(const std::string& path);
   static std::unique_ptr<Xtc> loadXtc(const std::string& path);
   static std::unique_ptr<Txt> loadTxt(const std::string& path);
   static bool isXtcFile(const std::string& path);

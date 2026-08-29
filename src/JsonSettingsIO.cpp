@@ -355,6 +355,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     ds.firstLineIndent = obj["firstLineIndent"] | ds.firstLineIndent;
     ds.rubyEnabled = obj["rubyEnabled"] | ds.rubyEnabled;
     if (ds.rubyEnabled > 1) ds.rubyEnabled = 1;
+    // rubyOffsetX/Y are stored with a bias of 16, so a missing value must
+    // retain the struct default (the user-visible zero position).  Mark old
+    // settings for rewrite so both axes are present in future backups too.
+    if (obj["rubyOffsetX"].isNull() && needsResave) *needsResave = true;
+    if (obj["rubyOffsetY"].isNull() && needsResave) *needsResave = true;
     ds.rubyOffsetX = obj["rubyOffsetX"] | ds.rubyOffsetX;
     ds.rubyOffsetY = obj["rubyOffsetY"] | ds.rubyOffsetY;
     if (ds.rubyOffsetX > 80) ds.rubyOffsetX = 16;

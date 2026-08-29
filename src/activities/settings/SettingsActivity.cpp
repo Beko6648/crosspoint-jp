@@ -4,15 +4,15 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
-#include <cstdio>
 #include <algorithm>
+#include <cstdio>
 
 #include "AozoraActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
-#include "DirectionSettingsActivity.h"
 #include "DiagnosticsActivity.h"
+#include "DirectionSettingsActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectActivity.h"
 #include "FontSelectionActivity.h"
@@ -21,8 +21,11 @@
 #include "LanguageSelectActivity.h"
 #include "LineSpacingSelectionActivity.h"
 #include "MappedInputManager.h"
-#include "SdFirmwareUpdateActivity.h"
+#include "ReaderProfilesActivity.h"
+#include "ReaderTestViewActivity.h"
 #include "SdCardFontGlobals.h"
+#include "SdFirmwareUpdateActivity.h"
+#include "SettingsBackupActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -46,6 +49,48 @@ bool SettingsActivity::currentSettingIsEditable() const {
   const auto& setting = (*currentSettings)[settingIndex];
   if (setting.type == SettingType::TOGGLE || setting.type == SettingType::VALUE) return true;
   return setting.type == SettingType::ENUM && setting.nameId != StrId::STR_FONT_FAMILY;
+}
+
+const char* SettingsActivity::currentSettingDescription() const {
+  const int settingIndex = selectedSettingIndex - 1;
+  if (settingIndex < 0 || settingIndex >= settingsCount || currentSettings == nullptr) return "";
+
+  switch ((*currentSettings)[settingIndex].action) {
+    case SettingAction::RemapFrontButtons:
+      return tr(STR_SETTINGS_DESC_REMAP_FRONT_BUTTONS);
+    case SettingAction::CustomiseStatusBar:
+      return tr(STR_SETTINGS_DESC_STATUS_BAR);
+    case SettingAction::Network:
+      return tr(STR_SETTINGS_DESC_NETWORK);
+    case SettingAction::ClearCache:
+      return tr(STR_SETTINGS_DESC_CLEAR_READING_CACHE);
+    case SettingAction::SdFirmwareUpdate:
+      return tr(STR_SETTINGS_DESC_SD_FIRMWARE_UPDATE);
+    case SettingAction::Language:
+      return tr(STR_SETTINGS_DESC_LANGUAGE);
+    case SettingAction::DownloadFonts:
+      return tr(STR_SETTINGS_DESC_DOWNLOAD_FONTS);
+    case SettingAction::SelectUiFont:
+      return tr(STR_SETTINGS_DESC_UI_FONT);
+    case SettingAction::GenerateAllCache:
+      return tr(STR_SETTINGS_DESC_GENERATE_ALL_CACHE);
+    case SettingAction::HorizontalSettings:
+      return tr(STR_SETTINGS_DESC_HORIZONTAL_SETTINGS);
+    case SettingAction::VerticalSettings:
+      return tr(STR_SETTINGS_DESC_VERTICAL_SETTINGS);
+    case SettingAction::Diagnostics:
+      return tr(STR_SETTINGS_DESC_DIAGNOSTICS);
+    case SettingAction::ReaderProfiles:
+      return tr(STR_SETTINGS_DESC_READER_PROFILES);
+    case SettingAction::SettingsBackup:
+      return tr(STR_SETTINGS_DESC_BACKUP);
+    case SettingAction::ReaderTestView:
+      return tr(STR_READER_TEST_VIEW_DESC);
+    case SettingAction::AozoraBunko:
+    case SettingAction::None:
+      return "";
+  }
+  return "";
 }
 
 void SettingsActivity::rebuildSettingsLists() {
@@ -86,14 +131,20 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SETTINGS_BACKUP, SettingAction::SettingsBackup));
   // Direction-specific settings submenus at the top
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_HORIZONTAL_SETTINGS, SettingAction::HorizontalSettings));
   readerSettings.insert(readerSettings.begin() + 1,
                         SettingInfo::Action(StrId::STR_VERTICAL_SETTINGS, SettingAction::VerticalSettings));
-  // Insert "Download Fonts" right after the direction settings so users discover it naturally
+  // Profiles come before font management: this keeps save/restore next to the
+  // reading settings it affects, while the following action covers font setup.
   readerSettings.insert(readerSettings.begin() + 2,
+                        SettingInfo::Action(StrId::STR_READER_PROFILES, SettingAction::ReaderProfiles));
+  readerSettings.insert(readerSettings.begin() + 3,
                         SettingInfo::Action(StrId::STR_DOWNLOAD_FONTS, SettingAction::DownloadFonts));
+  readerSettings.insert(readerSettings.begin() + 4,
+                        SettingInfo::Action(StrId::STR_READER_TEST_VIEW, SettingAction::ReaderTestView));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Update currentSettings pointer and count for the active category
@@ -405,6 +456,15 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
       case SettingAction::Diagnostics:
         startActivityForResult(std::make_unique<DiagnosticsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::ReaderProfiles:
+        startActivityForResult(std::make_unique<ReaderProfilesActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::SettingsBackup:
+        startActivityForResult(std::make_unique<SettingsBackupActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ReaderTestView:
+        startActivityForResult(std::make_unique<ReaderTestViewActivity>(renderer, mappedInput), resultHandler);
+        break;
       case SettingAction::None:
         // Do nothing
         break;
@@ -448,16 +508,14 @@ void SettingsActivity::render(RenderLock&&) {
                  tabs, selectedSettingIndex == 0);
 
   const auto& settings = *currentSettings;
+  const int listTop =
+      metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+  const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
   GUI.drawList(
-      renderer,
-      Rect{
-          listSideInset,
-          metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing,
-          pageWidth - listSideInset * 2,
-          pageHeight - (metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight +
-                        metrics.buttonHintsHeight + metrics.verticalSpacing * 2)},
-      settingsCount, selectedSettingIndex - 1,
-      [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
+      renderer, Rect{listSideInset, listTop, pageWidth - listSideInset * 2, listBottom - listTop}, settingsCount,
+      selectedSettingIndex - 1, [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); },
+      nullptr, nullptr,
       [&settings](int i) {
         const auto& setting = settings[i];
         std::string valueText = "";
@@ -505,6 +563,11 @@ void SettingsActivity::render(RenderLock&&) {
         return valueText;
       },
       editingValue);
+
+  GUI.drawHelpText(
+      renderer,
+      Rect{listSideInset, listBottom + metrics.verticalSpacing, pageWidth - listSideInset * 2, helpTextHeight},
+      currentSettingDescription());
 
   // Draw help text
   const char* confirmLabel = tr(STR_SELECT);

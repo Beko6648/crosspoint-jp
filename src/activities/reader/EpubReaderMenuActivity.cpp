@@ -15,39 +15,77 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const bool verticalMode, const bool hasBookmarks,
-                                               const Epub::CacheGenerationStatus cacheStatus)
+                                               const Epub::CacheGenerationStatus cacheStatus,
+                                               std::function<void()> onFirstLineIndentChanged,
+                                               std::function<void()> onInvertImagesChanged)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasBookmarks, cacheStatus)),
+      menuItems(buildMenuItems(MenuMode::Root, hasBookmarks, cacheStatus)),
+      hasBookmarks(hasBookmarks),
+      cacheStatus(cacheStatus),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent),
-      verticalMode(verticalMode) {}
+      verticalMode(verticalMode),
+      onFirstLineIndentChanged(std::move(onFirstLineIndentChanged)),
+      onInvertImagesChanged(std::move(onInvertImagesChanged)) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(
-    const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
+    const MenuMode mode, const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
   std::vector<MenuItem> items;
-  items.reserve(10);
-  items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
-  if (hasBookmarks) items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
-  items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
-  items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
-  items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
-  items.push_back({MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING});
-  items.push_back({MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT});
-  items.push_back({MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET});
-  items.push_back({MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES});
-  items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
-  if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
-    const StrId label = cacheStatus == Epub::CacheGenerationStatus::Resumable
-                            ? StrId::STR_GENERATE_REMAINING_BOOK_CACHE
-                            : StrId::STR_GENERATE_BOOK_CACHE;
-    items.push_back({MenuAction::GENERATE_CACHE, label});
+  switch (mode) {
+    case MenuMode::Root:
+      items = {{MenuAction::OPEN_READING_POSITION, StrId::STR_READING_POSITION},
+               {MenuAction::OPEN_DISPLAY_LAYOUT, StrId::STR_BOOK_DISPLAY_SETTINGS},
+               {MenuAction::OPEN_READING_BEHAVIOR, StrId::STR_READING_BEHAVIOR},
+               {MenuAction::OPEN_BOOK_MANAGEMENT, StrId::STR_BOOK_CACHE},
+               {MenuAction::OPEN_TOOLS, StrId::STR_READER_TOOLS},
+               {MenuAction::READER_SETTINGS, StrId::STR_READER_SETTINGS},
+               {MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON}};
+      break;
+    case MenuMode::ReadingPosition:
+      items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+      if (hasBookmarks) items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
+      items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
+      items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
+      break;
+    case MenuMode::DisplayLayout:
+      items = {{MenuAction::STYLE_FONT_FAMILY, StrId::STR_FONT_FAMILY},
+               {MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
+               {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
+               {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
+               {MenuAction::RUBY_OFFSET, StrId::STR_RUBY_OFFSET_ADJUST},
+               {MenuAction::STYLE_INVERT_IMAGES, StrId::STR_INVERT_IMAGES}};
+      break;
+    case MenuMode::BookManagement:
+      if (cacheStatus != Epub::CacheGenerationStatus::Complete) {
+        const StrId label = cacheStatus == Epub::CacheGenerationStatus::Resumable
+                                ? StrId::STR_GENERATE_REMAINING_BOOK_CACHE
+                                : StrId::STR_GENERATE_BOOK_CACHE;
+        items.push_back({MenuAction::GENERATE_CACHE, label});
+      }
+      items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
+      break;
+    case MenuMode::ReadingBehavior:
+      items = {{MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN},
+               {MenuAction::TILT_PAGE_TURN, StrId::STR_TILT_PAGE_TURN}};
+      break;
+    case MenuMode::Tools:
+      items = {{MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON},
+               {MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR},
+               {MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS}};
+      break;
   }
-  items.push_back({MenuAction::READER_SETTINGS, StrId::STR_DETAILED_SETTINGS});
-  items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   return items;
+}
+
+void EpubReaderMenuActivity::openMenuMode(const MenuMode mode) {
+  menuMode = mode;
+  menuItems = buildMenuItems(menuMode, hasBookmarks, cacheStatus);
+  selectedIndex = 0;
+  editingValue = false;
+  requestUpdate();
 }
 
 void EpubReaderMenuActivity::onEnter() {
@@ -99,6 +137,26 @@ void EpubReaderMenuActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const auto selectedAction = menuItems[selectedIndex].action;
+    if (selectedAction == MenuAction::OPEN_READING_POSITION) {
+      openMenuMode(MenuMode::ReadingPosition);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_DISPLAY_LAYOUT) {
+      openMenuMode(MenuMode::DisplayLayout);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_BOOK_MANAGEMENT) {
+      openMenuMode(MenuMode::BookManagement);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_READING_BEHAVIOR) {
+      openMenuMode(MenuMode::ReadingBehavior);
+      return;
+    }
+    if (selectedAction == MenuAction::OPEN_TOOLS) {
+      openMenuMode(MenuMode::Tools);
+      return;
+    }
     if (currentValueIsEditable()) {
       editingValue = true;
       requestUpdate();
@@ -115,6 +173,10 @@ void EpubReaderMenuActivity::loop() {
     finish();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (menuMode != MenuMode::Root) {
+      openMenuMode(MenuMode::Root);
+      return;
+    }
     ActivityResult result;
     result.isCancelled = true;
     result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, layoutChanged};
@@ -211,6 +273,11 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
 std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) const {
   switch (action) {
+    case MenuAction::STYLE_FONT_FAMILY: {
+      const auto& settings = SETTINGS.getDirectionSettings(verticalMode);
+      if (settings.sdFontFamilyName[0] != '\0') return std::string(settings.sdFontFamilyName);
+      return std::string(I18N.get(StrId::STR_NOTO_SANS));
+    }
     case MenuAction::ROTATE_SCREEN:
       return std::string(I18N.get(orientationLabels[pendingOrientation]));
     case MenuAction::STYLE_FIRST_LINE_INDENT:
@@ -218,6 +285,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
                                                                          : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_INVERT_IMAGES:
       return SETTINGS.invertImages ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
+    case MenuAction::TILT_PAGE_TURN:
+      return SETTINGS.tiltPageTurn ? std::string(tr(STR_STATE_ON)) : std::string(tr(STR_STATE_OFF));
     case MenuAction::STYLE_LINE_SPACING: {
       const uint8_t spacing = SETTINGS.getDirectionSettings(verticalMode).lineSpacing;
       char valueBuf[16];
@@ -232,7 +301,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
 bool EpubReaderMenuActivity::currentValueIsEditable() const {
   const auto action = menuItems[selectedIndex].action;
   return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_INVERT_IMAGES ||
-         action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN;
+         action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
+         action == MenuAction::TILT_PAGE_TURN;
 }
 
 bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool toggleValue) {
@@ -241,12 +311,28 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
     case MenuAction::STYLE_FIRST_LINE_INDENT: {
       auto& value = SETTINGS.getDirectionSettings(verticalMode).firstLineIndent;
       value = toggleValue ? !value : (delta < 0 ? 0 : 1);
-      SETTINGS.saveToFile();
+      if (onFirstLineIndentChanged) {
+        onFirstLineIndentChanged();
+      } else {
+        SETTINGS.saveToFile();
+      }
       layoutChanged = true;
       return true;
     }
     case MenuAction::STYLE_INVERT_IMAGES:
       SETTINGS.invertImages = toggleValue ? !SETTINGS.invertImages : (delta < 0 ? 0 : 1);
+      if (onInvertImagesChanged) {
+        onInvertImagesChanged();
+      } else {
+        SETTINGS.saveToFile();
+      }
+      return true;
+    case MenuAction::TILT_PAGE_TURN:
+      SETTINGS.tiltPageTurn =
+          toggleValue ? (SETTINGS.tiltPageTurn ? CrossPointSettings::TILT_OFF : CrossPointSettings::TILT_NORMAL)
+                      : static_cast<uint8_t>(std::clamp(static_cast<int>(SETTINGS.tiltPageTurn) + delta,
+                                                        static_cast<int>(CrossPointSettings::TILT_OFF),
+                                                        static_cast<int>(CrossPointSettings::TILT_NVERTED)));
       SETTINGS.saveToFile();
       return true;
     case MenuAction::ROTATE_SCREEN:

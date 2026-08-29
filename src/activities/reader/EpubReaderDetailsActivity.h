@@ -26,10 +26,9 @@ class EpubReaderDetailsActivity final : public Activity {
   };
 
   const std::vector<Item> items = {
-      {EpubReaderMenuActivity::MenuAction::OPEN_GLOBAL_READER_SETTINGS, StrId::STR_READER_SETTINGS},
+      {EpubReaderMenuActivity::MenuAction::OPEN_BOOK_READER_SETTINGS, StrId::STR_BOOK_READER_SETTINGS},
+      {EpubReaderMenuActivity::MenuAction::OPEN_GLOBAL_READER_SETTINGS, StrId::STR_GLOBAL_READER_SETTINGS},
       {EpubReaderMenuActivity::MenuAction::STYLE_STATUS_BAR, StrId::STR_CUSTOMISE_STATUS_BAR},
-      {EpubReaderMenuActivity::MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR},
-      {EpubReaderMenuActivity::MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE},
   };
   int selectedIndex = 0;
   bool skipNextButtonCheck = true;

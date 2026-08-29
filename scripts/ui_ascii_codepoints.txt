@@ -1,0 +1,42 @@
+# Missing printable ASCII punctuation that can occur in filenames.
+# $ \\ ^ ` ~
+0023
+0024
+005C
+005E
+0060
+007E
+# UI symbol coverage (Noto Sans JP SemiBold)
+2116
+2121
+2713
+273D
+273F
+2756
+3013
+FF62
+FF63
+FF70
+# Aozora Bunko author and title characters.
+7BC1
+900D
+61FA
+8278
+66E0
+9DAF
+6727
+6D0C
+9838
+77B0
+5C4F
+4FDA
+96C9
+5E40
+55DA
+5716
+51DC
+749E
+FA11
+8F46
+8F64
+9909

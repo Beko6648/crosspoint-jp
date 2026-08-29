@@ -154,7 +154,7 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
   return cp;
 }
 
-const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
+const EpdGlyph* EpdFont::getGlyphExact(const uint32_t cp) const {
   const int count = data->intervalCount;
   if (count == 0 && !data->glyphMissHandler) return nullptr;
 
@@ -182,8 +182,10 @@ const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
     if (loaded) return loaded;
   }
 
-  if (cp != REPLACEMENT_GLYPH) {
-    return getGlyph(REPLACEMENT_GLYPH);
-  }
   return nullptr;
+}
+
+const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
+  if (const EpdGlyph* glyph = getGlyphExact(cp)) return glyph;
+  return cp == REPLACEMENT_GLYPH ? nullptr : getGlyphExact(REPLACEMENT_GLYPH);
 }
