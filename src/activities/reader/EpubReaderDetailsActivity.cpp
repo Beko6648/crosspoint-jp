@@ -62,7 +62,7 @@ void EpubReaderDetailsActivity::render(RenderLock&&) {
   const int contentWidth = pageWidth - hintGutterWidth;
   const int contentY = orientation == GfxRenderer::Orientation::PortraitInverted ? 50 : 0;
 
-  renderer.drawCenteredText(UI_12_FONT_ID, 15 + contentY, tr(STR_DETAILED_SETTINGS), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, 15 + contentY, tr(STR_READER_SETTINGS), true, EpdFontFamily::BOLD);
 
   constexpr int startY = 65;
   constexpr int lineHeight = 34;

@@ -56,12 +56,14 @@ void XtcReaderMenuActivity::loop() {
     return;
   }
 
-  buttonNavigator.onNext([this] {
+  // Keep side buttons reserved for page turning, as in the EPUB reader menu.
+  // The front Left/Right buttons navigate menu entries.
+  buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPrevious([this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
@@ -142,7 +144,7 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   }
 
   // ボタンヒント
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

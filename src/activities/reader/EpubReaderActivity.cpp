@@ -18,9 +18,13 @@
 #include <cstring>
 
 #include "BookCacheClearActivity.h"
+#include "BookReaderSettings.h"
+#include "BookReaderSettingsActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "activities/settings/DiagnosticsActivity.h"
+#include "activities/settings/FontSelectionActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderDetailsActivity.h"
@@ -383,6 +387,69 @@ void EpubReaderActivity::onExit() {
     fcm->clearCache();
     fcm->freeKernLigatureData();
   }
+
+  // A book override is only an in-memory effective configuration.  Restore
+  // the persisted Global reader settings before returning to the rest of UI.
+  if (restoreGlobalReaderSettingsOnExit && !SETTINGS.loadFromFile()) {
+    LOG_ERR("BOOKSET", "Could not restore Global reader settings after closing book");
+  }
+}
+
+bool EpubReaderActivity::saveBookDirectionFields(const uint16_t fields) {
+  if (activeBookFingerprint == 0) {
+    return SETTINGS.saveToFile();
+  }
+
+  BookReaderSettings::Override value;
+  if (!BookReaderSettings::load(activeBookFingerprint, value)) {
+    LOG_ERR("BOOKSET", "Could not load reader override for save (%016llx)",
+            static_cast<unsigned long long>(activeBookFingerprint));
+    return false;
+  }
+
+  const auto current = BookReaderSettings::captureAll(SETTINGS);
+  auto& target = verticalMode ? value.vertical : value.horizontal;
+  const auto& source = verticalMode ? current.vertical : current.horizontal;
+  target.values = source.values;
+  target.fields |= fields;
+  const bool saved = BookReaderSettings::save(activeBookFingerprint, value);
+  if (saved) restoreGlobalReaderSettingsOnExit = true;
+  return saved;
+}
+
+bool EpubReaderActivity::saveBookGlobalField(const uint16_t field) {
+  if (activeBookFingerprint == 0) {
+    return SETTINGS.saveToFile();
+  }
+
+  BookReaderSettings::Override value;
+  if (!BookReaderSettings::load(activeBookFingerprint, value)) {
+    LOG_ERR("BOOKSET", "Could not load reader override for global save (%016llx)",
+            static_cast<unsigned long long>(activeBookFingerprint));
+    return false;
+  }
+
+  if (field == BookReaderSettings::Orientation) value.orientation = SETTINGS.orientation;
+  if (field == BookReaderSettings::WritingMode) value.writingMode = SETTINGS.writingMode;
+  if (field == BookReaderSettings::BookStyle) value.bookStyle = SETTINGS.embeddedStyle;
+  if (field == BookReaderSettings::ImageRendering) value.imageRendering = SETTINGS.imageRendering;
+  if (field == BookReaderSettings::InvertImages) value.invertImages = SETTINGS.invertImages;
+  value.fields |= field;
+  const bool saved = BookReaderSettings::save(activeBookFingerprint, value);
+  if (saved) restoreGlobalReaderSettingsOnExit = true;
+  return saved;
+}
+
+void EpubReaderActivity::restoreActiveBookOverride() {
+  if (!restoreGlobalReaderSettingsOnExit || activeBookFingerprint == 0) return;
+
+  BookReaderSettings::Override value;
+  if (BookReaderSettings::load(activeBookFingerprint, value) && BookReaderSettings::hasAnyField(value)) {
+    BookReaderSettings::apply(value, SETTINGS);
+  } else {
+    LOG_ERR("BOOKSET", "Could not restore reader override for %016llx",
+            static_cast<unsigned long long>(activeBookFingerprint));
+  }
 }
 
 void EpubReaderActivity::loop() {
@@ -478,7 +545,9 @@ void EpubReaderActivity::loop() {
     startActivityForResult(
         std::make_unique<EpubReaderMenuActivity>(
             renderer, mappedInput, epub->getTitle(), menuCurrentPage, menuTotalPages, bookProgressPercent,
-            SETTINGS.orientation, verticalMode, !cachedBookmarks.empty(), epub->getCacheGenerationStatus()),
+            SETTINGS.orientation, verticalMode, !cachedBookmarks.empty(), epub->getCacheGenerationStatus(),
+            [this] { saveBookDirectionFields(BookReaderSettings::DirectionIndent); },
+            [this] { saveBookGlobalField(BookReaderSettings::InvertImages); }),
         [this](const ActivityResult& result) {
           // Always apply orientation change even if the menu was cancelled
           const auto& menu = std::get<MenuResult>(result.data);
@@ -730,27 +799,59 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       // Index 0 is the Reader tab itself; the direction settings are its
       // first and second items.
       const int directionSettingIndex = verticalMode ? 2 : 1;
+      // Edit the persisted Global profile while the book override is
+      // suspended.  Otherwise SettingsActivity would overwrite the effective
+      // book values and make it impossible to change Global independently.
+      if (restoreGlobalReaderSettingsOnExit && !SETTINGS.loadFromFile()) {
+        LOG_ERR("BOOKSET", "Could not suspend book override before Global settings");
+        break;
+      }
       startActivityForResult(std::make_unique<SettingsActivity>(
                                  renderer, mappedInput, [this] { finish(); }, 1, directionSettingIndex),
                              [this](const ActivityResult&) {
+                               restoreActiveBookOverride();
                                // Reader settings (font/line spacing/margins etc.) may change pagination.
                                // Cache dir may have been deleted by ClearCacheActivity — recreate it.
                                if (epub) epub->setupCacheDir();
+                               // A profile can select a different installed SD font. Reload the
+                               // family for this book's active writing direction before resolving
+                               // font IDs and rebuilding the current section.
+                               ensureSdFontLoaded(verticalMode);
+                               configureRubyFont(verticalMode);
                                invalidateSectionPreservingPosition();
                                requestUpdate();
                              });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::STYLE_FONT_FAMILY: {
+      const auto& currentFont = SETTINGS.getDirectionSettings(verticalMode);
+      const uint8_t originalFontFamily = currentFont.fontFamily;
+      const std::string originalSdFontFamilyName = currentFont.sdFontFamilyName;
+      startActivityForResult(
+          std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry(), verticalMode),
+          [this, originalFontFamily, originalSdFontFamilyName](const ActivityResult&) {
+            const auto& updatedFont = SETTINGS.getDirectionSettings(verticalMode);
+            if (updatedFont.fontFamily != originalFontFamily ||
+                originalSdFontFamilyName != updatedFont.sdFontFamilyName) {
+              saveBookDirectionFields(BookReaderSettings::DirectionFont);
+            }
+            ensureSdFontLoaded(verticalMode);
+            configureRubyFont(verticalMode);
+            invalidateSectionPreservingPosition();
+            requestUpdate();
+          });
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::STYLE_FIRST_LINE_INDENT: {
       auto& dirSettings = SETTINGS.getDirectionSettings(verticalMode);
       dirSettings.firstLineIndent = !dirSettings.firstLineIndent;
-      SETTINGS.saveToFile();
+      saveBookDirectionFields(BookReaderSettings::DirectionIndent);
       invalidateSectionPreservingPosition();
       break;
     }
     case EpubReaderMenuActivity::MenuAction::STYLE_INVERT_IMAGES: {
       SETTINGS.invertImages = !SETTINGS.invertImages;
-      SETTINGS.saveToFile();
+      saveBookGlobalField(BookReaderSettings::InvertImages);
       renderer.setInvertImagesInDarkMode(SETTINGS.invertImages);
       break;
     }
@@ -760,7 +861,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                                  renderer, mappedInput, static_cast<int>(target),
                                  [this, &target](const int selectedValue) {
                                    target = static_cast<uint8_t>(selectedValue);
-                                   SETTINGS.saveToFile();
+                                   saveBookDirectionFields(BookReaderSettings::DirectionLineSpacing);
                                    finish();
                                  },
                                  [this] { finish(); }),
@@ -804,6 +905,37 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       // If no text or page loading failed, just close menu
       requestUpdate();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::OPEN_BOOK_READER_SETTINGS: {
+      uint64_t fingerprint = 0;
+      if (!epub->getSourceFingerprint(&fingerprint)) break;
+      startActivityForResult(std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
+                             [this, fingerprint](const ActivityResult& result) {
+                               if (result.isCancelled) return;
+                               BookReaderSettings::Override bookOverride;
+                               const bool hasOverride = BookReaderSettings::load(fingerprint, bookOverride) &&
+                                                        BookReaderSettings::hasAnyField(bookOverride);
+                               if (hasOverride) {
+                                 BookReaderSettings::apply(bookOverride, SETTINGS);
+                               } else if (!SETTINGS.loadFromFile()) {
+                                 LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
+                                 return;
+                               }
+                               restoreGlobalReaderSettingsOnExit = hasOverride;
+                               ensureSdFontLoaded(verticalMode);
+                               configureRubyFont(verticalMode);
+                               invalidateSectionPreservingPosition();
+                               requestUpdate();
+                             });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::DIAGNOSTICS: {
+      const int pageIndex = section ? section->currentPage : -1;
+      const int pageCount = section ? section->pageCount : 0;
+      startActivityForResult(
+          std::make_unique<DiagnosticsActivity>(renderer, mappedInput, epub, currentSpineIndex, pageIndex, pageCount),
+          [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
@@ -860,13 +992,16 @@ void EpubReaderActivity::enterRubyAdjustMode() {
 void EpubReaderActivity::exitRubyAdjustMode() {
   rubyAdjustActive = false;
   rubyAdjustIgnoreOpeningRelease = false;
-  if (rubyAdjustChanged) {
+  const bool changed = rubyAdjustChanged;
+  if (changed) {
     // Clean the moved ruby from the panel once before returning to normal
     // reader rendering.
     pagesUntilFullRefresh = 1;
   }
   rubyAdjustChanged = false;
-  SETTINGS.saveToFile();
+  if (changed) {
+    saveBookDirectionFields(BookReaderSettings::DirectionRubyOffsetX | BookReaderSettings::DirectionRubyOffsetY);
+  }
   requestUpdate();
 }
 
@@ -899,7 +1034,7 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 
     // Persist the selection so the reader keeps the new orientation on next launch.
     SETTINGS.orientation = orientation;
-    SETTINGS.saveToFile();
+    saveBookGlobalField(BookReaderSettings::Orientation);
 
     // Update renderer and input orientation to match the new coordinate system.
     OrientationHelper::applyOrientation(renderer, mappedInput, this);

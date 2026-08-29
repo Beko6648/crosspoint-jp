@@ -2,6 +2,7 @@
 
 #include <Print.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -60,6 +61,8 @@ class Epub {
   // reader metadata/progress is not generated cache; generated sections with
   // no completion marker are resumable.
   CacheGenerationStatus getCacheGenerationStatus() const;
+  // Stable, content-free identifier based on the EPUB ZIP central directory.
+  bool getSourceFingerprint(uint64_t* fingerprint) const;
   void clearFullCacheGeneratedMarker() const;
   void clearCachePromptSeenMarker() const;
   bool markFullCacheGenerated() const;

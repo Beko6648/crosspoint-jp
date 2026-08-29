@@ -3,6 +3,7 @@
 #include <I18n.h>
 
 #include <string>
+#include <functional>
 #include <vector>
 
 #include "../Activity.h"
@@ -12,12 +13,18 @@ class EpubReaderMenuActivity final : public Activity {
  public:
   // Menu actions available from the reader menu.
   enum class MenuAction {
+    OPEN_READING_POSITION,
+    OPEN_DISPLAY_LAYOUT,
+    OPEN_BOOK_MANAGEMENT,
+    OPEN_READING_BEHAVIOR,
+    OPEN_TOOLS,
     SELECT_CHAPTER,
     BOOKMARKS,
     TOGGLE_BOOKMARK,
     FOOTNOTES,
     READER_SETTINGS,
     OPEN_GLOBAL_READER_SETTINGS,
+    OPEN_BOOK_READER_SETTINGS,
     STYLE_FIRST_LINE_INDENT,
     STYLE_FONT_FAMILY,
     STYLE_LINE_SPACING,
@@ -29,6 +36,7 @@ class EpubReaderMenuActivity final : public Activity {
     RUBY_OFFSET,
     SCREENSHOT,
     DISPLAY_QR,
+    DIAGNOSTICS,
     GO_HOME,
     GENERATE_CACHE,
     DELETE_CACHE,
@@ -38,7 +46,9 @@ class EpubReaderMenuActivity final : public Activity {
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const bool verticalMode, const bool hasBookmarks,
-                                  Epub::CacheGenerationStatus cacheStatus);
+                                  Epub::CacheGenerationStatus cacheStatus,
+                                  std::function<void()> onFirstLineIndentChanged = nullptr,
+                                  std::function<void()> onInvertImagesChanged = nullptr);
 
   void onEnter() override;
   void onExit() override;
@@ -53,10 +63,16 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasBookmarks, Epub::CacheGenerationStatus cacheStatus);
+  enum class MenuMode { Root, ReadingPosition, DisplayLayout, ReadingBehavior, BookManagement, Tools };
+
+  static std::vector<MenuItem> buildMenuItems(MenuMode mode, bool hasBookmarks,
+                                              Epub::CacheGenerationStatus cacheStatus);
 
   // Fixed menu layout
-  const std::vector<MenuItem> menuItems;
+  std::vector<MenuItem> menuItems;
+  MenuMode menuMode = MenuMode::Root;
+  const bool hasBookmarks;
+  const Epub::CacheGenerationStatus cacheStatus;
   int selectedIndex = 0;
 
   ButtonNavigator buttonNavigator;
@@ -73,8 +89,11 @@ class EpubReaderMenuActivity final : public Activity {
   bool verticalMode = false;
   bool layoutChanged = false;
   bool editingValue = false;
+  std::function<void()> onFirstLineIndentChanged;
+  std::function<void()> onInvertImagesChanged;
 
   bool currentValueIsEditable() const;
   bool changeCurrentValue(int delta, bool toggleValue = false);
   std::string getMenuItemValue(MenuAction action) const;
+  void openMenuMode(MenuMode mode);
 };

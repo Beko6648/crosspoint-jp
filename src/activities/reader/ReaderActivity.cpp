@@ -12,6 +12,7 @@
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
+#include "BookReaderSettings.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -29,10 +30,28 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   }
 
   auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
+  activeBookHasReaderOverride = false;
+  activeBookFingerprint = 0;
+  uint64_t fingerprint = 0;
+  BookReaderSettings::Override bookOverride;
+  if (epub->getSourceFingerprint(&fingerprint) && BookReaderSettings::load(fingerprint, bookOverride) &&
+      BookReaderSettings::hasAnyField(bookOverride)) {
+    // Apply before Epub::load(): section-cache validation must use the same
+    // effective configuration that will render the book.
+    BookReaderSettings::apply(bookOverride, SETTINGS);
+    activeBookHasReaderOverride = true;
+    LOG_INF("BOOKSET", "Applied reader override for %016llx", static_cast<unsigned long long>(fingerprint));
+  }
+  if (fingerprint != 0) activeBookFingerprint = fingerprint;
   if (epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
     return epub;
   }
 
+  if (activeBookHasReaderOverride) {
+    SETTINGS.loadFromFile();
+    activeBookHasReaderOverride = false;
+    activeBookFingerprint = 0;
+  }
   LOG_ERR("READER", "Failed to load epub");
   return nullptr;
 }
@@ -76,7 +95,9 @@ void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
-  activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub)));
+  activityManager.replaceActivity(
+      std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub), activeBookHasReaderOverride,
+                                           activeBookFingerprint));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {

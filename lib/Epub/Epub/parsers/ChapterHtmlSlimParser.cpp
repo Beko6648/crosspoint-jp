@@ -44,7 +44,10 @@ constexpr int NUM_ITALIC_TAGS = sizeof(ITALIC_TAGS) / sizeof(ITALIC_TAGS[0]);
 const char* UNDERLINE_TAGS[] = {"u", "ins"};
 constexpr int NUM_UNDERLINE_TAGS = sizeof(UNDERLINE_TAGS) / sizeof(UNDERLINE_TAGS[0]);
 
-const char* IMAGE_TAGS[] = {"img"};
+// EPUB fixed-layout covers commonly use SVG <image xlink:href="..."> rather
+// than HTML <img src="...">.  Both ultimately refer to a raster item in the
+// EPUB and can share the normal image extraction/rendering path.
+const char* IMAGE_TAGS[] = {"img", "image"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
 constexpr float MIN_CSS_FONT_SCALE = 0.75f;
@@ -527,15 +530,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS)) {
     self->noteEmptyBlockContent();
     std::string src;
+    std::string svgHref;
     std::string alt;
     if (atts != nullptr) {
       for (int i = 0; atts[i]; i += 2) {
         if (strcmp(atts[i], "src") == 0) {
           src = atts[i + 1];
+        } else if (strcmp(atts[i], "href") == 0 || strcmp(atts[i], "xlink:href") == 0) {
+          // SVG 1.1 uses xlink:href and SVG 2 uses href.  Prefer a real
+          // HTML src attribute if a malformed document supplies both.
+          svgHref = atts[i + 1];
         } else if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
         }
       }
+      if (src.empty()) src = svgHref;
 
       // imageRendering: 0=display, 1=placeholder (alt text only), 2=suppress entirely
       if (self->imageRendering == 2) {
@@ -751,8 +760,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
 
                 if (self->verticalMode && self->currentPage && !self->currentPage->elements.empty()) {
-                  self->completePageFn(std::move(self->currentPage));
-                  self->completedPageCount++;
+                  self->completeCurrentPage();
                   self->currentPage.reset(new Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create image page");
@@ -769,8 +777,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // Create page for image - break if it is page-fit or won't fit.
                 if (self->currentPage && !self->currentPage->elements.empty() &&
                     (pageFitImage || self->currentPageNextY + displayHeight > self->viewportHeight)) {
-                  self->completePageFn(std::move(self->currentPage));
-                  self->completedPageCount++;
+                  self->completeCurrentPage();
                   self->currentPage.reset(new Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create new page");
@@ -805,8 +812,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 if (self->verticalMode || pageFitImage) {
                   // Vertical images and page-fit illustrations use their own page
                   // to prevent later text from overlapping the image region.
-                  self->completePageFn(std::move(self->currentPage));
-                  self->completedPageCount++;
+                  self->completeCurrentPage();
                   self->currentPage.reset(new Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create page after image");
@@ -1477,8 +1483,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
     // tableの後で改ページ — テーブルと後続テキストの重なりを防ぐ
     if (self->currentPage) {
-      self->completePageFn(std::move(self->currentPage));
-      self->completedPageCount++;
+      self->completeCurrentPage();
       self->currentPage.reset();
       self->currentPageNextY = 0;
       if (self->verticalMode) {
@@ -1785,14 +1790,19 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       pendingAnchorId.clear();
     }
     if (currentPage && !currentPage->elements.empty()) {
-      completePageFn(std::move(currentPage));
-      completedPageCount++;
+      completeCurrentPage();
     }
     currentPage.reset();
     currentTextBlock.reset();
   }
 
   return true;
+}
+
+void ChapterHtmlSlimParser::completeCurrentPage() {
+  if (!currentPage) return;
+  completePageFn(std::move(currentPage));
+  completedPageCount++;
 }
 
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
@@ -1803,8 +1813,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
     const int columnWidth = lineHeight;
-    // Preserve the common quarter-width gutter for every column. Ruby
-    // placement is user-adjustable and must not add any further column space.
+    // Preserve the common quarter-width gutter for ordinary columns.
     const int columnSpacing = columnWidth / 4;
 
     if (!currentPage) {
@@ -1812,14 +1821,24 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
       currentPageNextX = viewportWidth - columnWidth;  // start from right edge
     }
 
-    int columnX = currentPageNextX;
+    const auto rubyRightInset = [&]() {
+      if (!line->hasRuby()) return 0;
+      // Ruby is placed on the right of its base. Reserve only the part that
+      // extends beyond the body column. Configured column spacing already
+      // provides clearance between columns, so add only the missing amount;
+      // the first column still has to clear the physical page edge entirely.
+      const int overflow = TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth);
+      if (!currentPage || currentPage->elements.empty()) return overflow;
+      return std::max(0, overflow - columnSpacing);
+    };
+
+    int columnX = currentPageNextX - rubyRightInset();
     if (columnX < 0) {
       // Page full — emit and start new page
-      completePageFn(std::move(currentPage));
-      completedPageCount++;
+      completeCurrentPage();
       currentPage.reset(new Page());
       currentPageNextX = viewportWidth - columnWidth;
-      columnX = currentPageNextX;
+      columnX = currentPageNextX - rubyRightInset();
     }
 
     // Track cumulative words for footnote assignment
@@ -1842,15 +1861,22 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     }
 
     int rubyTopInset = 0;
-    if (line->hasRuby() && currentPage->elements.empty()) {
-      // Preserve any CSS top spacing and add only the missing room for ruby.
+    if (line->hasRuby()) {
       const int requiredBodyY = TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId);
-      rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+      // Configured line spacing already contributes leading between body
+      // lines. Add only the clearance still missing for ruby; the first line
+      // has no preceding body line and only clears the page edge.
+      if (currentPage->elements.empty()) {
+        rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+      } else {
+        const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
+        const int existingLeading = std::max(0, lineHeight - bodyLineHeight);
+        rubyTopInset = std::max(0, requiredBodyY - existingLeading);
+      }
     }
 
     if (currentPageNextY + rubyTopInset + lineHeight > viewportHeight) {
-      completePageFn(std::move(currentPage));
-      completedPageCount++;
+      completeCurrentPage();
       currentPage.reset(new Page());
       currentPageNextY = 0;
       rubyTopInset = line->hasRuby() ? TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId) : 0;
@@ -1986,8 +2012,7 @@ void ChapterHtmlSlimParser::flushTableAsGrid() {
 
   // Start table on a new page if current page has content
   if (currentPage && currentPageNextY > 0) {
-    completePageFn(std::move(currentPage));
-    completedPageCount++;
+    completeCurrentPage();
     currentPage.reset(new Page());
     currentPageNextY = 0;
   }
@@ -2023,8 +2048,7 @@ void ChapterHtmlSlimParser::flushTableAsGrid() {
     }
 
     if (currentPageNextY + rowHeight > viewportHeight) {
-      completePageFn(std::move(currentPage));
-      completedPageCount++;
+      completeCurrentPage();
       currentPage.reset(new Page());
       currentPageNextY = 0;
     }

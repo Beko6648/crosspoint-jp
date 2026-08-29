@@ -26,6 +26,9 @@ enum class SettingAction {
   HorizontalSettings,
   VerticalSettings,
   Diagnostics,
+  ReaderProfiles,
+  SettingsBackup,
+  ReaderTestView,
 };
 
 struct SettingInfo {
@@ -171,6 +174,7 @@ class SettingsActivity final : public Activity {
 
   void enterCategory(int categoryIndex);
   bool currentSettingIsEditable() const;
+  const char* currentSettingDescription() const;
   void changeCurrentSetting(int delta, bool activateAction = false, bool toggleValue = false);
   void rebuildSettingsLists();
 

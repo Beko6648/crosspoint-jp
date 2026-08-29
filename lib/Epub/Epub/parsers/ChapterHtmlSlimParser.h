@@ -138,6 +138,7 @@ class ChapterHtmlSlimParser {
   bool addExplicitBlankLine();
   bool consumeEmptyBlockCandidate(int depth);
   void makePages();
+  void completeCurrentPage();
   void flushTableAsGrid();
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);

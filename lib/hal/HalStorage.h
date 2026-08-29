@@ -4,6 +4,7 @@
 #include <common/FsApiConstants.h>  // for oflag_t
 #include <freertos/semphr.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,6 +16,11 @@ class HalStorage {
   HalStorage();
   bool begin();
   bool ready() const;
+  // SD filesystem capacity.  `usedBytes()` may refresh the card's cached
+  // free-cluster count, so callers should use it for diagnostics rather than
+  // on every frame.
+  uint64_t totalBytes() const;
+  uint64_t usedBytes();
   std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
   // Read the entire file at `path` into a String. Returns empty string on failure.
   String readFile(const char* path);

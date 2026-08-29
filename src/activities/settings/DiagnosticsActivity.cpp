@@ -12,6 +12,8 @@
 #include <string_view>
 
 #include "components/UITheme.h"
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "fontIds.h"
 
 namespace {
@@ -32,30 +34,6 @@ const char* x3DisplayControllerName() {
 std::string deviceDescription() {
   if (!gpio.deviceIsX3()) return "X4";
   return std::string("X3 (") + x3DisplayControllerName() + ")";
-}
-
-int countReadingCacheDirectories() {
-  auto root = Storage.open("/.crosspoint");
-  if (!root || !root.isDirectory()) {
-    if (root) root.close();
-    return 0;
-  }
-
-  int count = 0;
-  char name[128];
-  for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
-    const bool isDirectory = entry.isDirectory();
-    entry.getName(name, sizeof(name));
-    entry.close();
-    if (!isDirectory) continue;
-
-    const std::string_view entryName(name);
-    if (entryName.rfind("epub_", 0) == 0 || entryName.rfind("xtc_", 0) == 0 || entryName.rfind("txt_", 0) == 0) {
-      ++count;
-    }
-  }
-  root.close();
-  return count;
 }
 
 std::vector<std::string> splitLogLines(const std::string& logs) {
@@ -84,6 +62,102 @@ std::string makeReportPath() {
   return std::string(kDiagnosticsDirectory) + "/report_boot_" + std::to_string(millis()) + ".txt";
 }
 
+bool isReadingCacheDirectory(const std::string_view name) {
+  return name.rfind("epub_", 0) == 0 || name.rfind("xtc_", 0) == 0 || name.rfind("txt_", 0) == 0;
+}
+
+uint64_t directorySize(const std::string& path, bool& complete) {
+  auto directory = Storage.open(path.c_str());
+  if (!directory || !directory.isDirectory()) {
+    if (directory) directory.close();
+    complete = false;
+    return 0;
+  }
+
+  uint64_t total = 0;
+  char name[128];
+  for (auto entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    const std::string childPath = path + "/" + name;
+    if (isDirectory) {
+      entry.close();
+      total += directorySize(childPath, complete);
+    } else {
+      total += entry.size();
+      entry.close();
+    }
+    delay(0);
+  }
+  directory.close();
+  return total;
+}
+
+struct ReadingCacheUsage {
+  int directoryCount = 0;
+  uint64_t bytes = 0;
+  bool complete = true;
+};
+
+ReadingCacheUsage collectReadingCacheUsage() {
+  ReadingCacheUsage usage;
+  auto root = Storage.open("/.crosspoint");
+  if (!root || !root.isDirectory()) {
+    if (root) root.close();
+    usage.complete = false;
+    return usage;
+  }
+
+  char name[128];
+  for (auto entry = root.openNextFile(); entry; entry = root.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    entry.close();
+    if (!isDirectory || !isReadingCacheDirectory(name)) continue;
+    ++usage.directoryCount;
+    usage.bytes += directorySize(std::string("/.crosspoint/") + name, usage.complete);
+    delay(0);
+  }
+  root.close();
+  return usage;
+}
+
+std::string formatBytes(const uint64_t bytes) {
+  constexpr uint64_t kKiB = 1024;
+  constexpr uint64_t kMiB = kKiB * 1024;
+  constexpr uint64_t kGiB = kMiB * 1024;
+  char buffer[32];
+  if (bytes >= kGiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f GB", static_cast<double>(bytes) / kGiB);
+  } else if (bytes >= kMiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f MB", static_cast<double>(bytes) / kMiB);
+  } else if (bytes >= kKiB) {
+    snprintf(buffer, sizeof(buffer), "%.1f KB", static_cast<double>(bytes) / kKiB);
+  } else {
+    snprintf(buffer, sizeof(buffer), "%llu B", static_cast<unsigned long long>(bytes));
+  }
+  return buffer;
+}
+
+std::string extensionOf(const std::string& path) {
+  const size_t slash = path.rfind('/');
+  const size_t dot = path.rfind('.');
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "unknown";
+  return path.substr(dot + 1);
+}
+
+const char* cacheStatusName(const Epub::CacheGenerationStatus status) {
+  switch (status) {
+    case Epub::CacheGenerationStatus::NotGenerated:
+      return "not_generated";
+    case Epub::CacheGenerationStatus::Resumable:
+      return "resumable";
+    case Epub::CacheGenerationStatus::Complete:
+      return "complete";
+  }
+  return "unknown";
+}
+
 }  // namespace
 
 void DiagnosticsActivity::onEnter() {
@@ -93,13 +167,42 @@ void DiagnosticsActivity::onEnter() {
 }
 
 void DiagnosticsActivity::collectSnapshot() {
+  const uint32_t startedAt = millis();
   sdReady = Storage.ready();
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
-  cacheDirectoryCount = sdReady ? countReadingCacheDirectories() : 0;
+  sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
+  sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
+  if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
+  const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
+  cacheDirectoryCount = cacheUsage.directoryCount;
+  readingCacheBytes = cacheUsage.bytes;
+  readingCacheSizeComplete = cacheUsage.complete;
+  hasActiveBook = static_cast<bool>(book);
+  openBookType = "none";
+  openBookSize = 0;
+  const std::string bookPath = hasActiveBook ? book->getPath() : APP_STATE.openEpubPath;
+  if (sdReady && !bookPath.empty()) {
+    openBookType = extensionOf(bookPath);
+    auto bookFile = Storage.open(bookPath.c_str());
+    if (bookFile) {
+      openBookSize = static_cast<uint32_t>(bookFile.size());
+      bookFile.close();
+    }
+  }
+  bookCacheStatus = hasActiveBook ? book->getCacheGenerationStatus() : Epub::CacheGenerationStatus::NotGenerated;
+  bookFingerprint = 0;
+  bookFingerprintAvailable = hasActiveBook && book->getSourceFingerprint(&bookFingerprint);
+  readerVertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
+  const auto& direction = SETTINGS.getDirectionSettings(readerVertical);
+  readerFont = direction.sdFontFamilyName[0] == '\0' ? "Noto Sans" : direction.sdFontFamilyName;
+  readerLineSpacing = direction.lineSpacing;
+  readerImageRendering = SETTINGS.imageRendering;
+  readerBookStyle = SETTINGS.embeddedStyle;
   recentLogs = getLastLogs();
   recentLogLines = splitLogLines(recentLogs);
+  snapshotDurationMs = millis() - startedAt;
 }
 
 bool DiagnosticsActivity::saveReport() {
@@ -114,10 +217,33 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("device=%s\n", gpio.deviceIsX3() ? "X3" : "X4");
   if (gpio.deviceIsX3()) file.printf("display_controller=%s\n", x3DisplayControllerName());
   file.printf("sd_ready=%s\n", sdReady ? "true" : "false");
+  file.printf("sd_total_bytes=%llu\n", static_cast<unsigned long long>(sdTotalBytes));
+  file.printf("sd_used_bytes=%llu\n", static_cast<unsigned long long>(sdUsedBytes));
+  file.printf("sd_free_bytes=%llu\n", static_cast<unsigned long long>(sdTotalBytes - sdUsedBytes));
   file.printf("free_heap=%lu\n", static_cast<unsigned long>(freeHeap));
   file.printf("max_alloc_heap=%lu\n", static_cast<unsigned long>(maxAllocHeap));
   file.printf("min_free_heap=%lu\n", static_cast<unsigned long>(minFreeHeap));
   file.printf("reading_cache_directories=%d\n", cacheDirectoryCount);
+  file.printf("reading_cache_bytes=%llu\n", static_cast<unsigned long long>(readingCacheBytes));
+  file.printf("reading_cache_size_complete=%s\n", readingCacheSizeComplete ? "true" : "false");
+  file.printf("open_book_type=%s\n", openBookType.c_str());
+  file.printf("open_book_size=%lu\n", static_cast<unsigned long>(openBookSize));
+  file.printf("active_book=%s\n", hasActiveBook ? "true" : "false");
+  if (hasActiveBook) {
+    file.printf("active_book_cache_status=%s\n", cacheStatusName(bookCacheStatus));
+    if (bookFingerprintAvailable) {
+      file.printf("active_book_source_fingerprint=%016llx\n", static_cast<unsigned long long>(bookFingerprint));
+    }
+    file.printf("active_book_spine_index=%d\n", bookSpineIndex);
+    file.printf("active_book_page_index=%d\n", bookPageIndex);
+    file.printf("active_book_page_count=%d\n", bookPageCount);
+  }
+  file.printf("reader_writing_mode=%s\n", readerVertical ? "vertical" : "horizontal_or_auto");
+  file.printf("reader_font=%s\n", readerFont.c_str());
+  file.printf("reader_line_spacing=%u\n", readerLineSpacing);
+  file.printf("reader_book_style=%u\n", readerBookStyle);
+  file.printf("reader_image_rendering=%u\n", readerImageRendering);
+  file.printf("snapshot_duration_ms=%lu\n", static_cast<unsigned long>(snapshotDurationMs));
   file.printf("captured_millis=%lu\n", static_cast<unsigned long>(millis()));
   file.print("\nRecent logs:\n");
   file.print(recentLogs.c_str());
@@ -139,7 +265,7 @@ void DiagnosticsActivity::loop() {
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
       mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    page = page == Page::Overview ? Page::Logs : Page::Overview;
+    page = page == Page::Overview ? Page::Logs : page == Page::Logs ? Page::Details : Page::Overview;
     requestUpdate();
   }
 }
@@ -152,10 +278,15 @@ void DiagnosticsActivity::renderOverview(const int x, int y, const int contentWi
   drawLine(std::string("Yomuka: ") + CROSSPOINT_VERSION);
   drawLine("Device: " + deviceDescription());
   drawLine(std::string("SD: ") + (sdReady ? "ready" : "unavailable"));
+  if (sdReady) drawLine("SD free: " + formatBytes(sdTotalBytes - sdUsedBytes));
   drawLine("Heap: " + std::to_string(freeHeap));
   drawLine("Max alloc: " + std::to_string(maxAllocHeap));
   drawLine("Min free: " + std::to_string(minFreeHeap));
-  drawLine("Cache dirs: " + std::to_string(cacheDirectoryCount));
+  drawLine("Cache: " + formatBytes(readingCacheBytes) + " (" + std::to_string(cacheDirectoryCount) + ")");
+  if (hasActiveBook) {
+    drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
+    drawLine("Book page: " + std::to_string(bookPageIndex + 1) + "/" + std::to_string(bookPageCount));
+  }
   drawLine("Recent logs: " + std::to_string(recentLogLines.size()));
 
   y += lineHeight / 2;
@@ -187,6 +318,29 @@ void DiagnosticsActivity::renderLogs(const int x, int y, const int contentWidth,
   }
 }
 
+void DiagnosticsActivity::renderDetails(const int x, int y, const int contentWidth, const int lineHeight) {
+  const auto drawLine = [this, x, &y, lineHeight](const std::string& text) {
+    renderer.drawText(UI_10_FONT_ID, x, y, text.c_str());
+    y += lineHeight;
+  };
+
+  drawLine("Snapshot: " + std::to_string(snapshotDurationMs) + " ms");
+  drawLine("Cache scan: " + std::string(readingCacheSizeComplete ? "complete" : "incomplete"));
+  drawLine("Logs captured: " + std::to_string(recentLogLines.size()));
+  drawLine(std::string("Active book: ") + (hasActiveBook ? "yes" : "no"));
+  if (!hasActiveBook) return;
+
+  drawLine("Book type: " + openBookType + " (" + formatBytes(openBookSize) + ")");
+  drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
+  if (bookFingerprintAvailable) {
+    char fingerprint[24];
+    snprintf(fingerprint, sizeof(fingerprint), "%016llx", static_cast<unsigned long long>(bookFingerprint));
+    drawLine(std::string("Source ID: ") + fingerprint);
+  }
+  drawLine("Spine/page: " + std::to_string(bookSpineIndex) + "/" + std::to_string(bookPageIndex + 1) + "/" +
+           std::to_string(bookPageCount));
+}
+
 void DiagnosticsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -197,18 +351,26 @@ void DiagnosticsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DIAGNOSTICS));
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  renderer.drawText(UI_10_FONT_ID, x, y,
-                    page == Page::Overview ? tr(STR_DIAGNOSTICS_OVERVIEW) : tr(STR_DIAGNOSTICS_RECENT_LOGS));
+  const char* pageTitle = page == Page::Overview   ? tr(STR_DIAGNOSTICS_OVERVIEW)
+                          : page == Page::Logs     ? tr(STR_DIAGNOSTICS_RECENT_LOGS)
+                                                   : tr(STR_DIAGNOSTICS_DETAILS);
+  renderer.drawText(UI_10_FONT_ID, x, y, pageTitle);
   y += lineHeight + metrics.verticalSpacing;
 
   if (page == Page::Overview) {
     renderOverview(x, y, contentWidth, lineHeight);
-  } else {
+  } else if (page == Page::Logs) {
     renderLogs(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
+  } else {
+    renderDetails(x, y, contentWidth, renderer.getLineHeight(UI_10_FONT_ID));
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), tr(STR_DIAGNOSTICS_SAVE_REPORT), tr(STR_DIAGNOSTICS_RECENT_LOGS), "");
+  // Button-hint space is deliberately narrower than the page heading, so use
+  // short action labels while retaining the descriptive titles above.
+  const char* nextPageLabel = page == Page::Overview   ? tr(STR_DIAGNOSTICS_LOG_BUTTON)
+                              : page == Page::Logs     ? tr(STR_DIAGNOSTICS_DETAILS_BUTTON)
+                                                        : tr(STR_DIAGNOSTICS_OVERVIEW);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), nextPageLabel, "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

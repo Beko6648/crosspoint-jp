@@ -163,6 +163,14 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
     }
     if (styleMask == 0) styleMask = 1;
 
+    // Keep a page-level trace of the requested SD font styles.  This makes
+    // typography reports actionable: the renderer can distinguish an EPUB
+    // whose Bold tokens were parsed correctly from a font/rendering issue.
+    LOG_INF("FCM", "SD font prewarm styles=0x%02X regular=%lu bold=%lu italic=%lu boldItalic=%lu", styleMask,
+            static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::REGULAR]),
+            static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD]),
+            static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::ITALIC]),
+            static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD_ITALIC]));
     entry.font->prewarm(entry.text.c_str(), styleMask);
     entry.text.clear();
     entry.text.shrink_to_fit();

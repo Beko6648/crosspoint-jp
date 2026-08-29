@@ -236,7 +236,7 @@ families:
     description: "Sans-serif Japanese with reading symbols"
     # Match the manually verified SD package: full BMP CJK coverage plus
     # common reading symbols and the supplementary-plane character 𠮟.
-    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,jp-extra-noto,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"}
@@ -244,7 +244,7 @@ families:
 
   - name: BIZUDGothic
     description: "UD Gothic Japanese (MORISAWA, with reading symbols)"
-    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,jp-extra-biz,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/googlefonts/morisawa-biz-ud-gothic/raw/main/fonts/ttf/BIZUDGothic-Regular.ttf"}
@@ -252,15 +252,18 @@ families:
 
   - name: NotoSerifJp
     description: "Serif Japanese with reading symbols"
-    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,jp-extra-noto,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
-      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 400}}
-      bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/Variable/OTF/Subset/NotoSerifJP-VF.otf", variable: {wght: 700}}
+      # Use the static faces directly: Medium for ordinary reading text and
+      # Bold for EPUB emphasis.  This matches the established Yomuka package
+      # and avoids depending on variable-font instance generation.
+      regular: {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Medium.otf"}
+      bold:    {url: "https://github.com/notofonts/noto-cjk/raw/main/Serif/OTF/Japanese/NotoSerifCJKjp-Bold.otf"}
 
   - name: BIZUDMincho
     description: "UD Mincho Japanese (MORISAWA, with reading symbols)"
-    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,cjk,jp-supplementary-common
+    intervals: ascii,latin1,greek,punctuation,arrows,math,currency,enclosed,symbols,boxdrawing,jp_number_symbols,jp-extra-biz,cjk,jp-supplementary-common
     sizes: [8, 10, 12, 14, 16, 18]
     styles:
       regular: {url: "https://github.com/googlefonts/morisawa-biz-ud-mincho/raw/main/fonts/ttf/BIZUDMincho-Regular.ttf"}
@@ -268,7 +271,7 @@ families:
 
   - name: ZenMaruGothic
     description: "Rounded Japanese Gothic (optional; curated CJK coverage)"
-    intervals: builtin,latin-ext,greek,cyrillic,symbols,boxdrawing,enclosed,jp_number_symbols,cjk,jp-supplementary-common
+    intervals: builtin,latin-ext,greek,cyrillic,symbols,boxdrawing,enclosed,jp_number_symbols,jp-extra-zen,cjk,jp-supplementary-common
     # Use only glyphs actually present in the configured Regular and Bold
     # sources. This avoids large runs of empty CJK placeholders.
     codepoints_from_styles: true

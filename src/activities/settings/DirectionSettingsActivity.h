@@ -32,6 +32,7 @@ class DirectionSettingsActivity final : public Activity {
   std::vector<Item> items;
   void buildItems();
   bool currentItemIsEditable() const;
+  const char* currentItemDescription() const;
   void changeCurrentItem(int delta, bool activateAction = false, bool toggleValue = false);
   DirectionSettings& ds() { return SETTINGS.getDirectionSettings(isVertical); }
   const DirectionSettings& ds() const { return SETTINGS.getDirectionSettings(isVertical); }
