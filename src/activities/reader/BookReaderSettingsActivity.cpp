@@ -6,19 +6,20 @@
 #include "BookReaderSettings.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/settings/ReaderTestViewActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "activities/settings/ReaderTestViewActivity.h"
 
 namespace {
 
 constexpr int kItemCount = static_cast<int>(BookReaderSettingsActivity::Item::Count);
 constexpr uint16_t kFontFields = BookReaderSettings::DirectionFont;
 constexpr uint16_t kSizeFields = BookReaderSettings::DirectionFontSize;
-constexpr uint16_t kSpacingFields = BookReaderSettings::DirectionLineSpacing | BookReaderSettings::DirectionCharSpacing |
+constexpr uint16_t kSpacingFields = BookReaderSettings::DirectionLineSpacing |
+                                    BookReaderSettings::DirectionCharSpacing |
                                     BookReaderSettings::DirectionParagraphSpacing;
-constexpr uint16_t kMarginFields = BookReaderSettings::DirectionMargin | BookReaderSettings::DirectionAlignment |
-                                   BookReaderSettings::DirectionIndent;
+constexpr uint16_t kMarginFields =
+    BookReaderSettings::DirectionMargin | BookReaderSettings::DirectionAlignment | BookReaderSettings::DirectionIndent;
 constexpr uint16_t kRubyFields = BookReaderSettings::DirectionRubyEnabled | BookReaderSettings::DirectionRubyOffsetX |
                                  BookReaderSettings::DirectionRubyOffsetY;
 
@@ -33,9 +34,9 @@ void BookReaderSettingsActivity::onEnter() {
 void BookReaderSettingsActivity::selectCurrent() {
   const Item item = static_cast<Item>(selectedIndex);
   if (item == Item::TestView) {
-    startActivityForResult(std::make_unique<ReaderTestViewActivity>(renderer, mappedInput, fingerprint,
-                                                                    verticalMode ? 1 : 0),
-                           [this](const ActivityResult&) { requestUpdate(); });
+    startActivityForResult(
+        std::make_unique<ReaderTestViewActivity>(renderer, mappedInput, fingerprint, verticalMode ? 1 : 0),
+        [this](const ActivityResult&) { requestUpdate(); });
     return;
   }
   BookReaderSettings::Override value;
@@ -60,11 +61,21 @@ void BookReaderSettingsActivity::selectCurrent() {
     switch (item) {
       case Item::TestView:
         break;
-      case Item::Font: toggleDirection(direction, currentDirection, kFontFields); break;
-      case Item::Size: toggleDirection(direction, currentDirection, kSizeFields); break;
-      case Item::Spacing: toggleDirection(direction, currentDirection, kSpacingFields); break;
-      case Item::Margin: toggleDirection(direction, currentDirection, kMarginFields); break;
-      case Item::Ruby: toggleDirection(direction, currentDirection, kRubyFields); break;
+      case Item::Font:
+        toggleDirection(direction, currentDirection, kFontFields);
+        break;
+      case Item::Size:
+        toggleDirection(direction, currentDirection, kSizeFields);
+        break;
+      case Item::Spacing:
+        toggleDirection(direction, currentDirection, kSpacingFields);
+        break;
+      case Item::Margin:
+        toggleDirection(direction, currentDirection, kMarginFields);
+        break;
+      case Item::Ruby:
+        toggleDirection(direction, currentDirection, kRubyFields);
+        break;
       case Item::WritingMode:
         if (value.fields & BookReaderSettings::WritingMode)
           value.fields &= ~BookReaderSettings::WritingMode;
@@ -88,9 +99,9 @@ void BookReaderSettingsActivity::selectCurrent() {
     }
   }
   if (success) success = BookReaderSettings::save(fingerprint, value);
-  const StrId labelId = success ? (item == Item::ClearAll ? StrId::STR_BOOK_SETTINGS_CLEARED
-                                                           : StrId::STR_BOOK_SETTINGS_SAVED)
-                                : StrId::STR_BOOK_SETTINGS_FAILED;
+  const StrId labelId =
+      success ? (item == Item::ClearAll ? StrId::STR_BOOK_SETTINGS_CLEARED : StrId::STR_BOOK_SETTINGS_SAVED)
+              : StrId::STR_BOOK_SETTINGS_FAILED;
   resultText = I18N.get(labelId);
   if (success) setResult(MenuResult{selectedIndex});
   requestUpdate();
@@ -104,15 +115,24 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
   };
   const auto& direction = verticalMode ? value.vertical : value.horizontal;
   switch (item) {
-    case Item::TestView: return false;
-    case Item::Font: return hasDirection(direction, kFontFields);
-    case Item::Size: return hasDirection(direction, kSizeFields);
-    case Item::Spacing: return hasDirection(direction, kSpacingFields);
-    case Item::Margin: return hasDirection(direction, kMarginFields);
-    case Item::Ruby: return hasDirection(direction, kRubyFields);
-    case Item::WritingMode: return value.fields & BookReaderSettings::WritingMode;
-    case Item::BookStyle: return value.fields & BookReaderSettings::BookStyle;
-    case Item::SaveAll: return BookReaderSettings::hasAnyField(value);
+    case Item::TestView:
+      return false;
+    case Item::Font:
+      return hasDirection(direction, kFontFields);
+    case Item::Size:
+      return hasDirection(direction, kSizeFields);
+    case Item::Spacing:
+      return hasDirection(direction, kSpacingFields);
+    case Item::Margin:
+      return hasDirection(direction, kMarginFields);
+    case Item::Ruby:
+      return hasDirection(direction, kRubyFields);
+    case Item::WritingMode:
+      return value.fields & BookReaderSettings::WritingMode;
+    case Item::BookStyle:
+      return value.fields & BookReaderSettings::BookStyle;
+    case Item::SaveAll:
+      return BookReaderSettings::hasAnyField(value);
     case Item::ClearAll:
     case Item::Count:
       return false;
@@ -122,10 +142,15 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
 
 StrId BookReaderSettingsActivity::itemLabel(const Item item) {
   static constexpr StrId kLabels[] = {
-      StrId::STR_READER_TEST_VIEW, StrId::STR_FONT_FAMILY, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
+      StrId::STR_READER_TEST_VIEW,
+      StrId::STR_FONT_FAMILY,
+      StrId::STR_FONT_SIZE,
+      StrId::STR_LINE_SPACING,
       StrId::STR_SCREEN_MARGIN,
       StrId::STR_BOOK_SETTINGS_RUBY,
-      StrId::STR_BOOK_SETTINGS_WRITING_MODE, StrId::STR_BOOK_STYLE, StrId::STR_BOOK_SETTINGS_SAVE_CURRENT,
+      StrId::STR_BOOK_SETTINGS_WRITING_MODE,
+      StrId::STR_BOOK_STYLE,
+      StrId::STR_BOOK_SETTINGS_SAVE_CURRENT,
       StrId::STR_BOOK_SETTINGS_CLEAR,
   };
   return kLabels[static_cast<int>(item)];

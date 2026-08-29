@@ -52,7 +52,11 @@ void DirectionSettingsActivity::buildItems() {
   }
 
   // Extra Paragraph Spacing
-  items.push_back({StrId::STR_EXTRA_SPACING, Item::Type::PRESET, &DirectionSettings::extraParagraphSpacing, {}, {},
+  items.push_back({StrId::STR_EXTRA_SPACING,
+                   Item::Type::PRESET,
+                   &DirectionSettings::extraParagraphSpacing,
+                   {},
+                   {},
                    {0, 1, 2, 3, 4}});
 
   // Hyphenation
@@ -93,7 +97,7 @@ const char* DirectionSettingsActivity::currentItemDescription() const {
       return tr(STR_READER_SETTING_DESC_CHAR_SPACING);
     case StrId::STR_PARA_ALIGNMENT:
       return I18N.get(isVertical ? StrId::STR_READER_SETTING_DESC_VERTICAL_ALIGNMENT
-                                  : StrId::STR_READER_SETTING_DESC_ALIGNMENT);
+                                 : StrId::STR_READER_SETTING_DESC_ALIGNMENT);
     case StrId::STR_EXTRA_SPACING:
       return tr(STR_READER_SETTING_DESC_EXTRA_SPACING);
     case StrId::STR_HYPHENATION:
@@ -248,10 +252,8 @@ void DirectionSettingsActivity::render(RenderLock&&) {
 
   // List
   GUI.drawList(
-      renderer,
-      Rect{0, listTop, pageWidth, listBottom - listTop},
-      itemCount, selectedIndex, [this](int index) { return std::string(I18N.get(items[index].nameId)); }, nullptr,
-      nullptr,
+      renderer, Rect{0, listTop, pageWidth, listBottom - listTop}, itemCount, selectedIndex,
+      [this](int index) { return std::string(I18N.get(items[index].nameId)); }, nullptr, nullptr,
       [this](int i) -> std::string {
         const auto& item = items[i];
         if (item.nameId == StrId::STR_LINE_SPACING) {

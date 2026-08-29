@@ -39,7 +39,8 @@ void writeDirection(JsonObject object, const BookReaderSettings::DirectionOverri
   if (fields & BookReaderSettings::DirectionLineSpacing) object["lineSpacing"] = settings.lineSpacing;
   if (fields & BookReaderSettings::DirectionCharSpacing) object["charSpacing"] = settings.charSpacing;
   if (fields & BookReaderSettings::DirectionAlignment) object["paragraphAlignment"] = settings.paragraphAlignment;
-  if (fields & BookReaderSettings::DirectionParagraphSpacing) object["extraParagraphSpacing"] = settings.extraParagraphSpacing;
+  if (fields & BookReaderSettings::DirectionParagraphSpacing)
+    object["extraParagraphSpacing"] = settings.extraParagraphSpacing;
   if (fields & BookReaderSettings::DirectionMargin) object["screenMargin"] = settings.screenMargin;
   if (fields & BookReaderSettings::DirectionIndent) object["firstLineIndent"] = settings.firstLineIndent;
   if (fields & BookReaderSettings::DirectionRubyEnabled) object["rubyEnabled"] = settings.rubyEnabled;
@@ -57,7 +58,8 @@ bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride
     if (!fontFamily.is<int>() || !familyName.is<const char*>()) return false;
     const int family = fontFamily.as<int>();
     const char* name = familyName.as<const char*>();
-    if (family < 0 || family >= CrossPointSettings::FONT_FAMILY_COUNT || strlen(name) >= sizeof(settings.sdFontFamilyName)) {
+    if (family < 0 || family >= CrossPointSettings::FONT_FAMILY_COUNT ||
+        strlen(name) >= sizeof(settings.sdFontFamilyName)) {
       return false;
     }
     settings.fontFamily = static_cast<uint8_t>(family);
@@ -75,13 +77,11 @@ bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride
          readU8(object, "extraParagraphSpacing", 0, 4, settings.extraParagraphSpacing, fields,
                 BookReaderSettings::DirectionParagraphSpacing) &&
          readU8(object, "screenMargin", 5, 40, settings.screenMargin, fields, BookReaderSettings::DirectionMargin) &&
-         readU8(object, "firstLineIndent", 0, 1, settings.firstLineIndent, fields, BookReaderSettings::DirectionIndent) &&
-         readU8(object, "rubyEnabled", 0, 1, settings.rubyEnabled, fields,
-                BookReaderSettings::DirectionRubyEnabled) &&
-         readU8(object, "rubyOffsetX", 0, 80, settings.rubyOffsetX, fields,
-                BookReaderSettings::DirectionRubyOffsetX) &&
-         readU8(object, "rubyOffsetY", 0, 80, settings.rubyOffsetY, fields,
-                BookReaderSettings::DirectionRubyOffsetY);
+         readU8(object, "firstLineIndent", 0, 1, settings.firstLineIndent, fields,
+                BookReaderSettings::DirectionIndent) &&
+         readU8(object, "rubyEnabled", 0, 1, settings.rubyEnabled, fields, BookReaderSettings::DirectionRubyEnabled) &&
+         readU8(object, "rubyOffsetX", 0, 80, settings.rubyOffsetX, fields, BookReaderSettings::DirectionRubyOffsetX) &&
+         readU8(object, "rubyOffsetY", 0, 80, settings.rubyOffsetY, fields, BookReaderSettings::DirectionRubyOffsetY);
 }
 
 bool readOverride(JsonObjectConst object, BookReaderSettings::Override& result) {
@@ -90,10 +90,10 @@ bool readOverride(JsonObjectConst object, BookReaderSettings::Override& result) 
       !readDirection(object["vertical"].as<JsonObjectConst>(), result.vertical)) {
     return false;
   }
-  return readU8(object, "writingMode", 0, CrossPointSettings::WRITING_MODE_COUNT - 1, result.writingMode,
-                result.fields, BookReaderSettings::WritingMode) &&
-         readU8(object, "orientation", 0, CrossPointSettings::ORIENTATION_COUNT - 1, result.orientation,
-                result.fields, BookReaderSettings::Orientation) &&
+  return readU8(object, "writingMode", 0, CrossPointSettings::WRITING_MODE_COUNT - 1, result.writingMode, result.fields,
+                BookReaderSettings::WritingMode) &&
+         readU8(object, "orientation", 0, CrossPointSettings::ORIENTATION_COUNT - 1, result.orientation, result.fields,
+                BookReaderSettings::Orientation) &&
          readU8(object, "bookStyle", 0, CrossPointSettings::BOOK_STYLE_COUNT - 1, result.bookStyle, result.fields,
                 BookReaderSettings::BookStyle) &&
          readU8(object, "imageRendering", 0, CrossPointSettings::IMAGE_RENDERING_COUNT - 1, result.imageRendering,
@@ -135,7 +135,8 @@ void applyDirection(const BookReaderSettings::DirectionOverride& value, Directio
   if (fields & BookReaderSettings::DirectionLineSpacing) target.lineSpacing = source.lineSpacing;
   if (fields & BookReaderSettings::DirectionCharSpacing) target.charSpacing = source.charSpacing;
   if (fields & BookReaderSettings::DirectionAlignment) target.paragraphAlignment = source.paragraphAlignment;
-  if (fields & BookReaderSettings::DirectionParagraphSpacing) target.extraParagraphSpacing = source.extraParagraphSpacing;
+  if (fields & BookReaderSettings::DirectionParagraphSpacing)
+    target.extraParagraphSpacing = source.extraParagraphSpacing;
   if (fields & BookReaderSettings::DirectionMargin) target.screenMargin = source.screenMargin;
   if (fields & BookReaderSettings::DirectionIndent) target.firstLineIndent = source.firstLineIndent;
   if (fields & BookReaderSettings::DirectionRubyEnabled) target.rubyEnabled = source.rubyEnabled;

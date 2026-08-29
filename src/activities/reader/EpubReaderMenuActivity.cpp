@@ -328,12 +328,11 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
       }
       return true;
     case MenuAction::TILT_PAGE_TURN:
-      SETTINGS.tiltPageTurn = toggleValue ? (SETTINGS.tiltPageTurn ? CrossPointSettings::TILT_OFF
-                                                                    : CrossPointSettings::TILT_NORMAL)
-                                           : static_cast<uint8_t>(std::clamp(
-                                                 static_cast<int>(SETTINGS.tiltPageTurn) + delta,
-                                                 static_cast<int>(CrossPointSettings::TILT_OFF),
-                                                 static_cast<int>(CrossPointSettings::TILT_NVERTED)));
+      SETTINGS.tiltPageTurn =
+          toggleValue ? (SETTINGS.tiltPageTurn ? CrossPointSettings::TILT_OFF : CrossPointSettings::TILT_NORMAL)
+                      : static_cast<uint8_t>(std::clamp(static_cast<int>(SETTINGS.tiltPageTurn) + delta,
+                                                        static_cast<int>(CrossPointSettings::TILT_OFF),
+                                                        static_cast<int>(CrossPointSettings::TILT_NVERTED)));
       SETTINGS.saveToFile();
       return true;
     case MenuAction::ROTATE_SCREEN:

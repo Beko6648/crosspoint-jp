@@ -4,17 +4,15 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
-#include <cstdio>
 #include <algorithm>
+#include <cstdio>
 
 #include "AozoraActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
-#include "DirectionSettingsActivity.h"
 #include "DiagnosticsActivity.h"
-#include "ReaderProfilesActivity.h"
-#include "ReaderTestViewActivity.h"
+#include "DirectionSettingsActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectActivity.h"
 #include "FontSelectionActivity.h"
@@ -23,10 +21,12 @@
 #include "LanguageSelectActivity.h"
 #include "LineSpacingSelectionActivity.h"
 #include "MappedInputManager.h"
-#include "SdFirmwareUpdateActivity.h"
+#include "ReaderProfilesActivity.h"
+#include "ReaderTestViewActivity.h"
 #include "SdCardFontGlobals.h"
-#include "SettingsList.h"
+#include "SdFirmwareUpdateActivity.h"
 #include "SettingsBackupActivity.h"
+#include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -513,10 +513,9 @@ void SettingsActivity::render(RenderLock&&) {
   const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
   const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
   GUI.drawList(
-      renderer,
-      Rect{listSideInset, listTop, pageWidth - listSideInset * 2, listBottom - listTop},
-      settingsCount, selectedSettingIndex - 1,
-      [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
+      renderer, Rect{listSideInset, listTop, pageWidth - listSideInset * 2, listBottom - listTop}, settingsCount,
+      selectedSettingIndex - 1, [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); },
+      nullptr, nullptr,
       [&settings](int i) {
         const auto& setting = settings[i];
         std::string valueText = "";
@@ -565,9 +564,10 @@ void SettingsActivity::render(RenderLock&&) {
       },
       editingValue);
 
-  GUI.drawHelpText(renderer, Rect{listSideInset, listBottom + metrics.verticalSpacing, pageWidth - listSideInset * 2,
-                                  helpTextHeight},
-                   currentSettingDescription());
+  GUI.drawHelpText(
+      renderer,
+      Rect{listSideInset, listBottom + metrics.verticalSpacing, pageWidth - listSideInset * 2, helpTextHeight},
+      currentSettingDescription());
 
   // Draw help text
   const char* confirmLabel = tr(STR_SELECT);

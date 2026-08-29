@@ -147,17 +147,20 @@ bool readDirection(JsonObjectConst obj, DirectionSettings& target) {
 bool parse(const String& json, ProfileData& target) {
   JsonDocument doc;
   if (deserializeJson(doc, json)) return false;
-  if ((doc["formatVersion"] | 0) != kFormatVersion || strcmp(doc["kind"] | "", "yomuka-reader-profile") != 0) return false;
+  if ((doc["formatVersion"] | 0) != kFormatVersion || strcmp(doc["kind"] | "", "yomuka-reader-profile") != 0)
+    return false;
   const JsonObjectConst reader = doc["reader"].as<JsonObjectConst>();
   const JsonObjectConst status = reader["statusBar"].as<JsonObjectConst>();
-  if (reader.isNull() || status.isNull() || !readDirection(reader["horizontal"].as<JsonObjectConst>(), target.horizontal) ||
+  if (reader.isNull() || status.isNull() ||
+      !readDirection(reader["horizontal"].as<JsonObjectConst>(), target.horizontal) ||
       !readDirection(reader["vertical"].as<JsonObjectConst>(), target.vertical) ||
       !readU8(reader, "writingMode", 0, CrossPointSettings::WRITING_MODE_COUNT - 1, target.writingMode) ||
       !readU8(reader, "orientation", 0, CrossPointSettings::ORIENTATION_COUNT - 1, target.orientation) ||
       !readU8(reader, "embeddedStyle", 0, CrossPointSettings::BOOK_STYLE_COUNT - 1, target.embeddedStyle) ||
       !readU8(reader, "imageRendering", 0, CrossPointSettings::IMAGE_RENDERING_COUNT - 1, target.imageRendering) ||
       !readU8(reader, "invertImages", 0, 1, target.invertImages) ||
-      !readU8(reader, "refreshFrequency", 0, CrossPointSettings::REFRESH_FREQUENCY_COUNT - 1, target.refreshFrequency) ||
+      !readU8(reader, "refreshFrequency", 0, CrossPointSettings::REFRESH_FREQUENCY_COUNT - 1,
+              target.refreshFrequency) ||
       !readU8(reader, "longPressChapterSkip", 0, 1, target.longPressChapterSkip) ||
       !readU8(status, "chapterPageCount", 0, 1, target.statusBarChapterPageCount) ||
       !readU8(status, "bookProgressPercentage", 0, 1, target.statusBarBookProgressPercentage) ||
@@ -237,8 +240,18 @@ bool apply(const ProfileData& data, bool* externalFontFallback = nullptr) {
 ProfileData defaults() {
   ProfileData data{};
   data.horizontal = DirectionSettings{};
-  data.vertical = {CrossPointSettings::NOTOSANS, "", CrossPointSettings::MEDIUM,
-                   CrossPointSettings::LINE_SPACING_DEFAULT, 15, CrossPointSettings::JUSTIFIED, 0, 0, 10, 1, 1, 16,
+  data.vertical = {CrossPointSettings::NOTOSANS,
+                   "",
+                   CrossPointSettings::MEDIUM,
+                   CrossPointSettings::LINE_SPACING_DEFAULT,
+                   15,
+                   CrossPointSettings::JUSTIFIED,
+                   0,
+                   0,
+                   10,
+                   1,
+                   1,
+                   16,
                    16};
   data.writingMode = CrossPointSettings::WM_AUTO;
   data.orientation = CrossPointSettings::PORTRAIT;

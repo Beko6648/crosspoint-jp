@@ -23,8 +23,6 @@
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "activities/settings/DiagnosticsActivity.h"
-#include "activities/settings/FontSelectionActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderDetailsActivity.h"
@@ -38,6 +36,8 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontGlobals.h"
+#include "activities/settings/DiagnosticsActivity.h"
+#include "activities/settings/FontSelectionActivity.h"
 #include "activities/settings/LineSpacingSelectionActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
@@ -910,24 +910,25 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::OPEN_BOOK_READER_SETTINGS: {
       uint64_t fingerprint = 0;
       if (!epub->getSourceFingerprint(&fingerprint)) break;
-      startActivityForResult(std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
-                             [this, fingerprint](const ActivityResult& result) {
-                               if (result.isCancelled) return;
-                               BookReaderSettings::Override bookOverride;
-                               const bool hasOverride = BookReaderSettings::load(fingerprint, bookOverride) &&
-                                                        BookReaderSettings::hasAnyField(bookOverride);
-                               if (hasOverride) {
-                                 BookReaderSettings::apply(bookOverride, SETTINGS);
-                               } else if (!SETTINGS.loadFromFile()) {
-                                 LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
-                                 return;
-                               }
-                               restoreGlobalReaderSettingsOnExit = hasOverride;
-                               ensureSdFontLoaded(verticalMode);
-                               configureRubyFont(verticalMode);
-                               invalidateSectionPreservingPosition();
-                               requestUpdate();
-                             });
+      startActivityForResult(
+          std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
+          [this, fingerprint](const ActivityResult& result) {
+            if (result.isCancelled) return;
+            BookReaderSettings::Override bookOverride;
+            const bool hasOverride =
+                BookReaderSettings::load(fingerprint, bookOverride) && BookReaderSettings::hasAnyField(bookOverride);
+            if (hasOverride) {
+              BookReaderSettings::apply(bookOverride, SETTINGS);
+            } else if (!SETTINGS.loadFromFile()) {
+              LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
+              return;
+            }
+            restoreGlobalReaderSettingsOnExit = hasOverride;
+            ensureSdFontLoaded(verticalMode);
+            configureRubyFont(verticalMode);
+            invalidateSectionPreservingPosition();
+            requestUpdate();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DIAGNOSTICS: {

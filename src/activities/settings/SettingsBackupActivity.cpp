@@ -4,18 +4,21 @@
 #include <I18n.h>
 #include <JsonSettingsIO.h>
 
+#include "../util/ConfirmationActivity.h"
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
-#include "../util/ConfirmationActivity.h"
 
 namespace {
 constexpr const char* kDirectory = "/.crosspoint/backups";
 constexpr const char* kBackup = "/.crosspoint/backups/yomuka-settings.json";
 constexpr const char* kBeforeImport = "/.crosspoint/backups/yomuka-settings-before-import.json";
 constexpr int kItemCount = 2;
-}
+}  // namespace
 
-void SettingsBackupActivity::onEnter() { Activity::onEnter(); requestUpdate(); }
+void SettingsBackupActivity::onEnter() {
+  Activity::onEnter();
+  requestUpdate();
+}
 
 bool SettingsBackupActivity::saveBackup() const {
   return Storage.ensureDirectoryExists(kDirectory) && JsonSettingsIO::saveSettings(SETTINGS, kBackup);
@@ -41,19 +44,32 @@ void SettingsBackupActivity::selectCurrent() {
     return;
   }
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_SETTINGS_BACKUP_IMPORT),
-                                                                 tr(STR_SETTINGS_BACKUP_IMPORT_CONFIRM)),
+                                                                tr(STR_SETTINGS_BACKUP_IMPORT_CONFIRM)),
                          [this](const ActivityResult& result) {
                            if (!result.isCancelled)
-                             resultText = restoreBackup() ? tr(STR_SETTINGS_BACKUP_RESTORED) : tr(STR_SETTINGS_BACKUP_FAILED);
+                             resultText =
+                                 restoreBackup() ? tr(STR_SETTINGS_BACKUP_RESTORED) : tr(STR_SETTINGS_BACKUP_FAILED);
                            requestUpdate();
                          });
 }
 
 void SettingsBackupActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) { finish(); return; }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) { selectCurrent(); return; }
-  navigator.onNextRelease([this] { selectedIndex = ButtonNavigator::nextIndex(selectedIndex, kItemCount); requestUpdate(); });
-  navigator.onPreviousRelease([this] { selectedIndex = ButtonNavigator::previousIndex(selectedIndex, kItemCount); requestUpdate(); });
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    finish();
+    return;
+  }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    selectCurrent();
+    return;
+  }
+  navigator.onNextRelease([this] {
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, kItemCount);
+    requestUpdate();
+  });
+  navigator.onPreviousRelease([this] {
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, kItemCount);
+    requestUpdate();
+  });
 }
 
 void SettingsBackupActivity::render(RenderLock&&) {
@@ -63,9 +79,13 @@ void SettingsBackupActivity::render(RenderLock&&) {
   const int height = renderer.getScreenHeight();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_SETTINGS_BACKUP));
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  GUI.drawList(renderer, Rect{0, top, width, height - top - metrics.buttonHintsHeight - metrics.verticalSpacing}, kItemCount,
-               selectedIndex, [](int index) { return std::string(index == 0 ? tr(STR_SETTINGS_BACKUP_EXPORT) : tr(STR_SETTINGS_BACKUP_IMPORT)); });
-  if (!resultText.empty()) renderer.drawCenteredText(UI_10_FONT_ID, height - metrics.buttonHintsHeight - metrics.verticalSpacing * 2, resultText.c_str(), true);
+  GUI.drawList(renderer, Rect{0, top, width, height - top - metrics.buttonHintsHeight - metrics.verticalSpacing},
+               kItemCount, selectedIndex, [](int index) {
+                 return std::string(index == 0 ? tr(STR_SETTINGS_BACKUP_EXPORT) : tr(STR_SETTINGS_BACKUP_IMPORT));
+               });
+  if (!resultText.empty())
+    renderer.drawCenteredText(UI_10_FONT_ID, height - metrics.buttonHintsHeight - metrics.verticalSpacing * 2,
+                              resultText.c_str(), true);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

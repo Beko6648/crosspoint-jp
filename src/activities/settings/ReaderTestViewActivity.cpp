@@ -32,12 +32,15 @@ ParsedText makeSampleLine(const DirectionSettings& settings, const size_t sample
     const char* suffix;
   };
   static constexpr SampleLine kLines[] = {
-      {"一", "だいいちれつ", true, "の本文です。"},   {"二", "", false, "は通常本文です。"},
+      {"一", "だいいちれつ", true, "の本文です。"},
+      {"二", "", false, "は通常本文です。"},
       {"三", "だいさんれつ", true,
        "の本文です。これは改行位置を確認するための長い文章です。表示設定による行送りと余白も確認します。"},
       {"四", "", false, "はルビなし本文です。"},
-      {"五", "", false, "は太字確認です。"},            {"六", "", false, "（ABC 12ー）です。"},
-      {"七", "", false, "はルビなし本文です。"},       {"八", "", false, "の本文です。"},
+      {"五", "", false, "は太字確認です。"},
+      {"六", "", false, "（ABC 12ー）です。"},
+      {"七", "", false, "はルビなし本文です。"},
+      {"八", "", false, "の本文です。"},
       {"九", "", false, "『春夏秋冬』です。"},
   };
   const auto& line = kLines[sampleIndex % (sizeof(kLines) / sizeof(kLines[0]))];
@@ -90,7 +93,8 @@ int resolveRubyFont(const DirectionSettings& settings, const int bodyFontId) {
   if (!settings.rubyEnabled) return 0;
   constexpr uint8_t kRubyFontSize = 5;  // 8pt, matching EpubReaderActivity.
   if (settings.sdFontFamilyName[0] != '\0' && SETTINGS.sdFontIdResolver) {
-    const int rubyFontId = SETTINGS.sdFontIdResolver(SETTINGS.sdFontResolverCtx, settings.sdFontFamilyName, kRubyFontSize);
+    const int rubyFontId =
+        SETTINGS.sdFontIdResolver(SETTINGS.sdFontResolverCtx, settings.sdFontFamilyName, kRubyFontSize);
     if (rubyFontId != 0) return rubyFontId;
   }
   return bodyFontId;
@@ -217,7 +221,8 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       // the slow on-demand SD path.  Prewarm both sets together once.
       constexpr const char* kPreviewRegularGlyphs =
           "第一列の本文です。第二列は通常本文です。第三列の本文です。これは改行位置を確認するための長い文章です。"
-          "表示設定による行送りと余白も確認します。第四列はルビなし本文です。第五列は太字確認です。第六列（ABC 12ー）です。"
+          "表示設定による行送りと余白も確認します。第四列はルビなし本文です。第五列は太字確認です。第六列（ABC "
+          "12ー）です。"
           "第七列はルビなし本文です。第八列の本文です。第九列『春夏秋冬』です。だいいちれつだいさんれつ";
       cache->prewarmCache(fontId, kPreviewRegularGlyphs, 0x01);
       // Bold occurs only in the dedicated verification sample, so keep its
@@ -232,16 +237,17 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       // Mirror ChapterHtmlSlimParser::addLineToPage(): in vertical writing,
       // the reader's line-spacing setting scales the column width, then adds
       // the normal quarter-column gutter between adjacent columns.
-      const int columnWidth = std::max(1, static_cast<int>(renderer.getLineHeight(fontId) *
-                                                            SETTINGS.getReaderLineCompression(true)));
+      const int columnWidth =
+          std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * SETTINGS.getReaderLineCompression(true)));
       const int columnSpacing = columnWidth / 4;
       int nextColumnX = left + contentWidth - columnWidth;
       bool firstColumn = true;
       for (size_t sampleIndex = 0; sampleIndex < 9 && nextColumnX >= left; ++sampleIndex) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
         std::vector<std::shared_ptr<TextBlock>> columns;
-        sample.layoutVerticalColumns(renderer, fontId, static_cast<uint16_t>(contentHeight),
-                                     [&columns](std::shared_ptr<TextBlock> column) { columns.push_back(std::move(column)); });
+        sample.layoutVerticalColumns(
+            renderer, fontId, static_cast<uint16_t>(contentHeight),
+            [&columns](std::shared_ptr<TextBlock> column) { columns.push_back(std::move(column)); });
         for (const auto& column : columns) {
           int rubyRightInset = 0;
           if (column->hasRuby()) {
@@ -263,8 +269,7 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       // settings path used by ChapterHtmlSlimParser.  A sample item represents
       // one EPUB <p>, so omitting extraParagraphSpacing made horizontal text
       // look much tighter than the same text in the reader.
-      const int lineAdvance =
-          std::max(1, static_cast<int>(bodyLineHeight * SETTINGS.getReaderLineCompression(false)));
+      const int lineAdvance = std::max(1, static_cast<int>(bodyLineHeight * SETTINGS.getReaderLineCompression(false)));
       const int paragraphGap = (lineAdvance * static_cast<int>(direction.extraParagraphSpacing)) / 6;
       int y = top;
       for (size_t sampleIndex = 0; sampleIndex < 9; ++sampleIndex) {
@@ -291,10 +296,10 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       }
     }
   }
-  const auto labels = rubyAdjustActive
-                          ? mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), tr(STR_RUBY_X_MINUS), tr(STR_RUBY_X_PLUS))
-                          : mappedInput.mapLabels(tr(STR_BACK), tr(STR_RUBY_OFFSET), tr(STR_WM_HORIZONTAL),
-                                                  tr(STR_WM_VERTICAL));
+  const auto labels =
+      rubyAdjustActive
+          ? mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), tr(STR_RUBY_X_MINUS), tr(STR_RUBY_X_PLUS))
+          : mappedInput.mapLabels(tr(STR_BACK), tr(STR_RUBY_OFFSET), tr(STR_WM_HORIZONTAL), tr(STR_WM_VERTICAL));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   if (rubyAdjustActive) {
     GUI.drawSideButtonHints(renderer, tr(STR_RUBY_Y_MINUS), tr(STR_RUBY_Y_PLUS));

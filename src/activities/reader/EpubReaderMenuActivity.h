@@ -2,8 +2,8 @@
 #include <Epub.h>
 #include <I18n.h>
 
-#include <string>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "../Activity.h"

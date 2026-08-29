@@ -1,7 +1,8 @@
 #pragma once
 
-#include <cstdint>
 #include <I18n.h>
+
+#include <cstdint>
 
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"

@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 
+#include "BookReaderSettings.h"
 #include "CrossPointSettings.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
@@ -12,7 +13,6 @@
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
-#include "BookReaderSettings.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -95,9 +95,8 @@ void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
-  activityManager.replaceActivity(
-      std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub), activeBookHasReaderOverride,
-                                           activeBookFingerprint));
+  activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(
+      renderer, mappedInput, std::move(epub), activeBookHasReaderOverride, activeBookFingerprint));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {

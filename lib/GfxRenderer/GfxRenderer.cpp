@@ -7,11 +7,11 @@
 #include <Logging.h>
 #include <SdCardFont.h>
 #include <Utf8.h>
-#include "../../src/fontIds.h"
 
 #include <algorithm>
 #include <cstring>
 
+#include "../../src/fontIds.h"
 #include "FontCacheManager.h"
 #include "VerticalTextUtils.h"
 
@@ -32,18 +32,9 @@ constexpr int UI_FONT_COUNT = sizeof(UI_FONT_IDS) / sizeof(UI_FONT_IDS[0]);
 
 // Reader font IDs. These are generated from the current built-in font set.
 constexpr int READER_FONT_IDS[] = {
-    NOTOSERIF_12_FONT_ID,
-    NOTOSERIF_14_FONT_ID,
-    NOTOSERIF_16_FONT_ID,
-    NOTOSERIF_18_FONT_ID,
-    NOTOSANS_12_FONT_ID,
-    NOTOSANS_14_FONT_ID,
-    NOTOSANS_16_FONT_ID,
-    NOTOSANS_18_FONT_ID,
-    OPENDYSLEXIC_8_FONT_ID,
-    OPENDYSLEXIC_10_FONT_ID,
-    OPENDYSLEXIC_12_FONT_ID,
-    OPENDYSLEXIC_14_FONT_ID,
+    NOTOSERIF_12_FONT_ID,   NOTOSERIF_14_FONT_ID,    NOTOSERIF_16_FONT_ID,    NOTOSERIF_18_FONT_ID,
+    NOTOSANS_12_FONT_ID,    NOTOSANS_14_FONT_ID,     NOTOSANS_16_FONT_ID,     NOTOSANS_18_FONT_ID,
+    OPENDYSLEXIC_8_FONT_ID, OPENDYSLEXIC_10_FONT_ID, OPENDYSLEXIC_12_FONT_ID, OPENDYSLEXIC_14_FONT_ID,
 };
 constexpr int READER_FONT_COUNT = sizeof(READER_FONT_IDS) / sizeof(READER_FONT_IDS[0]);
 
@@ -2247,9 +2238,8 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     // vertically, while Yomika's established BIZUD rendering uses the
     // sideways (left-to-right) form. Force Noto through the rotated base
     // glyph path so the two Japanese font families match visually.
-    const bool rotateNotoColonSemicolon =
-        (displayCp == 0xFF1A || displayCp == 0xFF1B) && sdFont != nullptr &&
-        std::strstr(sdFont->getFilePath(), "Noto") != nullptr;
+    const bool rotateNotoColonSemicolon = (displayCp == 0xFF1A || displayCp == 0xFF1B) && sdFont != nullptr &&
+                                          std::strstr(sdFont->getFilePath(), "Noto") != nullptr;
     if (sdFont && VerticalTextUtils::shouldUseVertGlyph(displayCp) && !rotateNotoColonSemicolon) {
       vertGlyph = sdFont->getVertGlyph(displayCp, static_cast<uint8_t>(style));
       if (vertGlyph) {
