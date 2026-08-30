@@ -108,7 +108,7 @@ jobs:
             SHA256SUMS.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: CrossPoint Yomuka ${{ steps.release.outputs.version }}
           files: |
@@ -116,6 +116,9 @@ jobs:
             bootloader.bin
             partitions.bin
             SHA256SUMS.txt
+          # A versioned note documents the user-visible fixes. Keep body below
+          # as a safe fallback for a tag without a matching note file.
+          body_path: docs/releases/${{ github.ref_name }}.md
           body: |
             ## CrossPoint Yomuka ${{ steps.release.outputs.version }}
 
