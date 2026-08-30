@@ -162,7 +162,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 91: reserve ruby leading for every horizontal line and vertical column.
 // Version 92: use configured line/column spacing as the ruby-clearance
 // baseline, adding only the remaining collision clearance.
-constexpr uint8_t SECTION_FILE_VERSION = 92;
+// Version 93: supplementary CJK ideographs such as U+20B9F 𠮟 occupy
+// individual upright vertical cells instead of a sideways text run.
+// Version 94: expanded small-kana line-head prohibition changes vertical
+// column breaks, so cached section layouts must be regenerated.
+constexpr uint8_t SECTION_FILE_VERSION = 94;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

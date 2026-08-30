@@ -41,6 +41,10 @@ class SdCardFont {
   // correct after a long CJK section reaches the advance-table capacity.
   uint16_t getAdvanceOrLoad(uint32_t codepoint, uint8_t style);
 
+  // Like getAdvanceOrLoad(), but distinguishes a missing glyph from a glyph
+  // whose advance is legitimately zero (for example, a combining mark).
+  bool tryGetAdvanceOrLoad(uint32_t codepoint, uint8_t style, uint16_t& advanceOut);
+
   // Returns true if advance table is populated for at least one style.
   bool hasAdvanceTable() const;
 

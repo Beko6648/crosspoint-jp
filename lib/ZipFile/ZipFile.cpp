@@ -57,10 +57,9 @@ int zipReadCallback(uzlib_uncomp* uncomp) {
   if (ctx->fileRemaining == 0) return -1;
 
   const size_t toRead = ctx->fileRemaining < ctx->readBufSize ? ctx->fileRemaining : ctx->readBufSize;
-  const size_t bytesRead = ctx->file->read(ctx->readBuf, toRead);
-  ctx->fileRemaining -= bytesRead;
-
-  if (bytesRead == 0) return -1;
+  const int bytesRead = ctx->file->read(ctx->readBuf, toRead);
+  if (bytesRead <= 0) return -1;
+  ctx->fileRemaining -= static_cast<size_t>(bytesRead);
 
   uncomp->source = ctx->readBuf + 1;
   uncomp->source_limit = ctx->readBuf + bytesRead;

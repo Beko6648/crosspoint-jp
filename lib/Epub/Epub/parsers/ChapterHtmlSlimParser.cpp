@@ -166,6 +166,10 @@ bool isCjkCodepointForSplit(const uint32_t cp) {
   if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
   // CJK Unified Ideographs Extension A: U+3400 - U+4DBF
   if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+  // CJK Unified Ideographs Extensions B-F: supplementary-plane ideographs
+  // such as U+20B9F 𠮟 must remain individual vertical cells, rather than
+  // joining an ASCII-style sideways run.
+  if (cp >= 0x20000 && cp <= 0x2EBEF) return true;
   // CJK Punctuation: U+3000 - U+303F
   if (cp >= 0x3000 && cp <= 0x303F) return true;
   // Hiragana: U+3040 - U+309F

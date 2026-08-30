@@ -59,6 +59,7 @@ INTERVAL_PRESETS = {
     "jp-supplementary-common": [(0x20B9F, 0x20B9F)],  # 𠮟
     "arrows":      [(0x2190, 0x21FF)],
     "cjk_exta":    [(0x3400, 0x4DBF)],
+    "cjk_extb":    [(0x20000, 0x2EBEF)],
     "symbols": [
         (0x00D7, 0x00D7),  # ×
         (0x00F7, 0x00F7),  # ÷
