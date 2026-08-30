@@ -1006,14 +1006,46 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
 }
 
 uint16_t SdCardFont::getAdvanceOrLoad(const uint32_t codepoint, const uint8_t style) {
-  if (const uint16_t advance = getAdvance(codepoint, style); advance != 0) return advance;
+  uint16_t advance = 0;
+  return tryGetAdvanceOrLoad(codepoint, style, advance) ? advance : 0;
+}
+
+bool SdCardFont::tryGetAdvanceOrLoad(const uint32_t codepoint, uint8_t style, uint16_t& advanceOut) {
+  // Unlike getAdvance(), retain the distinction between an existing zero-width
+  // glyph and an absent table entry.
+  if (style >= MAX_STYLES || !advanceTable_[style]) {
+    if (style != 0 && advanceTable_[0]) {
+      style = 0;
+    } else {
+      return false;
+    }
+  }
+
+  const AdvanceEntry* table = advanceTable_[style];
+  const uint32_t size = advanceTableSize_[style];
+  uint32_t lo = 0;
+  uint32_t hi = size;
+  while (lo < hi) {
+    const uint32_t mid = lo + (hi - lo) / 2;
+    if (table[mid].codepoint < codepoint) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  if (lo < size && table[lo].codepoint == codepoint) {
+    advanceOut = table[lo].advanceX;
+    return true;
+  }
 
   // The compact table intentionally has a memory bound.  A missing entry must
-  // not become a zero-width glyph in layout: load its metadata through the
-  // existing overflow path, which also supplies the later render operation.
+  // first be checked through the existing overflow path, which also supplies
+  // the later render operation.
   const uint8_t resolvedStyle = resolveStyle(style);
   const EpdGlyph* glyph = onGlyphMiss(&overflowCtx_[resolvedStyle], codepoint);
-  return glyph ? glyph->advanceX : 0;
+  if (!glyph) return false;
+  advanceOut = glyph->advanceX;
+  return true;
 }
 
 int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
