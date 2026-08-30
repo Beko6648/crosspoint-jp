@@ -133,6 +133,7 @@ inline bool isAsciiAlphabeticWord(const char* text) {
 inline bool isUprightInVertical(uint32_t cp) {
   if (cp >= 0x4E00 && cp <= 0x9FFF) return true;  // CJK Unified Ideographs
   if (cp >= 0x3400 && cp <= 0x4DBF) return true;  // CJK Extension A
+  if (cp >= 0x20000 && cp <= 0x2EBEF) return true;  // CJK Extensions B–F
   if (cp >= 0x3040 && cp <= 0x309F) return true;  // Hiragana
   if (cp >= 0x30A0 && cp <= 0x30FF) return true;  // Katakana
   if (cp >= 0x3000 && cp <= 0x303F) return true;  // CJK Symbols and Punctuation
@@ -191,6 +192,38 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
 
 // Kinsoku (禁則) processing for vertical text column breaks.
 // Returns true if this codepoint must NOT appear at the start of a column.
+inline constexpr bool isSmallKana(uint32_t cp) {
+  switch (cp) {
+    case 0x3041:  // ぁ
+    case 0x3043:  // ぃ
+    case 0x3045:  // ぅ
+    case 0x3047:  // ぇ
+    case 0x3049:  // ぉ
+    case 0x3063:  // っ
+    case 0x3083:  // ゃ
+    case 0x3085:  // ゅ
+    case 0x3087:  // ょ
+    case 0x308E:  // ゎ
+    case 0x3095:  // ゕ
+    case 0x3096:  // ゖ
+    case 0x30A1:  // ァ
+    case 0x30A3:  // ィ
+    case 0x30A5:  // ゥ
+    case 0x30A7:  // ェ
+    case 0x30A9:  // ォ
+    case 0x30C3:  // ッ
+    case 0x30E3:  // ャ
+    case 0x30E5:  // ュ
+    case 0x30E7:  // ョ
+    case 0x30EE:  // ヮ
+    case 0x30F5:  // ヵ
+    case 0x30F6:  // ヶ
+      return true;
+    default:
+      return cp >= 0x31F0 && cp <= 0x31FF;  // Ainu small katakana
+  }
+}
+
 inline bool isKinsokuHead(uint32_t cp) {
   // Closing brackets and punctuation (行頭禁止)
   if (cp == 0x3001 || cp == 0x3002) return true;                                  // 、。
@@ -202,11 +235,9 @@ inline bool isKinsokuHead(uint32_t cp) {
   if (cp == 0xFF01 || cp == 0xFF1F) return true;                                  // ！？
   if (cp == 0xFF1A || cp == 0xFF1B) return true;                                  // ：；
   if (cp == 0x3009 || cp == 0x300B) return true;                                  // 〉》
-  // Small kana (行頭禁止)
-  if (cp == 0x3041 || cp == 0x3043 || cp == 0x3045 || cp == 0x3047 || cp == 0x3049) return true;  // ぁぃぅぇぉ
-  if (cp == 0x3063 || cp == 0x3083 || cp == 0x3085 || cp == 0x3087) return true;                  // っゃゅょ
-  if (cp == 0x30A1 || cp == 0x30A3 || cp == 0x30A5 || cp == 0x30A7 || cp == 0x30A9) return true;  // ァィゥェォ
-  if (cp == 0x30C3 || cp == 0x30E3 || cp == 0x30E5 || cp == 0x30E7) return true;                  // ッャュョ
+  // Small kana (行頭禁止). Keep this shared with the complete small-kana
+  // list so ゎ・ヮ・ゕ・ゖ・ヵ・ヶ and Ainu small katakana cannot be omitted.
+  if (isSmallKana(cp)) return true;
   if (cp == 0x30FC || cp == 0xFF70) return true;                                                  // ーｰ
   return false;
 }

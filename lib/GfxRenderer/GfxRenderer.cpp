@@ -54,6 +54,8 @@ bool isCjkCodepoint(const uint32_t cp) {
   if (cp >= 0x4E00 && cp <= 0x9FFF) return true;
   // CJK Unified Ideographs Extension A: U+3400 - U+4DBF
   if (cp >= 0x3400 && cp <= 0x4DBF) return true;
+  // CJK Unified Ideographs Extensions B-F, including U+20B9F 𠮟.
+  if (cp >= 0x20000 && cp <= 0x2EBEF) return true;
   // CJK Punctuation: U+3000 - U+303F
   if (cp >= 0x3000 && cp <= 0x303F) return true;
   // Hiragana: U+3040 - U+309F
@@ -1912,7 +1914,14 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     const uint8_t styleIdx = static_cast<uint8_t>(style);
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
       cp = displayCodepoint(cp, false);
-      widthFP += sdIt->second->getAdvanceOrLoad(cp, styleIdx);
+      uint16_t advance = 0;
+      if (!sdIt->second->tryGetAdvanceOrLoad(cp, styleIdx, advance)) {
+        // renderChar() draws '?' when the SD-card font has no requested
+        // glyph. Use the same width, so layout cannot collapse the missing
+        // character to zero and let the rendered fallback escape the column.
+        sdIt->second->tryGetAdvanceOrLoad('?', styleIdx, advance);
+      }
+      widthFP += advance;
     }
     const uint16_t scale = getSdCardFontScale(fontId);
     if (scale != 256) {
@@ -2254,6 +2263,14 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         charBuf[0] = static_cast<char>(0xE0 | (displayCp >> 12));
         charBuf[1] = static_cast<char>(0x80 | ((displayCp >> 6) & 0x3F));
         charBuf[2] = static_cast<char>(0x80 | (displayCp & 0x3F));
+      } else if (displayCp <= 0x10FFFF) {
+        // Supplementary-plane characters such as U+20B9F (𠮟) need four
+        // UTF-8 bytes.  Without this, the vertical fallback path passes an
+        // empty string to drawText() and the character disappears.
+        charBuf[0] = static_cast<char>(0xF0 | (displayCp >> 18));
+        charBuf[1] = static_cast<char>(0x80 | ((displayCp >> 12) & 0x3F));
+        charBuf[2] = static_cast<char>(0x80 | ((displayCp >> 6) & 0x3F));
+        charBuf[3] = static_cast<char>(0x80 | (displayCp & 0x3F));
       }
       const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(displayCp);
       if (punctuation && punctuation->rotate) {
