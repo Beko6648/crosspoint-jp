@@ -163,7 +163,7 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // individual upright vertical cells instead of a sideways text run.
 // Version 94: expanded small-kana line-head prohibition changes vertical
 // column breaks, so cached section layouts must be regenerated.
-constexpr uint8_t SECTION_FILE_VERSION = 94;
+constexpr uint8_t SECTION_FILE_VERSION = 95;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

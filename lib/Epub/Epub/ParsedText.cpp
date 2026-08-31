@@ -174,16 +174,23 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
   wordStyles.push_back(combinedStyle);
   wordContinues.push_back(attachToPrevious);
+
+  // Keep this metadata parallel to words even in horizontal documents. Some
+  // vertical EPUBs add an invisible break or a list marker through this
+  // overload before adding explicitly classified text. Omitting an entry then
+  // shifts later behaviors one word to the left, so "第" may inherit the
+  // following number's TateChuYoko mode.
+  if (wordVerticalBehaviors.capacity() == 0) {
+    wordVerticalBehaviors.reserve(800);
+  }
+  wordVerticalBehaviors.push_back(VerticalTextUtils::VerticalBehavior::Upright);
 }
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
                          const VerticalTextUtils::VerticalBehavior vBehavior, const bool underline,
                          const bool attachToPrevious) {
   addWord(std::move(word), fontStyle, underline, attachToPrevious);
-  if (wordVerticalBehaviors.capacity() == 0) {
-    wordVerticalBehaviors.reserve(800);
-  }
-  wordVerticalBehaviors.push_back(vBehavior);
+  wordVerticalBehaviors.back() = vBehavior;
 }
 
 // U+FFFC (OBJECT REPLACEMENT CHARACTER) — インライン画像のダミー文字。1コードポイントなので
@@ -329,19 +336,23 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
 
   const int lineHeight = renderer.getLineHeight(fontId);
 
-  // Compute CJK character advance once from the first fullwidth Upright word.
+  // Compute CJK character advance once from the first upright CJK body word.
   // This is used as the reference cell height for TateChuYoko and spacing.
   // Prefer a fullwidth glyph whenever the paragraph contains one, so embedded
   // halfwidth kana follow the surrounding Japanese rhythm. Halfwidth-only
   // paragraphs use a separate fallback below.
   int cjkCharAdvance = 0;
+  auto isCjkBodyCodepoint = [](const uint32_t cp) {
+    return (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) ||
+           (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x3041 && cp <= 0x3096) ||
+           (cp >= 0x30A1 && cp <= 0x30FA);
+  };
   for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
     auto vb =
         (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
     const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
     const uint32_t firstCp = utf8NextCodepoint(&p);
-    if (vb == VerticalTextUtils::VerticalBehavior::Upright && !utf8IsJapaneseVoicingMark(firstCp) &&
-        !VerticalTextUtils::isHalfwidthKatakana(firstCp)) {
+    if (vb == VerticalTextUtils::VerticalBehavior::Upright && isCjkBodyCodepoint(firstCp)) {
       cjkCharAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
     }
   }
@@ -435,7 +446,13 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
           break;
 
         default:
-          baseHeight = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
+          // SD-font metrics can occasionally be unavailable for one glyph
+          // while the glyph bitmap itself is still drawable.  A zero advance
+          // would make this character share its cell with the following word
+          // (for example, the digit in \"第1章\").  Keep upright CJK text on
+          // the paragraph's measured fullwidth pitch in that case.
+          const int measuredAdvance = renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]);
+          baseHeight = static_cast<uint16_t>(measuredAdvance > 0 ? measuredAdvance : cjkCharAdvance);
           break;
       }
 
