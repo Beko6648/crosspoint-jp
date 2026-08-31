@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <FontManager.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -840,19 +841,39 @@ void AozoraActivity::loop() {
       return;
     }
 
-    buttonNavigator_.onNextRelease([this] {
+    // Front buttons select an author one row at a time. Side buttons move one
+    // visible list page, so a long author list stays quick to browse without
+    // mixing cursor movement and page navigation on one press.
+    buttonNavigator_.onRelease({MappedInputManager::Button::Right}, [this] {
       if (selectedIndex_ < static_cast<int>(authors_.size()) - 1) {
         selectedIndex_++;
         requestUpdate();
       }
     });
 
-    buttonNavigator_.onPreviousRelease([this] {
+    buttonNavigator_.onRelease({MappedInputManager::Button::Left}, [this] {
       if (selectedIndex_ > 0) {
         selectedIndex_--;
         requestUpdate();
       }
     });
+
+    const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      const int lastIndex = static_cast<int>(authors_.size()) - 1;
+      const int nextIndex = std::min(lastIndex, selectedIndex_ + pageItems);
+      if (nextIndex != selectedIndex_) {
+        selectedIndex_ = nextIndex;
+        requestUpdate();
+      }
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      const int previousIndex = std::max(0, selectedIndex_ - pageItems);
+      if (previousIndex != selectedIndex_) {
+        selectedIndex_ = previousIndex;
+        requestUpdate();
+      }
+    }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       if (!authors_.empty()) {
@@ -877,22 +898,26 @@ void AozoraActivity::loop() {
       return;
     }
 
-    buttonNavigator_.onNextRelease([this] {
+    // Keep side buttons exclusively for page fetches. ButtonNavigator's
+    // next/previous helpers also include Up/Down, which would otherwise move
+    // the cursor and fetch a new page on the same side-button press.
+    buttonNavigator_.onRelease({MappedInputManager::Button::Right}, [this] {
       if (selectedIndex_ < static_cast<int>(works_.size()) - 1) {
         selectedIndex_++;
         requestUpdate();
       }
     });
 
-    buttonNavigator_.onPreviousRelease([this] {
+    buttonNavigator_.onRelease({MappedInputManager::Button::Left}, [this] {
       if (selectedIndex_ > 0) {
         selectedIndex_--;
         requestUpdate();
       }
     });
 
-    // ページ送り（右ボタン=次ページ、左ボタン=前ページ）
-    if (mappedInput.wasPressed(MappedInputManager::Button::PageForward)) {
+    // This horizontal list follows physical side-button order, irrespective of
+    // the reader's configurable PageBack/PageForward preference.
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
       if (worksOffset_ + WORKS_PAGE_SIZE < worksTotal_) {
         worksOffset_ += WORKS_PAGE_SIZE;
         {
@@ -912,7 +937,7 @@ void AozoraActivity::loop() {
       }
     }
 
-    if (mappedInput.wasPressed(MappedInputManager::Button::PageBack)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
       if (worksOffset_ > 0) {
         worksOffset_ = (worksOffset_ >= WORKS_PAGE_SIZE) ? worksOffset_ - WORKS_PAGE_SIZE : 0;
         {
@@ -1285,6 +1310,11 @@ void AozoraActivity::render(RenderLock&&) {
 
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      // X3's horizontal side-button hint overlaps a dense author list. The
+      // controls stay active there, but only X4 shows the side labels.
+      if (!gpio.deviceIsX3()) {
+        GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
+      }
     }
 
   } else if (state_ == WORK_LIST) {
