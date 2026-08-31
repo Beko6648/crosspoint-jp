@@ -4,7 +4,23 @@
 
 class MappedInputManager {
  public:
-  enum class Button { Back, Confirm, Left, Right, Up, Down, Power, PageBack, PageForward };
+  // Up/Down describe the first/second physical side button. On X4 these are
+  // the upper/lower buttons; on X3 they are the left/right buttons.
+  // ValueIncrease/ValueDecrease are deliberately separate because the natural
+  // increase direction is up on X4 but right on X3.
+  enum class Button {
+    Back,
+    Confirm,
+    Left,
+    Right,
+    Up,
+    Down,
+    ValueIncrease,
+    ValueDecrease,
+    Power,
+    PageBack,
+    PageForward
+  };
   enum class Orientation { Portrait, PortraitInverted, LandscapeClockwise, LandscapeCounterClockwise };
 
   struct Labels {

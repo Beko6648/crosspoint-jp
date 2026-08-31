@@ -52,8 +52,10 @@ void LineSpacingSelectionActivity::loop() {
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustValue(-kSmallStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustValue(kSmallStep); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] { adjustValue(kLargeStep); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] { adjustValue(-kLargeStep); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ValueIncrease},
+                                       [this] { adjustValue(kLargeStep); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ValueDecrease},
+                                       [this] { adjustValue(-kLargeStep); });
 }
 
 void LineSpacingSelectionActivity::render(RenderLock&&) {
@@ -92,13 +94,9 @@ void LineSpacingSelectionActivity::render(RenderLock&&) {
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  // The first side hint is the physical upper button on X4. Its logical
-  // action is Up (+10); portrait-inverted swaps the two physical buttons.
-  bool upAtFirstHint = true;
-  if (renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted) {
-    upAtFirstHint = !upAtFirstHint;
-  }
-  GUI.drawSideButtonHints(renderer, upAtFirstHint ? "+10" : "-10", upAtFirstHint ? "-10" : "+10");
+  // ValueIncrease is the physical upper side button on X4. X3 uses its
+  // right-side button instead and does not show these X4-specific hints.
+  GUI.drawSideButtonHints(renderer, "+10", "-10");
 
   renderer.displayBuffer();
 }
