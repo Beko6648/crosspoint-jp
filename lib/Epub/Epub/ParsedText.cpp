@@ -350,9 +350,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   // paragraphs use a separate fallback below.
   int cjkCharAdvance = 0;
   auto isCjkBodyCodepoint = [](const uint32_t cp) {
-    return (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) ||
-           (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x3041 && cp <= 0x3096) ||
-           (cp >= 0x30A1 && cp <= 0x30FA);
+    return (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+           (cp >= 0x3041 && cp <= 0x3096) || (cp >= 0x30A1 && cp <= 0x30FA);
   };
   for (size_t i = 0; i < words.size() && cjkCharAdvance == 0; i++) {
     auto vb =
