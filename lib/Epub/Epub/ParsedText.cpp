@@ -189,7 +189,14 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
                          const VerticalTextUtils::VerticalBehavior vBehavior, const bool underline,
                          const bool attachToPrevious) {
+  const size_t wordCount = words.size();
   addWord(std::move(word), fontStyle, underline, attachToPrevious);
+
+  // The parser flushes at element boundaries even when its temporary buffer is
+  // empty. In that case addWord() intentionally does nothing, so there is no
+  // behavior entry to update. Calling back() here would write before the
+  // vector on a fresh block and corrupt the heap.
+  if (words.size() == wordCount) return;
   wordVerticalBehaviors.back() = vBehavior;
 }
 
