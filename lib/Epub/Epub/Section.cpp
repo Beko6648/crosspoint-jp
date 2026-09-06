@@ -166,7 +166,12 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // individual upright vertical cells instead of a sideways text run.
 // Version 94: expanded small-kana line-head prohibition changes vertical
 // column breaks, so cached section layouts must be regenerated.
-constexpr uint8_t SECTION_FILE_VERSION = 96;
+// Version 97: circled digits use full upright vertical character cells.
+// Version 98: inline images retain a minimum vertical gutter at zero spacing.
+// Version 99: enlarge that gutter to prevent overhanging glyph ink from touching images.
+// Version 100: place inline images after the preceding glyph's visual cell.
+// Version 101: UAX #50 changes vertical token boundaries and cached geometry.
+constexpr uint8_t SECTION_FILE_VERSION = 101;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

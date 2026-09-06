@@ -176,6 +176,9 @@ bool isCjkCodepointForSplit(const uint32_t cp) {
   if (cp >= 0x3040 && cp <= 0x309F) return true;
   // Katakana: U+30A0 - U+30FF
   if (cp >= 0x30A0 && cp <= 0x30FF) return true;
+  // Circled digits and letters must stay individual upright cells in vertical
+  // text, rather than joining the surrounding sideways text run.
+  if (VerticalTextUtils::isEnclosedAlphanumeric(cp)) return true;
   // CJK Compatibility Ideographs: U+F900 - U+FAFF
   if (cp >= 0xF900 && cp <= 0xFAFF) return true;
   // Fullwidth forms: U+FF00 - U+FFEF
@@ -1363,7 +1366,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       continue;
     }
 
-    if (isCjkCodepointForSplit(cp)) {
+    // In horizontal text retain the existing CJK word splitter. In vertical
+    // text, UAX #50 is the source of truth: U/Tu characters are individual
+    // upright cells, Tr characters remain individual cells for a vertical
+    // glyph or rotation fallback, and R characters stay in sideways runs.
+    const bool splitIntoVerticalCell = self->verticalMode &&
+                                       (VerticalTextUtils::isUprightInVertical(cp) ||
+                                        VerticalTextUtils::isTransformedRotatedInVertical(cp));
+    if ((!self->verticalMode && isCjkCodepointForSplit(cp)) || splitIntoVerticalCell) {
       // CJK character: flush any buffered content first
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();

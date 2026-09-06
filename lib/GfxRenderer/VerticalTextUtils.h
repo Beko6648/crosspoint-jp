@@ -2,7 +2,13 @@
 
 #include <cstdint>
 
+#include "VerticalOrientationData.h"
+
 namespace VerticalTextUtils {
+
+// UAX #50's codepoint-level default is available alongside the current
+// renderer behavior during the migration. New vertical rules must be checked
+// against isUaxUprightInVertical() rather than adding ad-hoc block ranges.
 
 // Character behavior in vertical text layout
 enum class VerticalBehavior : uint8_t {
@@ -85,6 +91,13 @@ inline bool isHalfwidthKatakana(uint32_t cp) {
 // Keep a two-character ASCII !/? sequence in one vertical cell. A single
 // mark and longer runs deliberately remain sideways, matching Japanese
 // vertical typesetting conventions.
+// Circled digits and related enclosed alphanumerics are conventionally kept
+// upright in Japanese vertical text. They are narrow glyphs, but use a full
+// Japanese character cell for line breaking and spacing.
+inline bool isEnclosedAlphanumeric(uint32_t cp) {
+  return cp >= 0x2460 && cp <= 0x24FF;
+}
+
 inline bool isTateChuYokoPunctuationPair(const char* text) {
   return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') &&
          text[2] == '\0';
@@ -131,29 +144,13 @@ inline bool isAsciiAlphabeticWord(const char* text) {
 // Determine if a codepoint should be drawn upright in vertical text.
 // CJK ideographs, kana, CJK symbols, fullwidth forms, etc.
 inline bool isUprightInVertical(uint32_t cp) {
-  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;  // CJK Unified Ideographs
-  if (cp >= 0x3400 && cp <= 0x4DBF) return true;  // CJK Extension A
-  if (cp >= 0x20000 && cp <= 0x2EBEF) return true;  // CJK Extensions B–F
-  if (cp >= 0x3040 && cp <= 0x309F) return true;  // Hiragana
-  if (cp >= 0x30A0 && cp <= 0x30FF) return true;  // Katakana
-  if (cp >= 0x3000 && cp <= 0x303F) return true;  // CJK Symbols and Punctuation
-  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;  // Fullwidth Forms
-  if (cp >= 0xF900 && cp <= 0xFAFF) return true;  // CJK Compatibility Ideographs
-  if (cp >= 0x3200 && cp <= 0x32FF) return true;  // Enclosed CJK Letters
-  if (cp >= 0x3300 && cp <= 0x33FF) return true;  // CJK Compatibility
-  if (cp >= 0x3100 && cp <= 0x312F) return true;  // Bopomofo
-  if (cp >= 0xAC00 && cp <= 0xD7AF) return true;  // Hangul
-  // Horizontal bars have OpenType vertical substitutions. Treat each as a
-  // single vertical cell rather than rotating a combined text run.
-  if (cp == 0x2014 || cp == 0x2015) return true;
-  // Common symbols used upright in Japanese vertical text.
-  if (cp == 0x2605 || cp == 0x2606 ||  // ★ ☆
-      cp == 0x25BD || cp == 0x25BC ||  // ▽ ▼
-      cp == 0x25B3 || cp == 0x25B2 ||  // △ ▲
-      cp == 0x2642 || cp == 0x2640 ||  // ♂ ♀
-      cp == 0x266A)                    // ♪
-    return true;
-  return false;
+  return isUaxUprightInVertical(cp);
+}
+
+// Tr characters require a vertical presentation when the font has one, but
+// still reserve a single Japanese cell when Yomuka falls back to rotation.
+inline bool isTransformedRotatedInVertical(const uint32_t cp) {
+  return getUaxVerticalOrientation(cp) == UaxVerticalOrientation::TransformedRotated;
 }
 
 // Should this codepoint use the OpenType 'vert' substitute glyph?
@@ -187,6 +184,12 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   if (cp == 0x22EF) return true;                  // ⋯
   return false;
 }
+
+// Small kana use horizontal glyphs in the bitmap renderer. In vertical text,
+// move their ink toward the conventional upper-right position while keeping
+// their cell advance unchanged.
+static constexpr int SMALL_KANA_DX_PERCENT = 11;
+static constexpr int SMALL_KANA_DY_PERCENT = 10;
 
 // Kinsoku (禁則) processing for vertical text column breaks.
 // Returns true if this codepoint must NOT appear at the start of a column.

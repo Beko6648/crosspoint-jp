@@ -32,9 +32,11 @@
 #include "MappedInputManager.h"
 #include "OrientationHelper.h"
 #include "ProgressFile.h"
+#include "ReadingHistoryStore.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "ReadingStatusHelper.h"
 #include "SdCardFontGlobals.h"
 #include "activities/settings/DiagnosticsActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
@@ -45,6 +47,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
+#include "util/BookDataPath.h"
 #include "util/CacheGenerationControls.h"
 #include "util/ScreenshotUtil.h"
 
@@ -62,7 +65,7 @@ constexpr float BOOKMARK_PROGRESS_EPSILON = 0.0001f;
 // Small, short EPUBs are quick to build lazily as the reader reaches each
 // section. Avoid interrupting their first open with a full-cache prompt.
 constexpr size_t SMALL_BOOK_CACHE_PROMPT_MAX_TEXT_BYTES = 256 * 1024;
-constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 15;
+constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 10;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -301,22 +304,39 @@ void EpubReaderActivity::onEnter() {
   // enterNewActivity() → OrientationHelper::applyOrientation() before onEnter().
 
   epub->setupCacheDir();
+  // Opening a book can change its progress or invalidate a complete cache
+  // marker. Drop the browser's summary entry once; it will be refreshed from
+  // the authoritative per-book files on the next folder view.
+  invalidateBookListStatusIndexEntry(epub->getPath(), "/.crosspoint");
   loadCachedBookmarks();
 
-  FsFile f;
-  if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[6];
-    int dataSize = f.read(data, 6);
-    if (dataSize == 4 || dataSize == 6) {
+  const std::string legacyProgressPath = epub->getCachePath() + "/progress.bin";
+  uint64_t bookId = 0;
+  const bool hasBookId = epub->getSourceFingerprint(&bookId);
+  const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId) : legacyProgressPath;
+  uint8_t data[7] = {};
+  size_t dataSize = 0;
+  if (Storage.exists(progressPath.c_str())) {
+    dataSize = ProgressFile::readLegacyCompatible(progressPath, data);
+  } else if (hasBookId) {
+    dataSize = ProgressFile::readLegacyCompatible(legacyProgressPath, data);
+    if (dataSize != 0 && BookDataPath::ensureDirectory(bookId) &&
+        ProgressFile::writeAtomicPath(progressPath, data, dataSize)) {
+      LOG_INF("ERS", "Migrated progress to BookId %016llx", static_cast<unsigned long long>(bookId));
+    }
+  } else {
+    dataSize = ProgressFile::readLegacyCompatible(legacyProgressPath, data);
+  }
+  if (dataSize != 0) {
+    if (dataSize == 4 || dataSize == 6 || dataSize == 7) {
       currentSpineIndex = data[0] + (data[1] << 8);
       nextPageNumber = data[2] + (data[3] << 8);
       cachedSpineIndex = currentSpineIndex;
       LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
     }
-    if (dataSize == 6) {
+    if (dataSize == 6 || dataSize == 7) {
       cachedChapterTotalPageCount = data[4] + (data[5] << 8);
     }
-    f.close();
   }
   // We may want a better condition to detect if we are opening for the first time.
   // This will trigger if the book is re-opened at Chapter 0.
@@ -331,7 +351,10 @@ void EpubReaderActivity::onEnter() {
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), bookId);
+  const auto beginReadingSession = [this, bookId] {
+    if (epub) READING_HISTORY.beginSession(epub->getPath(), epub->getTitle(), epub->getAuthor(), bookId);
+  };
 
   // Showing the prompt once is enough.  A cancelled generation remains resumable
   // from the Reader menu, so reopening the book must not interrupt reading again.
@@ -346,13 +369,17 @@ void EpubReaderActivity::onEnter() {
       promptMarker.close();
     }
 
-    auto handler = [this](const ActivityResult& res) {
+    auto handler = [this, beginReadingSession](const ActivityResult& res) {
       if (!res.isCancelled) {
         pregenerateCache();
+        // Do not attribute the cache build to the book.  The session begins
+        // only once the reader can show the actual text.
+        beginReadingSession();
         requestUpdate();
       } else {
         // Left means "Later". Back keeps the existing close-book behavior.
         if (std::holds_alternative<MenuResult>(res.data)) {
+          beginReadingSession();
           requestUpdate();
         } else {
           onGoHome();
@@ -366,11 +393,13 @@ void EpubReaderActivity::onEnter() {
     return;
   }
 
+  beginReadingSession();
   requestUpdate();
 }
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+  READING_HISTORY.endSession();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -453,6 +482,8 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+  READING_HISTORY.tick();
+  if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) READING_HISTORY.noteInteraction();
   if (!epub) {
     // Should never happen
     finish();
@@ -944,7 +975,16 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       return;
     }
     case EpubReaderMenuActivity::MenuAction::GENERATE_CACHE:
+      // Cache building can take minutes on large books. Commit the current
+      // reading interval before it and start a fresh one afterwards so it is
+      // never included in the meter.
+      READING_HISTORY.endSession();
       pregenerateCache();
+      if (epub) {
+        uint64_t bookId = 0;
+        epub->getSourceFingerprint(&bookId);
+        READING_HISTORY.beginSession(epub->getPath(), epub->getTitle(), epub->getAuthor(), bookId);
+      }
       requestUpdate();
       break;
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
@@ -1464,7 +1504,18 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   data[4] = pageCount & 0xFF;
   data[5] = (pageCount >> 8) & 0xFF;
   data[6] = isFinished ? 1 : 0;
-  if (ProgressFile::writeAtomic(epub->getCachePath(), data, sizeof(data))) {
+  uint64_t bookId = 0;
+  const bool hasBookId = epub->getSourceFingerprint(&bookId);
+  const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId)
+                                             : epub->getCachePath() + "/progress.bin";
+  if ((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
+      ProgressFile::writeAtomicPath(progressPath, data, sizeof(data))) {
+    std::vector<BookListStatusEntry> statusEntries;
+    loadBookListStatusIndex("/.crosspoint", statusEntries);
+    updateBookListStatusIndex(epub->getPath(), isFinished ? ReadingStatus::Finished : ReadingStatus::Reading,
+                              CachedBookStatus::Unknown, statusEntries);
+    saveBookListStatusIndex("/.crosspoint", statusEntries);
+    if (isFinished) READING_HISTORY.markFinished(epub->getPath(), bookId);
     LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d", spineIndex, currentPage, isFinished);
   } else {
     LOG_ERR("ERS", "Could not save progress!");
@@ -1633,11 +1684,24 @@ void EpubReaderActivity::loadCachedBookmarks() {
   cachedBookmarks.clear();
   currentPageBookmarked = false;
   if (!epub) return;
-  const std::string path = BookmarkUtil::getBookmarkPath(epub->getPath());
+  const std::string legacyPath = BookmarkUtil::getBookmarkPath(epub->getPath());
+  uint64_t bookId = 0;
+  const bool hasBookId = epub->getSourceFingerprint(&bookId);
+  const std::string path = hasBookId ? BookDataPath::getBookmarkPath(bookId) : legacyPath;
   BookmarkUtil::recoverBookmarkFile(path);
-  if (!Storage.exists(path.c_str())) return;
-  const String json = Storage.readFile(path.c_str());
-  if (!json.isEmpty()) JsonSettingsIO::loadBookmarks(cachedBookmarks, json.c_str(), MAX_BOOKMARKS_PER_BOOK);
+  if (Storage.exists(path.c_str())) {
+    const String json = Storage.readFile(path.c_str());
+    if (!json.isEmpty()) JsonSettingsIO::loadBookmarks(cachedBookmarks, json.c_str(), MAX_BOOKMARKS_PER_BOOK);
+  } else if (hasBookId) {
+    BookmarkUtil::recoverBookmarkFile(legacyPath);
+    if (Storage.exists(legacyPath.c_str())) {
+      const String json = Storage.readFile(legacyPath.c_str());
+      if (!json.isEmpty() && JsonSettingsIO::loadBookmarks(cachedBookmarks, json.c_str(), MAX_BOOKMARKS_PER_BOOK) &&
+          BookDataPath::ensureDirectory(bookId) && JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str())) {
+        LOG_INF("BKM", "Migrated bookmarks to BookId %016llx", static_cast<unsigned long long>(bookId));
+      }
+    }
+  }
   updateBookmarkFlag();
 }
 
@@ -1682,8 +1746,12 @@ void EpubReaderActivity::toggleBookmark() {
     cachedBookmarks.insert(cachedBookmarks.begin(), std::move(entry));
     bookmarkNotice = BookmarkNotice::ADDED;
   }
-  Storage.mkdir(BookmarkUtil::getBookmarksDir().c_str());
-  if (!JsonSettingsIO::saveBookmarks(cachedBookmarks, BookmarkUtil::getBookmarkPath(epub->getPath()).c_str())) {
+  uint64_t bookId = 0;
+  const bool hasBookId = epub->getSourceFingerprint(&bookId);
+  const std::string path = hasBookId ? BookDataPath::getBookmarkPath(bookId)
+                                     : BookmarkUtil::getBookmarkPath(epub->getPath());
+  if (!((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
+        JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str()))) {
     LOG_ERR("BKM", "Failed to save bookmarks");
   }
   updateBookmarkFlag();

@@ -15,8 +15,11 @@
 
 #include "../util/ConfirmationActivity.h"
 #include "CrossPointSettings.h"
+#include "BookIdentity.h"
 #include "MappedInputManager.h"
 #include "ReadingStatusHelper.h"
+#include "ReadingHistoryStore.h"
+#include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "components/CacheStatusIcon.h"
 #include "fontIds.h"
@@ -29,6 +32,31 @@ constexpr char CACHE_STATUS_VALUE_SPACER[] = "    ";
 // never collide with a real SD filename.
 constexpr const char* MOVE_HERE_MARKER = "\x01";
 bool isMoveHereEntry(const std::string& entry) { return entry == MOVE_HERE_MARKER; }
+
+CachedBookStatus toCachedBookStatus(const Epub::CacheGenerationStatus status) {
+  switch (status) {
+    case Epub::CacheGenerationStatus::Complete:
+      return CachedBookStatus::Complete;
+    case Epub::CacheGenerationStatus::Resumable:
+      return CachedBookStatus::Resumable;
+    case Epub::CacheGenerationStatus::NotGenerated:
+      return CachedBookStatus::NotGenerated;
+  }
+  return CachedBookStatus::Unknown;
+}
+
+Epub::CacheGenerationStatus fromCachedBookStatus(const CachedBookStatus status) {
+  switch (status) {
+    case CachedBookStatus::Complete:
+      return Epub::CacheGenerationStatus::Complete;
+    case CachedBookStatus::Resumable:
+      return Epub::CacheGenerationStatus::Resumable;
+    case CachedBookStatus::NotGenerated:
+    case CachedBookStatus::Unknown:
+      return Epub::CacheGenerationStatus::NotGenerated;
+  }
+  return Epub::CacheGenerationStatus::NotGenerated;
+}
 
 }  // namespace
 
@@ -95,7 +123,8 @@ void FileBrowserActivity::cacheCurrentDirectory() {
     directoryCache.erase(directoryCache.begin());
   }
   directoryCache.push_back(
-      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(fileCacheStatuses)});
+      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusCacheEntries),
+       std::move(readingStatusKnown), std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
   loadedPath.clear();
 }
 
@@ -107,7 +136,10 @@ bool FileBrowserActivity::restoreCachedDirectory() {
   loadedPath = std::move(cached->path);
   files = std::move(cached->files);
   fileStatuses = std::move(cached->statuses);
+  readingStatusCacheEntries = std::move(cached->readingStatusCacheEntries);
+  readingStatusKnown = std::move(cached->readingStatusKnown);
   fileCacheStatuses = std::move(cached->cacheStatuses);
+  fileCacheStatusKnown = std::move(cached->cacheStatusKnown);
   directoryCache.erase(cached);
   return true;
 }
@@ -127,7 +159,10 @@ void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
     loadedPath.clear();
     files.clear();
     fileStatuses.clear();
+    readingStatusCacheEntries.clear();
+    readingStatusKnown.clear();
     fileCacheStatuses.clear();
+    fileCacheStatusKnown.clear();
   }
 }
 
@@ -150,7 +185,10 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   files.clear();
   fileStatuses.clear();
+  readingStatusCacheEntries.clear();
+  readingStatusKnown.clear();
   fileCacheStatuses.clear();
+  fileCacheStatusKnown.clear();
 
   uint32_t scannedEntries = 0;
   uint32_t getNameCalls = 0;
@@ -218,34 +256,66 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
   }
   const unsigned long sortMs = millis() - sortStartedAt;
 
-  const unsigned long statusStartedAt = millis();
-  getReadingStatuses(basepath, files, "/.crosspoint", fileStatuses);
-  fileCacheStatuses.reserve(files.size());
-  for (const auto& file : files) {
-    if (FsHelpers::hasEpubExtension(file)) {
-      std::string fullPath = basepath;
-      if (fullPath.back() != '/') fullPath += '/';
-      fullPath += file;
-      fileCacheStatuses.push_back(Epub(fullPath, "/.crosspoint").getCacheGenerationStatus());
-    } else {
-      fileCacheStatuses.push_back(Epub::CacheGenerationStatus::NotGenerated);
+  const unsigned long readingStatusStartedAt = millis();
+  getReadingStatusCacheEntries("/.crosspoint", readingStatusCacheEntries);
+  fileStatuses.assign(files.size(), ReadingStatus::Unread);
+  readingStatusKnown.assign(files.size(), false);
+  std::string fullBase = basepath;
+  if (fullBase.back() != '/') fullBase += '/';
+  for (size_t index = 0; index < files.size(); ++index) {
+    CachedBookStatus cacheStatus = CachedBookStatus::Unknown;
+    if (getBookListStatusFromIndex(fullBase + files[index], readingStatusCacheEntries, bookListStatusIndex,
+                                   fileStatuses[index], cacheStatus)) {
+      readingStatusKnown[index] = true;
     }
   }
-  const unsigned long statusMs = millis() - statusStartedAt;
+  const unsigned long readingStatusMs = millis() - readingStatusStartedAt;
+
+  uint32_t epubEntries = 0;
+  for (const auto& file : files) {
+    if (FsHelpers::hasEpubExtension(file)) {
+      ++epubEntries;
+    }
+  }
+  fileCacheStatuses.assign(files.size(), Epub::CacheGenerationStatus::NotGenerated);
+  fileCacheStatusKnown.assign(files.size(), false);
+
+  // Restore known cache-status values after sizing the current directory's
+  // vectors. Entries absent from the cache root intentionally remain unknown.
+  for (size_t index = 0; index < files.size(); ++index) {
+    const std::string filepath = fullBase + files[index];
+    if (FsHelpers::hasEpubExtension(files[index]) && !hasBookCacheEntry(filepath, readingStatusCacheEntries)) {
+      // A missing per-book cache directory cannot be resumable or complete.
+      // The root scan already established this without another SD access.
+      fileCacheStatusKnown[index] = true;
+      continue;
+    }
+    ReadingStatus readingStatus;
+    CachedBookStatus cacheStatus = CachedBookStatus::Unknown;
+    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex,
+                                   readingStatus, cacheStatus) && cacheStatus != CachedBookStatus::Unknown) {
+      fileCacheStatuses[index] = fromCachedBookStatus(cacheStatus);
+      fileCacheStatusKnown[index] = true;
+    }
+  }
 
   loadedPath = basepath;
   LOG_DBG("FBPERF",
-          "path=%s cache=miss open=%lu scan=%lu sort=%lu status=%lu total=%lu ms raw=%lu visible=%lu "
+          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu visible=%lu "
           "openNext=%lu getName=%lu isDirectory=%lu close=%lu",
-          basepath.c_str(), openMs, scanMs, sortMs, statusMs, millis() - totalStartedAt,
+          basepath.c_str(), openMs, scanMs, sortMs, readingStatusMs, millis() - totalStartedAt,
           static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),
           static_cast<unsigned long>(scannedEntries + 1), static_cast<unsigned long>(getNameCalls),
           static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2));
+  LOG_DBG("FBPERF", "path=%s epubCacheStatus=deferred epubs=%lu metadata=0 cover=0", basepath.c_str(),
+          static_cast<unsigned long>(epubEntries));
   return DirectoryLoadResult::Loaded;
 }
 
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
+
+  loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
 
   selectorIndex = 0;
   lockNextConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -271,8 +341,13 @@ void FileBrowserActivity::onEnter() {
 
 void FileBrowserActivity::onExit() {
   Activity::onExit();
+  if (bookListStatusIndexDirty) saveBookListStatusIndex("/.crosspoint", bookListStatusIndex);
   files.clear();
+  fileStatuses.clear();
+  readingStatusCacheEntries.clear();
+  readingStatusKnown.clear();
   fileCacheStatuses.clear();
+  fileCacheStatusKnown.clear();
 }
 
 void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
@@ -332,6 +407,11 @@ FileBrowserActivity::MoveResult FileBrowserActivity::moveEntry(const std::string
 }
 
 void FileBrowserActivity::loop() {
+  if (bookListStatusIndexDirty) {
+    RenderLock lock(*this);
+    if (saveBookListStatusIndex("/.crosspoint", bookListStatusIndex)) bookListStatusIndexDirty = false;
+  }
+
   // Long press BACK (1s+) goes to root folder
   // but Long press BACK (1s+) from ReaderActivity sends us here with the MappedInput already set.
   // So ignore it the first time.
@@ -389,6 +469,8 @@ void FileBrowserActivity::loop() {
           if (!isDirectory) clearFileMetadata(fullPath);
           const bool ok = isDirectory ? Storage.removeDir(fullPath.c_str()) : Storage.remove(fullPath.c_str());
           if (ok) {
+            removeBookListStatusIndexEntry(fullPath, bookListStatusIndex);
+            bookListStatusIndexDirty = true;
             LOG_DBG("FileBrowser", "Deleted successfully");
           } else {
             LOG_ERR("FileBrowser", "Failed to delete file: %s", fullPath.c_str());
@@ -447,6 +529,18 @@ void FileBrowserActivity::loop() {
               LOG_ERR("FileBrowser", "Failed to mark as finished: %s", fullPath.c_str());
               return;
             }
+            const CachedBookStatus cacheStatus =
+                selectorIndex < fileCacheStatuses.size() && fileCacheStatusKnown[selectorIndex]
+                    ? toCachedBookStatus(fileCacheStatuses[selectorIndex])
+                    : CachedBookStatus::Unknown;
+            updateBookListStatusIndex(fullPath, ReadingStatus::Finished, cacheStatus, bookListStatusIndex);
+            // A reset can happen before this activity exits. Persist the
+            // visible-state index now; canonical progress was already written
+            // by markAsFinished(), so both sources survive an immediate reboot.
+            if (!saveBookListStatusIndex("/.crosspoint", bookListStatusIndex)) {
+              LOG_ERR("FileBrowser", "Failed to save finished status index: %s", fullPath.c_str());
+            }
+            bookListStatusIndexDirty = false;
           } else {
             // Back ボタン → キャンセル
             LOG_DBG("FileBrowser", "Action cancelled by user");
@@ -604,6 +698,7 @@ std::string getFileExtension(std::string filename) {
 }
 
 void FileBrowserActivity::render(RenderLock&&) {
+  const unsigned long renderStartedAt = millis();
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
@@ -616,6 +711,7 @@ void FileBrowserActivity::render(RenderLock&&) {
                                                     : basepath.substr(basepath.rfind('/') + 1));
   utf8NfcNormalizeKana(folderName);
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
+  const unsigned long headerMs = millis() - renderStartedAt;
 
   const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
@@ -623,13 +719,67 @@ void FileBrowserActivity::render(RenderLock&&) {
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
   const bool showCacheStatusIcons = mode == Mode::Books && UITheme::getInstance().getTheme().showsFileIcons();
+  uint32_t loadedReadingStatuses = 0;
+  unsigned long readingStatusMs = 0;
+  if (mode == Mode::Books && !files.empty()) {
+    const int pageItems = std::max(1, contentHeight / metrics.listRowHeight);
+    const int pageStart = (selectorIndex / pageItems) * pageItems;
+    const int pageEnd = std::min(static_cast<int>(files.size()), pageStart + pageItems);
+    const unsigned long readingStatusStartedAt = millis();
+    std::string fullBase = basepath;
+    if (fullBase.back() != '/') fullBase += '/';
+    for (int index = pageStart; index < pageEnd; ++index) {
+      if (readingStatusKnown[index]) continue;
+
+      const std::string fullPath = fullBase + files[index];
+      const bool hasCacheEntry =
+          getReadingStatusFromCacheEntries(fullPath, "/.crosspoint", readingStatusCacheEntries, fileStatuses[index]);
+      readingStatusKnown[index] = true;
+      if (hasCacheEntry) {
+        updateBookListStatusIndex(fullPath, fileStatuses[index], CachedBookStatus::Unknown, bookListStatusIndex);
+        bookListStatusIndexDirty = true;
+      }
+      ++loadedReadingStatuses;
+    }
+    readingStatusMs = millis() - readingStatusStartedAt;
+  }
+  uint32_t loadedCacheStatuses = 0;
+  unsigned long cacheStatusMs = 0;
+  if (showCacheStatusIcons && !files.empty()) {
+    const int pageItems = std::max(1, contentHeight / metrics.listRowHeight);
+    const int pageStart = (selectorIndex / pageItems) * pageItems;
+    const int pageEnd = std::min(static_cast<int>(files.size()), pageStart + pageItems);
+    const unsigned long cacheStatusStartedAt = millis();
+    for (int index = pageStart; index < pageEnd; ++index) {
+      if (!FsHelpers::hasEpubExtension(files[index]) || fileCacheStatusKnown[index]) continue;
+
+      std::string fullPath = basepath;
+      if (fullPath.back() != '/') fullPath += '/';
+      fullPath += files[index];
+      fileCacheStatuses[index] = Epub(fullPath, "/.crosspoint").getCacheGenerationStatus();
+      fileCacheStatusKnown[index] = true;
+      updateBookListStatusIndex(fullPath, fileStatuses[index], toCachedBookStatus(fileCacheStatuses[index]),
+                                bookListStatusIndex);
+      bookListStatusIndexDirty = true;
+      ++loadedCacheStatuses;
+    }
+    cacheStatusMs = millis() - cacheStatusStartedAt;
+  }
+  const unsigned long listStartedAt = millis();
+  unsigned long filenameNormalizeUs = 0;
   if (files.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20,
                       mode == Mode::PickFirmware ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND));
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
-        [this](int index) { return getFileName(files[index]); }, nullptr,
+        [this, &filenameNormalizeUs](int index) {
+          const unsigned long startedAt = micros();
+          std::string filename = getFileName(files[index]);
+          filenameNormalizeUs += micros() - startedAt;
+          return filename;
+        },
+        nullptr,
         [this](int index) {
           if (mode == Mode::PickDirectory) {
             return isMoveHereEntry(files[index]) ? Folder : UITheme::getFileIcon(files[index]);
@@ -663,11 +813,16 @@ void FileBrowserActivity::render(RenderLock&&) {
       }
     }
   }
+  const unsigned long listMs = millis() - listStartedAt;
 
   // Full path display
+  const unsigned long footerStartedAt = millis();
   {
     const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
     const int separatorY = pathY - metrics.verticalSpacing / 2;
+    if (!statusMessage.empty()) {
+      renderer.drawCenteredText(SMALL_FONT_ID, separatorY - pathLineHeight - 3, statusMessage.c_str(), true);
+    }
     renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
     const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
     // Left-truncate so the deepest directory is always visible
@@ -702,7 +857,15 @@ void FileBrowserActivity::render(RenderLock&&) {
       files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
+  const unsigned long footerMs = millis() - footerStartedAt;
+  const unsigned long displayStartedAt = millis();
   renderer.displayBuffer();
+  LOG_DBG("FBPERF",
+          "render path=%s header=%lu readingStatus=%lu ms loadedReadingStatuses=%lu cacheStatus=%lu ms "
+          "loadedCacheStatuses=%lu list=%lu filenameNfc=%lu us footer=%lu display=%lu total=%lu ms",
+          basepath.c_str(), headerMs, readingStatusMs, static_cast<unsigned long>(loadedReadingStatuses), cacheStatusMs,
+          static_cast<unsigned long>(loadedCacheStatuses), listMs, filenameNormalizeUs, footerMs,
+          millis() - displayStartedAt, millis() - renderStartedAt);
 }
 
 size_t FileBrowserActivity::findEntry(const std::string& name) const {
