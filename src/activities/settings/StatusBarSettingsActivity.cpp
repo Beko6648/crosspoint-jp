@@ -138,8 +138,8 @@ void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool
   } else if (selectedIndex == 6) {
     SETTINGS.statusBarPageTurn = toggleValue ? !SETTINGS.statusBarPageTurn : (delta < 0 ? 0 : 1);
   } else if (selectedIndex == 7) {
-    SETTINGS.xtcStatusBarMode = static_cast<uint8_t>(std::clamp(static_cast<int>(SETTINGS.xtcStatusBarMode) + delta,
-                                                                 0, XTC_STATUS_BAR_ITEMS - 1));
+    SETTINGS.xtcStatusBarMode = static_cast<uint8_t>(
+        std::clamp(static_cast<int>(SETTINGS.xtcStatusBarMode) + delta, 0, XTC_STATUS_BAR_ITEMS - 1));
   }
   SETTINGS.saveToFile();
 }

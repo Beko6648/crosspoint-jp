@@ -1,6 +1,6 @@
-#include <cassert>
-
 #include <VerticalOrientationData.h>
+
+#include <cassert>
 
 using VerticalTextUtils::UaxVerticalOrientation;
 
@@ -19,5 +19,5 @@ int main() {
 
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x3001) == UaxVerticalOrientation::TransformedUpright);  // 、
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x30FC) == UaxVerticalOrientation::TransformedRotated);  // ー
-  assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);              // ｰ
+  assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);             // ｰ
 }

@@ -184,8 +184,8 @@ bool parse(const String& json, ProfileData& target) {
   } else if (!status["xtcProgressBar"].isNull()) {
     uint8_t legacyProgressBar = 0;
     if (!readU8(status, "xtcProgressBar", 0, 1, legacyProgressBar)) return false;
-    target.xtcStatusBarMode = legacyProgressBar ? CrossPointSettings::XTC_STATUS_BAR_BOTTOM
-                                                 : CrossPointSettings::XTC_STATUS_BAR_HIDE;
+    target.xtcStatusBarMode =
+        legacyProgressBar ? CrossPointSettings::XTC_STATUS_BAR_BOTTOM : CrossPointSettings::XTC_STATUS_BAR_HIDE;
   }
   const char* externalFontFilename = reader["externalFontFilename"] | "";
   if (strlen(externalFontFilename) >= sizeof(target.externalFontFilename)) return false;

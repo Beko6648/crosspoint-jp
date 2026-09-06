@@ -14,14 +14,14 @@
 #include <variant>
 
 #include "../util/ConfirmationActivity.h"
-#include "CrossPointSettings.h"
 #include "BookIdentity.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "ReadingStatusHelper.h"
 #include "ReadingHistoryStore.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
-#include "components/UITheme.h"
 #include "components/CacheStatusIcon.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -122,9 +122,9 @@ void FileBrowserActivity::cacheCurrentDirectory() {
   if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
     directoryCache.erase(directoryCache.begin());
   }
-  directoryCache.push_back(
-      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusCacheEntries),
-       std::move(readingStatusKnown), std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
+  directoryCache.push_back({std::move(loadedPath), std::move(files), std::move(fileStatuses),
+                            std::move(readingStatusCacheEntries), std::move(readingStatusKnown),
+                            std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
   loadedPath.clear();
 }
 
@@ -292,8 +292,9 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
     }
     ReadingStatus readingStatus;
     CachedBookStatus cacheStatus = CachedBookStatus::Unknown;
-    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex,
-                                   readingStatus, cacheStatus) && cacheStatus != CachedBookStatus::Unknown) {
+    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex, readingStatus,
+                                   cacheStatus) &&
+        cacheStatus != CachedBookStatus::Unknown) {
       fileCacheStatuses[index] = fromCachedBookStatus(cacheStatus);
       fileCacheStatusKnown[index] = true;
     }
@@ -301,7 +302,8 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   loadedPath = basepath;
   LOG_DBG("FBPERF",
-          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu visible=%lu "
+          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu "
+          "visible=%lu "
           "openNext=%lu getName=%lu isDirectory=%lu close=%lu",
           basepath.c_str(), openMs, scanMs, sortMs, readingStatusMs, millis() - totalStartedAt,
           static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),

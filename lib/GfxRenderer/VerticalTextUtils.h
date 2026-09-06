@@ -94,9 +94,7 @@ inline bool isHalfwidthKatakana(uint32_t cp) {
 // Circled digits and related enclosed alphanumerics are conventionally kept
 // upright in Japanese vertical text. They are narrow glyphs, but use a full
 // Japanese character cell for line breaking and spacing.
-inline bool isEnclosedAlphanumeric(uint32_t cp) {
-  return cp >= 0x2460 && cp <= 0x24FF;
-}
+inline bool isEnclosedAlphanumeric(uint32_t cp) { return cp >= 0x2460 && cp <= 0x24FF; }
 
 inline bool isTateChuYokoPunctuationPair(const char* text) {
   return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') &&
@@ -143,9 +141,7 @@ inline bool isAsciiAlphabeticWord(const char* text) {
 
 // Determine if a codepoint should be drawn upright in vertical text.
 // CJK ideographs, kana, CJK symbols, fullwidth forms, etc.
-inline bool isUprightInVertical(uint32_t cp) {
-  return isUaxUprightInVertical(cp);
-}
+inline bool isUprightInVertical(uint32_t cp) { return isUaxUprightInVertical(cp); }
 
 // Tr characters require a vertical presentation when the font has one, but
 // still reserve a single Japanese cell when Yomuka falls back to rotation.

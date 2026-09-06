@@ -5,17 +5,17 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
-#include "Epub.h"
-#include "BookIdentity.h"
-#include "ReadingHistoryStore.h"
-#include "activities/reader/ProgressFile.h"
-#include "util/BookDataPath.h"
-
 #include <algorithm>
 #include <cstring>
 #include <functional>
 #include <string>
 #include <vector>
+
+#include "BookIdentity.h"
+#include "Epub.h"
+#include "ReadingHistoryStore.h"
+#include "activities/reader/ProgressFile.h"
+#include "util/BookDataPath.h"
 
 namespace {
 
@@ -68,7 +68,8 @@ ReadingStatus readProgress(const std::string& progressPath, bool isEpub) {
 bool isValidReadingStatus(const uint8_t value) { return value <= static_cast<uint8_t>(ReadingStatus::Finished); }
 
 bool isValidCachedBookStatus(const uint8_t value) {
-  return value <= static_cast<uint8_t>(CachedBookStatus::Complete) || value == static_cast<uint8_t>(CachedBookStatus::Unknown);
+  return value <= static_cast<uint8_t>(CachedBookStatus::Complete) ||
+         value == static_cast<uint8_t>(CachedBookStatus::Unknown);
 }
 
 bool cacheEntryExists(const std::vector<std::string>& cacheEntries, const std::string& cacheEntryName) {
@@ -108,19 +109,20 @@ void loadBookListStatusIndex(const std::string& cacheDir, std::vector<BookListSt
     std::string cacheEntryName(nameLength, '\0');
     uint8_t reading = 0;
     uint8_t cache = 0;
-    if (file.read(cacheEntryName.data(), nameLength) != nameLength || file.read(&reading, sizeof(reading)) != sizeof(reading) ||
-        file.read(&cache, sizeof(cache)) != sizeof(cache) || !isValidReadingStatus(reading) ||
-        !isValidCachedBookStatus(cache)) {
+    if (file.read(cacheEntryName.data(), nameLength) != nameLength ||
+        file.read(&reading, sizeof(reading)) != sizeof(reading) || file.read(&cache, sizeof(cache)) != sizeof(cache) ||
+        !isValidReadingStatus(reading) || !isValidCachedBookStatus(cache)) {
       entries.clear();
       break;
     }
-    entries.push_back({std::move(cacheEntryName), static_cast<ReadingStatus>(reading), static_cast<CachedBookStatus>(cache)});
+    entries.push_back(
+        {std::move(cacheEntryName), static_cast<ReadingStatus>(reading), static_cast<CachedBookStatus>(cache)});
   }
   file.close();
-  if (!std::is_sorted(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-        return a.cacheEntryName < b.cacheEntryName;
-      })) {
-    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.cacheEntryName < b.cacheEntryName; });
+  if (!std::is_sorted(entries.begin(), entries.end(),
+                      [](const auto& a, const auto& b) { return a.cacheEntryName < b.cacheEntryName; })) {
+    std::sort(entries.begin(), entries.end(),
+              [](const auto& a, const auto& b) { return a.cacheEntryName < b.cacheEntryName; });
   }
   LOG_DBG("BLI", "Loaded book-list status index: entries=%lu", static_cast<unsigned long>(entries.size()));
 }
@@ -131,10 +133,9 @@ bool getBookListStatusFromIndex(const std::string& filepath, const std::vector<s
   std::string cacheEntryName;
   bool isEpub = false;
   if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) return false;
-  const auto entry = std::lower_bound(entries.begin(), entries.end(), cacheEntryName,
-                                      [](const BookListStatusEntry& value, const std::string& name) {
-                                        return value.cacheEntryName < name;
-                                      });
+  const auto entry = std::lower_bound(
+      entries.begin(), entries.end(), cacheEntryName,
+      [](const BookListStatusEntry& value, const std::string& name) { return value.cacheEntryName < name; });
   if (entry == entries.end() || entry->cacheEntryName != cacheEntryName) return false;
   readingStatus = entry->readingStatus;
   cacheStatus = entry->cacheStatus;
@@ -146,10 +147,9 @@ void updateBookListStatusIndex(const std::string& filepath, const ReadingStatus 
   std::string cacheEntryName;
   bool isEpub = false;
   if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) return;
-  const auto entry = std::lower_bound(entries.begin(), entries.end(), cacheEntryName,
-                                      [](const BookListStatusEntry& value, const std::string& name) {
-                                        return value.cacheEntryName < name;
-                                      });
+  const auto entry = std::lower_bound(
+      entries.begin(), entries.end(), cacheEntryName,
+      [](const BookListStatusEntry& value, const std::string& name) { return value.cacheEntryName < name; });
   if (entry != entries.end() && entry->cacheEntryName == cacheEntryName) {
     entry->readingStatus = readingStatus;
     entry->cacheStatus = cacheStatus;
@@ -163,10 +163,9 @@ void moveBookListStatusIndexEntry(const std::string& oldPath, const std::string&
   std::string oldEntryName;
   bool isEpub = false;
   if (!getCacheEntryName(oldPath, oldEntryName, isEpub)) return;
-  const auto entry = std::lower_bound(entries.begin(), entries.end(), oldEntryName,
-                                      [](const BookListStatusEntry& value, const std::string& name) {
-                                        return value.cacheEntryName < name;
-                                      });
+  const auto entry = std::lower_bound(
+      entries.begin(), entries.end(), oldEntryName,
+      [](const BookListStatusEntry& value, const std::string& name) { return value.cacheEntryName < name; });
   if (entry == entries.end() || entry->cacheEntryName != oldEntryName) return;
   const ReadingStatus readingStatus = entry->readingStatus;
   entries.erase(entry);
@@ -178,10 +177,9 @@ void removeBookListStatusIndexEntry(const std::string& filepath, std::vector<Boo
   std::string cacheEntryName;
   bool isEpub = false;
   if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) return;
-  const auto entry = std::lower_bound(entries.begin(), entries.end(), cacheEntryName,
-                                      [](const BookListStatusEntry& value, const std::string& name) {
-                                        return value.cacheEntryName < name;
-                                      });
+  const auto entry = std::lower_bound(
+      entries.begin(), entries.end(), cacheEntryName,
+      [](const BookListStatusEntry& value, const std::string& name) { return value.cacheEntryName < name; });
   if (entry != entries.end() && entry->cacheEntryName == cacheEntryName) entries.erase(entry);
 }
 
@@ -213,7 +211,8 @@ bool saveBookListStatusIndex(const std::string& cacheDir, const std::vector<Book
     const uint8_t cache = static_cast<uint8_t>(entry.cacheStatus);
     if (nameLength == 0 || nameLength > BOOK_LIST_STATUS_INDEX_MAX_NAME_LENGTH ||
         file.write(&nameLength, sizeof(nameLength)) != sizeof(nameLength) ||
-        file.write(entry.cacheEntryName.data(), nameLength) != nameLength || file.write(&reading, sizeof(reading)) != sizeof(reading) ||
+        file.write(entry.cacheEntryName.data(), nameLength) != nameLength ||
+        file.write(&reading, sizeof(reading)) != sizeof(reading) ||
         file.write(&cache, sizeof(cache)) != sizeof(cache)) {
       written = false;
       break;
@@ -323,7 +322,8 @@ void getReadingStatuses(const std::string& basePath, const std::vector<std::stri
     ReadingStatus status;
     const bool hasCacheEntry = getReadingStatusFromCacheEntries(filepath, cacheDir, cacheEntries, status);
     if (!FsHelpers::hasEpubExtension(filenames[i]) && !FsHelpers::hasXtcExtension(filenames[i]) &&
-        !FsHelpers::hasTxtExtension(filenames[i]) && !FsHelpers::hasMarkdownExtension(filenames[i])) continue;
+        !FsHelpers::hasTxtExtension(filenames[i]) && !FsHelpers::hasMarkdownExtension(filenames[i]))
+      continue;
     ++books;
     statuses[i] = status;
     if (hasCacheEntry) ++progressReads;
@@ -369,7 +369,8 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   }
   data[flagOffset] = 1;
 
-  if (hasBookId && (!BookDataPath::ensureDirectory(bookId) || !BookIdentity::recordArchiveId(filepath, bookId))) return false;
+  if (hasBookId && (!BookDataPath::ensureDirectory(bookId) || !BookIdentity::recordArchiveId(filepath, bookId)))
+    return false;
   if (!hasBookId) {
     Storage.mkdir(cacheDir.c_str());
     Storage.mkdir((cacheDir + "/" + prefix + hash).c_str());

@@ -11,8 +11,8 @@
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BookmarkUtil.h"
 #include "util/BookDataPath.h"
+#include "util/BookmarkUtil.h"
 
 namespace {
 // A 54px row places 12 two-line entries comfortably between the header and
@@ -55,7 +55,8 @@ void EpubReaderBookmarksActivity::save() {
   uint64_t bookId = 0;
   const bool hasBookId = epub && epub->getSourceFingerprint(&bookId);
   const std::string path = hasBookId ? BookDataPath::getBookmarkPath(bookId) : BookmarkUtil::getBookmarkPath(epubPath);
-  if (!((!hasBookId || BookDataPath::ensureDirectory(bookId)) && JsonSettingsIO::saveBookmarks(bookmarks, path.c_str()))) {
+  if (!((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
+        JsonSettingsIO::saveBookmarks(bookmarks, path.c_str()))) {
     LOG_ERR("BKM", "Failed to save bookmarks");
   }
 }

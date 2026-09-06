@@ -1,8 +1,8 @@
 #include "ImageBlock.h"
 
 #include <Bitmap.h>
-#include <FsHelpers.h>
 #include <FontCacheManager.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>

@@ -49,7 +49,8 @@ bool parseFingerprint(const char* value, uint64_t& bookId) {
 }
 
 std::string archiveLocationPath(const std::string& archivedPath) {
-  return std::string(kArchiveLocationDirectory) + "/" + std::to_string(std::hash<std::string>{}(archivedPath)) + ".path";
+  return std::string(kArchiveLocationDirectory) + "/" + std::to_string(std::hash<std::string>{}(archivedPath)) +
+         ".path";
 }
 
 bool loadDocument(JsonDocument& document) {
@@ -124,9 +125,11 @@ bool recordArchiveLocation(const std::string& originalPath, const std::string& a
   if (!Storage.ready() || !Storage.ensureDirectoryExists(kArchiveLocationDirectory)) return false;
   const std::string normalizedOriginalPath = normalizePath(originalPath);
   const std::string normalizedArchivedPath = normalizePath(archivedPath);
-  const bool saved = Storage.writeFile(archiveLocationPath(normalizedArchivedPath).c_str(), normalizedOriginalPath.c_str());
+  const bool saved =
+      Storage.writeFile(archiveLocationPath(normalizedArchivedPath).c_str(), normalizedOriginalPath.c_str());
   if (saved) {
-    LOG_INF("BID", "Recorded archive location: %s -> %s", normalizedOriginalPath.c_str(), normalizedArchivedPath.c_str());
+    LOG_INF("BID", "Recorded archive location: %s -> %s", normalizedOriginalPath.c_str(),
+            normalizedArchivedPath.c_str());
   } else {
     LOG_ERR("BID", "Could not record archive location: %s", normalizedArchivedPath.c_str());
   }

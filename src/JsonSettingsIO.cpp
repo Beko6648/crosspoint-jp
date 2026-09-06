@@ -5,15 +5,15 @@
 #include <Logging.h>
 #include <ObfuscationUtils.h>
 
-#include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
+#include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "RecentBooksStore.h"
-#include "BookmarkEntry.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
 
@@ -270,7 +270,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   // selector, placing the overlay at the bottom.
   if (doc["xtcStatusBarMode"].isNull() && !doc["xtcProgressBar"].isNull()) {
     s.xtcStatusBarMode = (doc["xtcProgressBar"] | 0) ? CrossPointSettings::XTC_STATUS_BAR_BOTTOM
-                                                      : CrossPointSettings::XTC_STATUS_BAR_HIDE;
+                                                     : CrossPointSettings::XTC_STATUS_BAR_HIDE;
     if (needsResave) *needsResave = true;
   }
 

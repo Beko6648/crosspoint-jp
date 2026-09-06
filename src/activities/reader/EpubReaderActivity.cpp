@@ -32,11 +32,11 @@
 #include "MappedInputManager.h"
 #include "OrientationHelper.h"
 #include "ProgressFile.h"
-#include "ReadingHistoryStore.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
-#include "RecentBooksStore.h"
+#include "ReadingHistoryStore.h"
 #include "ReadingStatusHelper.h"
+#include "RecentBooksStore.h"
 #include "SdCardFontGlobals.h"
 #include "activities/settings/DiagnosticsActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
@@ -46,8 +46,8 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BookmarkUtil.h"
 #include "util/BookDataPath.h"
+#include "util/BookmarkUtil.h"
 #include "util/CacheGenerationControls.h"
 #include "util/ScreenshotUtil.h"
 
@@ -1506,8 +1506,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   data[6] = isFinished ? 1 : 0;
   uint64_t bookId = 0;
   const bool hasBookId = epub->getSourceFingerprint(&bookId);
-  const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId)
-                                             : epub->getCachePath() + "/progress.bin";
+  const std::string progressPath =
+      hasBookId ? BookDataPath::getProgressPath(bookId) : epub->getCachePath() + "/progress.bin";
   if ((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
       ProgressFile::writeAtomicPath(progressPath, data, sizeof(data))) {
     std::vector<BookListStatusEntry> statusEntries;
@@ -1748,8 +1748,8 @@ void EpubReaderActivity::toggleBookmark() {
   }
   uint64_t bookId = 0;
   const bool hasBookId = epub->getSourceFingerprint(&bookId);
-  const std::string path = hasBookId ? BookDataPath::getBookmarkPath(bookId)
-                                     : BookmarkUtil::getBookmarkPath(epub->getPath());
+  const std::string path =
+      hasBookId ? BookDataPath::getBookmarkPath(bookId) : BookmarkUtil::getBookmarkPath(epub->getPath());
   if (!((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
         JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str()))) {
     LOG_ERR("BKM", "Failed to save bookmarks");

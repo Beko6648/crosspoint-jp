@@ -300,8 +300,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       if (isSingleCjk) {
         int uprightX = wx;
-        if (VerticalTextUtils::isHalfwidthKatakana(firstCp) ||
-            VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
+        if (VerticalTextUtils::isHalfwidthKatakana(firstCp) || VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
           // Narrow upright glyphs can carry uneven side bearings. Align their
           // visible ink with the body CJK glyph, just as TateChuYoko aligns
           // halfwidth digits below.
