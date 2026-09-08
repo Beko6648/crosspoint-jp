@@ -368,6 +368,15 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
       style.defined.paddingTop = style.defined.paddingRight = style.defined.paddingBottom = style.defined.paddingLeft =
           1;
     }
+  } else if (propNameBuf == "text-emphasis" || propNameBuf == "-epub-text-emphasis" ||
+             propNameBuf == "-webkit-text-emphasis" || propNameBuf == "text-emphasis-style" ||
+             propNameBuf == "-epub-text-emphasis-style" || propNameBuf == "-webkit-text-emphasis-style") {
+    TextEmphasis emphasis;
+    const bool shorthand = propNameBuf.find("-style") == std::string_view::npos;
+    if (textEmphasis::parse(stripTrailingImportant(propValueBuf), emphasis, shorthand)) {
+      style.emphasis = emphasis;
+      style.emphasisDefined = true;
+    }
   } else if (propNameBuf == "height") {
     CssLength len;
     if (tryInterpretLength(propValueBuf, len)) {
@@ -817,6 +826,8 @@ bool CssParser::saveToCache() const {
     file.write(static_cast<uint8_t>(style.fontSizeDefined));
     file.write(static_cast<uint8_t>(style.lineHeightDefined));
     file.write(static_cast<uint8_t>(style.display));
+    file.write(static_cast<uint8_t>(style.emphasis));
+    file.write(static_cast<uint8_t>(style.emphasisDefined));
 
     // Write defined flags as uint16_t
     uint16_t definedBits = 0;
@@ -933,7 +944,7 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
   constexpr size_t CSS_LENGTH_FIELD_COUNT = 13;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
   constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 4 * sizeof(uint8_t) +
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 6 * sizeof(uint8_t) +
       sizeof(uint16_t);
 
   // Read each rule
@@ -1051,6 +1062,14 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
       return false;
     }
     style.display = static_cast<CssDisplay>(displayVal);
+    uint8_t emphasisVal = 0, emphasisDefined = 0;
+    if (file.read(&emphasisVal, 1) != 1 || !textEmphasis::valid(emphasisVal) ||
+        file.read(&emphasisDefined, 1) != 1 || emphasisDefined > 1) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    style.emphasis = static_cast<TextEmphasis>(emphasisVal);
+    style.emphasisDefined = emphasisDefined != 0;
 
     // Read defined flags
     uint16_t definedBits = 0;

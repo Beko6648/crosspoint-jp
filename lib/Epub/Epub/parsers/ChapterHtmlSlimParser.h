@@ -89,6 +89,11 @@ class ChapterHtmlSlimParser {
     bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
+  struct EmphasisEntry { int depth; TextEmphasis value; };
+  std::vector<EmphasisEntry> emphasisStack;
+  TextEmphasis activeEmphasis() const {
+    return emphasisStack.empty() ? TextEmphasis::None : emphasisStack.back().value;
+  }
   CssStyle currentCssStyle;
   bool effectiveBold = false;
   bool effectiveItalic = false;

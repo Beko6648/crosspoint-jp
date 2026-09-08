@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "TextEmphasis.h"
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
@@ -142,11 +143,15 @@ struct CssStyle {
   CssDisplay display = CssDisplay::Block;                     // display property (Block or None)
   CssWritingMode writingMode = CssWritingMode::HorizontalTb;  // writing-mode property
 
+  TextEmphasis emphasis = TextEmphasis::None;
+  bool emphasisDefined = false;
+
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
   // Apply properties from another style, only overwriting if the other style
   // has that property explicitly defined
   void applyOver(const CssStyle& base) {
+    if (base.emphasisDefined) { emphasis = base.emphasis; emphasisDefined = true; }
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;
       defined.textAlign = 1;
@@ -244,11 +249,13 @@ struct CssStyle {
   [[nodiscard]] bool hasImageWidth() const { return defined.imageWidth; }
   [[nodiscard]] bool hasFontSize() const { return fontSizeDefined; }
   [[nodiscard]] bool hasLineHeight() const { return lineHeightDefined; }
-  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined; }
+  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined || emphasisDefined; }
   [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasWritingMode() const { return defined.writingMode; }
 
   void reset() {
+    emphasis = TextEmphasis::None;
+    emphasisDefined = false;
     textAlign = CssTextAlign::Left;
     fontStyle = CssFontStyle::Normal;
     fontWeight = CssFontWeight::Normal;

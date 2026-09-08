@@ -73,6 +73,8 @@ constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 // dimensions stay under CrossPoint control; headings are handled separately.
 void retainBalancedParagraphStyle(CssStyle& style) {
   CssStyle balanced;
+  balanced.emphasis = style.emphasis;
+  balanced.emphasisDefined = style.emphasisDefined;
   if (style.hasFontStyle()) {
     balanced.fontStyle = style.fontStyle;
     balanced.defined.fontStyle = 1;
@@ -342,6 +344,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   const bool hasBufferedWord = partWordBufferIndex > 0;
   // flush the buffer
   ensureTextBlockCapacityForWord();
+  const size_t emphasisStart = currentTextBlock->size();
   partWordBuffer[partWordBufferIndex] = '\0';
   if (verticalMode) {
     // Classify short numbers and paired !/? consistently with rendering.
@@ -354,6 +357,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   } else {
     currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
   }
+  currentTextBlock->setEmphasisFrom(emphasisStart, activeEmphasis());
   if (hasBufferedWord) noteEmptyBlockContent();
   partWordBufferIndex = 0;
   nextWordContinues = false;
@@ -488,6 +492,15 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
+  }
+
+  // Emphasis inherits across block and inline elements, independently of ruby.
+  if (cssStyle.emphasisDefined && self->tableDepth == 0 && strcmp(name, "table") != 0) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+      if (!isHeaderOrBlock(name)) self->nextWordContinues = true;
+    }
+    self->emphasisStack.push_back({self->depth, cssStyle.emphasis});
   }
 
   // Special handling for tables: buffer cell data for grid rendering.
@@ -1392,11 +1405,13 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       if (cjkBold) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::BOLD);
       if (cjkItalic) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::ITALIC);
       if (cjkUnderline) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::UNDERLINE);
+      const size_t emphasisStart = self->currentTextBlock->size();
       if (self->verticalMode) {
         self->currentTextBlock->addWord(cjkWord, cjkStyle, VerticalTextUtils::VerticalBehavior::Upright);
       } else {
         self->currentTextBlock->addWord(cjkWord, cjkStyle);
       }
+      self->currentTextBlock->setEmphasisFrom(emphasisStart, self->activeEmphasis());
       self->noteEmptyBlockContent();
       i += charLen;
       continue;
@@ -1456,7 +1471,9 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
   const bool willClearUnderline = self->underlineUntilDepth == self->depth - 1;
 
-  const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
+  const bool willPopEmphasis = !self->emphasisStack.empty() &&
+                               self->emphasisStack.back().depth == self->depth - 1;
+  const bool styleWillChange = willPopEmphasis || willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
 
@@ -1522,6 +1539,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   self->depth -= 1;
+  if (willPopEmphasis) self->emphasisStack.pop_back();
 
   const bool closedEmptyParagraph =
       (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) && self->consumeEmptyBlockCandidate(self->depth);
@@ -1831,12 +1849,12 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     }
 
     const auto rubyRightInset = [&]() {
-      if (!line->hasRuby()) return 0;
+      if (!line->hasRuby() && !line->hasEmphasis()) return 0;
       // Ruby is placed on the right of its base. Reserve only the part that
       // extends beyond the body column. Configured column spacing already
       // provides clearance between columns, so add only the missing amount;
       // the first column still has to clear the physical page edge entirely.
-      const int overflow = TextBlock::getVerticalRubyRightOverflow(renderer, effectiveFontId, columnWidth);
+      const int overflow = line->annotationRightOverflow(renderer, effectiveFontId, columnWidth);
       if (!currentPage || currentPage->elements.empty()) return overflow;
       return std::max(0, overflow - columnSpacing);
     };
@@ -1870,8 +1888,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     }
 
     int rubyTopInset = 0;
-    if (line->hasRuby()) {
-      const int requiredBodyY = TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId);
+    if (line->hasRuby() || line->hasEmphasis()) {
+      const int requiredBodyY = line->annotationTopInset(renderer, effectiveFontId);
       // Configured line spacing already contributes leading between body
       // lines. Add only the clearance still missing for ruby; the first line
       // has no preceding body line and only clears the page edge.
@@ -1888,7 +1906,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
       completeCurrentPage();
       currentPage.reset(new Page());
       currentPageNextY = 0;
-      rubyTopInset = line->hasRuby() ? TextBlock::getHorizontalRubyTopInset(renderer, effectiveFontId) : 0;
+      rubyTopInset = (line->hasRuby() || line->hasEmphasis()) ? line->annotationTopInset(renderer, effectiveFontId) : 0;
     }
 
     // Track cumulative words for footnote assignment

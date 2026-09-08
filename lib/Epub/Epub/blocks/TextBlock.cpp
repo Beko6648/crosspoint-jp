@@ -130,6 +130,9 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   }
 */
 
+  const bool blockHasEmphasis = hasEmphasis();
+  renderEmphasis(renderer, effectiveFontId, x, y);
+
   // Compute column width once for Sideways/TateChuYoko centering
   int columnWidth = 0;
   if (isVertical) {
@@ -366,7 +369,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        const int rightBaseX = wx + rubyBaseOffset + gap;
+        const int rightBaseX = wx + (blockHasEmphasis ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4) : rubyBaseOffset + gap);
         // Vertical ruby always stays on the standard right side of its base
         // text. The first column may use the reader's right screen margin.
         // If the margin is too narrow, clamp at the physical screen edge; the
@@ -434,7 +437,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
                                : INT_MAX;
         const int rubyY =
-            std::clamp(y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY, minRubyY, maxRubyY);
+            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) + rubyOffsetY, minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 
@@ -532,6 +535,13 @@ bool TextBlock::serialize(FsFile& file) const {
     serialization::writeString(file, (i < rubyTexts.size()) ? rubyTexts[i] : std::string());
   }
 
+  serialization::writePod(file, static_cast<uint8_t>(hasEmphasis()));
+  if (hasEmphasis()) {
+    for (size_t i = 0; i < words.size(); ++i) {
+      serialization::writePod(file, static_cast<uint8_t>(i < emphasis.size() ? emphasis[i] : TextEmphasis::None));
+    }
+  }
+
   // Inline image data (sparse): 画像の数と内容を書き込む（words 内のマーカー出現順に一致）。
   serialization::writePod(file, static_cast<uint16_t>(inlineImages.size()));
   for (const auto& img : inlineImages) {
@@ -599,6 +609,18 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   std::vector<std::string> rubyTexts(wc);
   for (auto& rt : rubyTexts) serialization::readString(file, rt);
 
+  uint8_t hasEmphasis = 0;
+  if (file.read(&hasEmphasis, 1) != 1 || hasEmphasis > 1) return nullptr;
+  std::vector<TextEmphasis> emphasis;
+  if (hasEmphasis) {
+    emphasis.resize(wc);
+    for (auto& value : emphasis) {
+      uint8_t raw = 0;
+      if (file.read(&raw, 1) != 1 || !textEmphasis::valid(raw)) return nullptr;
+      value = static_cast<TextEmphasis>(raw);
+    }
+  }
+
   // Inline image data (sparse): 画像の数と内容を読み込む（words 内のマーカー出現順に一致）。
   uint16_t imgCount = 0;
   serialization::readPod(file, imgCount);
@@ -618,5 +640,5 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
                                                   blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
-                                                  std::move(inlineImages)));
+                                                  std::move(inlineImages), std::move(emphasis)));
 }

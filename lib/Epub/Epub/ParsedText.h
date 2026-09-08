@@ -22,6 +22,7 @@ class ParsedText {
   // small blocks, so the largest allocation stays bounded.
   std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<TextEmphasis> emphasis;  // empty until the first marked token
   std::vector<bool> wordContinues;     // true = word attaches to previous (no space before it)
   std::deque<std::string> rubyTexts;   // words と並列、ルビなしは空文字列
   std::vector<VerticalTextUtils::VerticalBehavior> wordVerticalBehaviors;
@@ -70,6 +71,7 @@ class ParsedText {
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }
+  void setEmphasisFrom(size_t start, TextEmphasis value);
   void setRubyForWordAt(size_t index, const std::string& ruby, size_t baseWordCount = 1);
   bool isEmpty() const { return words.empty(); }
   bool isExplicitBlankLine() const {

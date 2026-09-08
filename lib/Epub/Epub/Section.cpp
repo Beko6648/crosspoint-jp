@@ -168,7 +168,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 99: enlarge that gutter to prevent overhanging glyph ink from touching images.
 // Version 100: place inline images after the preceding glyph's visual cell.
 // Version 101: UAX #50 changes vertical token boundaries and cached geometry.
-constexpr uint8_t SECTION_FILE_VERSION = 101;
+// Version 102: independent per-token text emphasis, including annotation clearance.
+// Version 103: retain usage-filtered external CSS for small sections at the
+// safe section-build threshold instead of the former unconditional 96KB floor.
+// Version 104: split an overlong sideways Latin run across vertical columns.
+constexpr uint8_t SECTION_FILE_VERSION = 104;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -181,8 +185,10 @@ constexpr size_t MIN_FREE_HEAP_FOR_LARGE_SECTION_BUILD = 64 * 1024;   // 64KB
 // deciding whether a loaded external stylesheet can remain resident.
 constexpr size_t CSS_SECTION_BUILD_RESERVE = 32 * 1024;  // 32KB
 // XHTML size alone cannot predict a single long text block or a large glyph
-// advance table.  Below this floor, release external rules and use inline CSS.
-constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 96 * 1024;  // 96KB
+// advance table. Below this floor, release external rules and use inline CSS.
+// CSS cache loading is usage-filtered for section builds, so a tiny chapter
+// retains only the few matching rules instead of the complete stylesheet.
+constexpr size_t MIN_FREE_HEAP_WITH_EXTERNAL_CSS = 64 * 1024;  // 64KB
 // ZIP inflate streaming needs a 32KB sliding window plus a little room for file and temp allocations.
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB

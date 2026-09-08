@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Block.h"
+#include "../css/TextEmphasis.h"
 #include "BlockStyle.h"
 
 // Represents a line of text on a page
@@ -29,13 +30,15 @@ class TextBlock final : public Block {
   std::vector<int16_t> wordYpos;  // vertical layout: y position within column
   bool isVertical = false;        // true when this block was laid out vertically
   std::vector<std::string> rubyTexts;
+  std::vector<TextEmphasis> emphasis;
   std::vector<InlineImage> inlineImages;  // sparse: words 内の画像マーカーの数だけ（出現順）
 
  public:
   explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
                      std::vector<EpdFontFamily::Style> word_styles, const BlockStyle& blockStyle = BlockStyle(),
                      std::vector<int16_t> word_ypos = {}, bool vertical = false,
-                     std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {})
+                     std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {},
+                     std::vector<TextEmphasis> emphasis = {})
       : words(std::move(words)),
         wordXpos(std::move(word_xpos)),
         wordStyles(std::move(word_styles)),
@@ -43,6 +46,7 @@ class TextBlock final : public Block {
         wordYpos(std::move(word_ypos)),
         isVertical(vertical),
         rubyTexts(std::move(ruby_texts)),
+        emphasis(std::move(emphasis)),
         inlineImages(std::move(inline_images)) {
     if (rubyTexts.size() < this->words.size()) {
       rubyTexts.resize(this->words.size());
@@ -62,6 +66,11 @@ class TextBlock final : public Block {
   const std::vector<int16_t>& getWordYpos() const { return wordYpos; }
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;
+  bool hasEmphasis() const;
+  int annotationRightOverflow(const GfxRenderer& renderer, int fontId, int columnWidth) const;
+  int annotationTopInset(const GfxRenderer& renderer, int fontId) const;
+  static int emphasisSize(const GfxRenderer& renderer, int fontId);
+  void renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) const;
   void appendRubyText(std::string& out) const;
   static int getVerticalRubyRightOverflow(const GfxRenderer& renderer, int bodyFontId, int layoutColumnWidth);
   static int getHorizontalRubyTopInset(const GfxRenderer& renderer, int bodyFontId);
