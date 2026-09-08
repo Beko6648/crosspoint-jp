@@ -76,33 +76,33 @@
       "files": [
         {
           "name": "BIZUDGothic_10.cpfont",
-          "size": 2909521,
-          "sha256": "73502203e2d52dd8b73d254d55c1f28b32da07764d1d26bfa92a74445bea0afc"
+          "size": 2909677,
+          "sha256": "72cf4bc4f02f9f18d95ede6369f5d17d973ff74c79752ae613c7459935ad9e28"
         },
         {
           "name": "BIZUDGothic_12.cpfont",
-          "size": 3742726,
-          "sha256": "457b09d034c4a8cf9e94393efe7482ff384d66811eef423fded8a3ed55d07fcd"
+          "size": 3742911,
+          "sha256": "9ba88c08ddc83bf596d7f5d3a0c3d57209986dcc72b46b4eecd1dc191c28992f"
         },
         {
           "name": "BIZUDGothic_14.cpfont",
-          "size": 4866587,
-          "sha256": "ac31782b2149d7044ebaca487ae0514c219e4e22e0727989c566e3633d04cd0c"
+          "size": 4866808,
+          "sha256": "d701d7705132972523e74a0d6a6c0619cc205ef73580a9d440fcd4325e4cd39e"
         },
         {
           "name": "BIZUDGothic_16.cpfont",
-          "size": 5962915,
-          "sha256": "b5d31f92997c91772d31f38f0f63f6bc5815252ccc1c1d156e3d71179e1e8eaf"
+          "size": 5963166,
+          "sha256": "057ec20971047bb8bb13ee200210e44e4f34903b58eed63c8dd8356fa98e944a"
         },
         {
           "name": "BIZUDGothic_18.cpfont",
-          "size": 7699074,
-          "sha256": "0acd5027d8ba4b29e9c0a0080b3a2f29801fc69099caa6975c952e379003cce5"
+          "size": 7699383,
+          "sha256": "6a5f262c249bd4f081e5557472df99510888fe54418f1cd25d7fc017c848ffdb"
         },
         {
           "name": "BIZUDGothic_8.cpfont",
-          "size": 2243697,
-          "sha256": "10fd742af6673afb528b6c340e2aa195616dee4ba104d6e2f7bafd2ce7c7645d"
+          "size": 2243832,
+          "sha256": "23bcc4f132cb3a06f77837d4cae3478f9140248d6c6120844de5f293f3cb3775"
         }
       ]
     },
@@ -116,33 +116,33 @@
       "files": [
         {
           "name": "BIZUDMincho_10.cpfont",
-          "size": 2898984,
-          "sha256": "efbf01da59df762def9b658cd619a2bc4326244950d36203462e1c9a8d6ec7db"
+          "size": 2899146,
+          "sha256": "6a40830f1764203f872a82b92458a52d0573075f5cc64e8ccac7a1288deb5e68"
         },
         {
           "name": "BIZUDMincho_12.cpfont",
-          "size": 3718232,
-          "sha256": "466f69e12cb72dab377887869bba17c79c2d18898736c7a361be451c7bfb7c61"
+          "size": 3718421,
+          "sha256": "e846d52856d9f84627e94e6a992eac9a150c10e0096489950f5d3a4adf34de26"
         },
         {
           "name": "BIZUDMincho_14.cpfont",
-          "size": 4785774,
-          "sha256": "f32cfa1e8d60f9fbce1eda5f40976d443f4344607a216316c547412d627301a4"
+          "size": 4785993,
+          "sha256": "4b30b32a235578eb7d7a5bf60ee4e4aeb1ecfe7505fb8f945efc36ac4ea52303"
         },
         {
           "name": "BIZUDMincho_16.cpfont",
-          "size": 5905805,
-          "sha256": "52d90ba56e286d1051b5517af9827ebe410ea6502e0df9a26c5ce94b3df28d85"
+          "size": 5906065,
+          "sha256": "3c14bccb7884cd8bd2d6c06fc7dd3f984567a2cb6a9b3bd020a52f3ac846d219"
         },
         {
           "name": "BIZUDMincho_18.cpfont",
-          "size": 7545276,
-          "sha256": "0c2d833b6012699bcd6f4eed6b6c27a1f7db102fd46b401739c20e46d8817370"
+          "size": 7545581,
+          "sha256": "870ec36f4aafe50dc6af32f6137be878b65e75d1366f4cd17a8eca9bfab5cd14"
         },
         {
           "name": "BIZUDMincho_8.cpfont",
-          "size": 2163886,
-          "sha256": "c3a6d2ba92be61b49cd8b3ace860f5c524126dcbd6aaf2fba18d23db5afb1213"
+          "size": 2164022,
+          "sha256": "d950929a36c5bb80e661163e30fec11c0c414b951712cb89270af6fc00d9a151"
         }
       ]
     },
@@ -592,33 +592,33 @@
       "files": [
         {
           "name": "NotoSansJp_10.cpfont",
-          "size": 5432751,
-          "sha256": "5cd48bcb7b4b21a56883980e10534e0192ad1a8c488872095f29d2236eea1bfc"
+          "size": 5433073,
+          "sha256": "4fec534eda10fb3c3abc71556093a9520fc1a5c1db457b81686d5bee51ae4f14"
         },
         {
           "name": "NotoSansJp_12.cpfont",
-          "size": 7587046,
-          "sha256": "6dfb23e1c26959e85766866c70311302a90f4200311870b22232c1232cae79af"
+          "size": 7587458,
+          "sha256": "f8aacc09567a5825dd582185a0384f9cb1e3023d43f91e251f48269efc5dbc21"
         },
         {
           "name": "NotoSansJp_14.cpfont",
-          "size": 10115743,
-          "sha256": "a141fad6d0b960b8db57d689f60692038ee05f3a41d58e4b8204a77243d821df"
+          "size": 10116293,
+          "sha256": "24fec3c40aaa029e6cf21910d9f2877ceab19114b4cb2d4b8559ff318bc85e96"
         },
         {
           "name": "NotoSansJp_16.cpfont",
-          "size": 12390910,
-          "sha256": "1c720842b44a53347b5b0249a91e1cc1dfefe5f438e9c9852c217344b4a7b3a3"
+          "size": 12391552,
+          "sha256": "15d0c52d52edd7c126f2a776a585fb56ca6667265366c576fc9073653c490e70"
         },
         {
           "name": "NotoSansJp_18.cpfont",
-          "size": 15487823,
-          "sha256": "47bded11dce5ce376f86cb63b8a4be29ca805f818b7ed1865a2c46e29ded5b9c"
+          "size": 15488627,
+          "sha256": "4073f156562884a3d9a8723578750b463cbba10b55b9af36d63ef358de71fb37"
         },
         {
           "name": "NotoSansJp_8.cpfont",
-          "size": 4057620,
-          "sha256": "6b6ab70336d671e90716531a059a267637673616edd3715be3b3e0bda8766175"
+          "size": 4057864,
+          "sha256": "d103a3f010b89ce1ba9fa916df323ba675edf38066452b0fcc4385cfc3515cec"
         }
       ]
     },
@@ -725,33 +725,33 @@
       "files": [
         {
           "name": "NotoSerifJp_10.cpfont",
-          "size": 5542577,
-          "sha256": "3b402d692e2405e5a63ae4b8c577b6656225cc51b5359ce465106423b67e463c"
+          "size": 5542899,
+          "sha256": "24aca43443520b86f7cfa1f820291d0a59673185b09c66430f4c842294671f8b"
         },
         {
           "name": "NotoSerifJp_12.cpfont",
-          "size": 7800189,
-          "sha256": "9571e463f079cf14f59f3207f0e6185f3872b4e2239e8d018a7917a826cdf6ba"
+          "size": 7800601,
+          "sha256": "a9215775cd1097c811376dfeda7010f443eb1f4f4d38136347e0b196b3ad0eed"
         },
         {
           "name": "NotoSerifJp_14.cpfont",
-          "size": 10426200,
-          "sha256": "1110e936b2881944ccceb80d9042d92be7346f7cae4456adb798d61085ea4025"
+          "size": 10426750,
+          "sha256": "bce557642cffa738c06a0f426cf90e1152e8ea3fa80f6b85d909fd561b065d80"
         },
         {
           "name": "NotoSerifJp_16.cpfont",
-          "size": 12768300,
-          "sha256": "835501f35782ccbc0a64fefd39b4d3dfa01dd43254b26c143783599d56c953a4"
+          "size": 12768942,
+          "sha256": "9d78226ed2554ed468f574c93502133a86a40bb4518f6d2e2a0afb77c91934f0"
         },
         {
           "name": "NotoSerifJp_18.cpfont",
-          "size": 16057389,
-          "sha256": "733d20cecc19247beb54ea569507df6b766678b13524f83724ad74e3349ad19e"
+          "size": 16058193,
+          "sha256": "6983c188d40a0e6ec81f27cfdc61f1ef6c19337936a0d1159e5fa770a1589a13"
         },
         {
           "name": "NotoSerifJp_8.cpfont",
-          "size": 4140868,
-          "sha256": "94d08d023d2bbce08c82304c7f0a105a49e0059af77f14834a7f648377eab6fc"
+          "size": 4141112,
+          "sha256": "d1833ff35c4c4dc59d92f335cb2343c4bf66706ee04579a3ff5eb27208d8b3c1"
         }
       ]
     },
