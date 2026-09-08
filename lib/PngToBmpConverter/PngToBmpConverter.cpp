@@ -7,6 +7,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "BitmapHelpers.h"
 
@@ -497,8 +499,16 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
     return false;
   }
 
-  // Initialize decode context
-  PngDecodeContext ctx = {};
+  // PngDecodeContext contains the uzlib Huffman tables, IDAT read buffer, and
+  // palette.  It is about 5KB, which overflows loopTask's 8KB stack when a
+  // debug log enters newlib's formatter.  Keep this transient state on the
+  // heap together with the scanline and inflate buffers instead.
+  auto context = std::unique_ptr<PngDecodeContext>(new (std::nothrow) PngDecodeContext{});
+  if (!context) {
+    LOG_ERR("PNG", "Failed to allocate PNG decode context");
+    return false;
+  }
+  PngDecodeContext& ctx = *context;
   ctx.file = &pngFile;
   ctx.width = width;
   ctx.height = height;

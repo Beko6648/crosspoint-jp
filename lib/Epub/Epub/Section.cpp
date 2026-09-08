@@ -861,20 +861,28 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const uint32_t estimatedBytesPerPage = verticalMode ? 700 : 3072;
   const uint16_t estimatedPages =
       std::max<uint16_t>(4, static_cast<uint16_t>((fileSize + estimatedBytesPerPage - 1) / estimatedBytesPerPage));
-  ChapterHtmlSlimParser visitor(
-      epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-      viewportHeight, hyphenationEnabled, firstLineIndent,
-      [this, &lut, &imagePages, &progressFn, &pageReadyFn, estimatedPages](std::unique_ptr<Page> page) {
-        if (pageReadyFn && page->hasImages()) imagePages.push_back(pageCount);
-        lut.emplace_back(this->onPageComplete(std::move(page)));
-        if (progressFn) {
-          progressFn(pageCount, estimatedPages);
-        }
-      },
-      bookStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser, headingFontIds, tableFontId,
-      verticalMode, cssBodyFontIds, cancelFn);
-  Hyphenator::setPreferredLanguage(epub->getLanguage());
-  success = visitor.parseAndBuildPages();
+  // Keep parser-owned buffers out of the PNG cache conversion phase.  The
+  // converter needs a 32KB inflate ring in addition to its scanline buffers;
+  // a long chapter can otherwise exhaust the fragmented heap immediately after
+  // its last page has been serialized.
+  std::vector<std::pair<std::string, uint16_t>> anchors;
+  {
+    ChapterHtmlSlimParser visitor(
+        epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+        viewportHeight, hyphenationEnabled, firstLineIndent,
+        [this, &lut, &imagePages, &progressFn, &pageReadyFn, estimatedPages](std::unique_ptr<Page> page) {
+          if (pageReadyFn && page->hasImages()) imagePages.push_back(pageCount);
+          lut.emplace_back(this->onPageComplete(std::move(page)));
+          if (progressFn) {
+            progressFn(pageCount, estimatedPages);
+          }
+        },
+        bookStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser, headingFontIds, tableFontId,
+        verticalMode, cssBodyFontIds, cancelFn);
+    Hyphenator::setPreferredLanguage(epub->getLanguage());
+    success = visitor.parseAndBuildPages();
+    if (success) anchors = visitor.getAnchors();
+  }
   LOG_INF("SCT", "Section %d parse/build=%lu ms, SD advance tables=%lu ms (%lu builds)", spineIndex,
           millis() - parseBuildStart, renderer.getSdCardAdvanceBuildMs(), renderer.getSdCardAdvanceBuildCalls());
 
@@ -889,7 +897,6 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return false;
   }
 
-  const auto& anchors = visitor.getAnchors();
   if (!finalizeSectionFile(lut, anchors, tmpSectionPath, cssParser, createSectionStart, parseBuildStart)) {
     return false;
   }
@@ -898,6 +905,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // images so optional cache work has enough contiguous heap without making
   // text-only books scan every persisted page.
   if (pageReadyFn) {
+    LOG_DBG("SCT", "Section %d ready for PNG caches: free=%u maxAlloc=%u", spineIndex, ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
     for (const auto pageIndex : imagePages) {
       auto page = loadPageFromSectionFile(pageIndex);
       if (page) pageReadyFn(*page);
