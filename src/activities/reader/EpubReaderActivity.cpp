@@ -1548,6 +1548,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // status bar from faulting its compressed glyphs after the page is drawn.
   renderStatusBar();
   scope.endScanAndPrewarm();
+#if defined(RENDER_PROFILE)
+  fcm->logStats("page");
+#endif
   const auto tPrewarm = millis();
 
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
@@ -1609,16 +1612,22 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
 
   const auto tEnd = millis();
+#if defined(RENDER_PROFILE)
+#define LOG_RENDER_TIMING LOG_INF
+#else
+#define LOG_RENDER_TIMING LOG_DBG
+#endif
   if (hasImages && bwStored) {
-    LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums gray_lsb=%lums "
-            "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay, tGrayMsb - tGrayLsb,
-            tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
+    LOG_RENDER_TIMING("ERS",
+                      "Page render: prewarm=%lums bw_render=%lums display=%lums gray_lsb=%lums "
+                      "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
+                      tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay,
+                      tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
-    LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
-            tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
+    LOG_RENDER_TIMING("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
+                      tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
   }
+#undef LOG_RENDER_TIMING
 }
 
 void EpubReaderActivity::renderStatusBar() const {
