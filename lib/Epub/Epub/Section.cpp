@@ -179,7 +179,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 110: Keep a 2px visual gap after an image before the following annotation.
 // 111: Extend the vertical image-to-column gutter by 2px.
 // 112: Center a vertical block image when it is the only element on its page.
-constexpr uint8_t SECTION_FILE_VERSION = 112;
+// 113: Text styles may carry a CSS line-through decoration.
+constexpr uint8_t SECTION_FILE_VERSION = 113;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

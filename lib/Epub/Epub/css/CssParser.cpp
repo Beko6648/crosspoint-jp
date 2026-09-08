@@ -216,11 +216,25 @@ CssFontWeight CssParser::interpretFontWeight(const std::string& val) {
 CssTextDecoration CssParser::interpretDecoration(const std::string& val) {
   const std::string v = normalized(val);
 
-  // text-decoration can have multiple space-separated values
-  if (v.find("underline") != std::string::npos) {
-    return CssTextDecoration::Underline;
+  // text-decoration is a whitespace-separated list. Match complete tokens so
+  // malformed values such as "notunderline" cannot enable a decoration.
+  CssTextDecoration result = CssTextDecoration::None;
+  bool explicitNone = false;
+  size_t pos = 0;
+  while (pos < v.size()) {
+    while (pos < v.size() && std::isspace(static_cast<unsigned char>(v[pos]))) ++pos;
+    const size_t start = pos;
+    while (pos < v.size() && !std::isspace(static_cast<unsigned char>(v[pos]))) ++pos;
+    const std::string_view token(v.data() + start, pos - start);
+    if (token == "none") {
+      explicitNone = true;
+    } else if (token == "underline") {
+      result = result | CssTextDecoration::Underline;
+    } else if (token == "line-through") {
+      result = result | CssTextDecoration::LineThrough;
+    }
   }
-  return CssTextDecoration::None;
+  return explicitNone ? CssTextDecoration::None : result;
 }
 
 CssWritingMode interpretWritingMode(std::string_view value) {
