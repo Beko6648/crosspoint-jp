@@ -6,6 +6,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 
@@ -57,6 +58,12 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniGlyphs = nullptr;
   delete[] s.miniBitmap;
   s.miniBitmap = nullptr;
+  for (uint8_t i = 0; i < PerStyle::MAX_MINI_BITMAP_CHUNKS; i++) {
+    free(s.miniBitmapChunks[i]);
+    s.miniBitmapChunks[i] = nullptr;
+  }
+  s.miniBitmapChunkCount = 0;
+  s.miniBitmapIsChunked = false;
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
   memset(&s.miniData, 0, sizeof(s.miniData));
@@ -170,7 +177,12 @@ bool SdCardFont::loadStyleKernLigatureData(PerStyle& s) {
     const uint32_t freeBeforeKern = ESP.getFreeHeap();
     const uint32_t maxAllocBeforeKern = ESP.getMaxAllocHeap();
     const uint32_t matrixSize = static_cast<uint32_t>(s.header.kernLeftClassCount) * s.header.kernRightClassCount;
-    const bool useRowCache = ESP.getMaxAllocHeap() < matrixSize + KERN_ALLOCATION_MARGIN;
+    // A full kerning matrix competes with the current page's glyph bitmap
+    // cache.  Two active SD font bases (body and heading/ruby) can otherwise
+    // consume enough contiguous heap that a text-heavy page falls back to
+    // individual SD reads.  The bounded row cache keeps the same kerning data
+    // available on demand without retaining one full matrix per style.
+    const bool useRowCache = true;
     s.kernLeftClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernLeftEntryCount];
     s.kernRightClasses = new (std::nothrow) EpdKernClassEntry[s.header.kernRightEntryCount];
     if (useRowCache) {
@@ -704,12 +716,10 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 
     s.miniBitmap = new (std::nothrow) uint8_t[totalBitmapSize > 0 ? totalBitmapSize : 1];
     if (!s.miniBitmap) {
-      LOG_ERR("SDCF", "Failed to allocate mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
-      file.close();
-      delete[] readOrder;
-      delete[] mappings;
-      freeStyleMiniData(s);
-      return static_cast<int>(cpCount);
+      // Preserve the batch-read path when the heap has no sufficiently large
+      // contiguous region.  Each glyph resides in one small allocation.
+      s.miniBitmapIsChunked = true;
+      LOG_INF("SDCF", "Using chunked mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
     }
 
     // Read bitmap data sorted by file offset
@@ -717,14 +727,39 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
               [&](uint32_t a, uint32_t b) { return s.miniGlyphs[a].dataOffset < s.miniGlyphs[b].dataOffset; });
 
     uint32_t miniBitmapOffset = 0;
+    uint8_t chunkIndex = 0;
     uint32_t lastBitmapEnd = UINT32_MAX;
     for (uint32_t i = 0; i < validCount; i++) {
       uint32_t mapIdx = readOrder[i];
       EpdGlyph& glyph = s.miniGlyphs[mapIdx];
 
       if (glyph.dataLength == 0) {
-        glyph.dataOffset = miniBitmapOffset;
+        glyph.dataOffset = s.miniBitmapIsChunked ? 0 : miniBitmapOffset;
         continue;
+      }
+
+      if (s.miniBitmapIsChunked && s.miniBitmapChunkCount >= PerStyle::MAX_MINI_BITMAP_CHUNKS) {
+        LOG_ERR("SDCF", "Failed to allocate chunked mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
+        file.close();
+        delete[] readOrder;
+        delete[] mappings;
+        freeStyleMiniData(s);
+        return static_cast<int>(cpCount);
+      }
+      if (s.miniBitmapIsChunked) {
+        chunkIndex = s.miniBitmapChunkCount;
+        // On ESP32-C3, a failed nothrow new[] can still terminate instead of
+        // returning nullptr. malloc() lets this low-heap fallback fail safely.
+        s.miniBitmapChunks[chunkIndex] = static_cast<uint8_t*>(malloc(glyph.dataLength));
+        if (!s.miniBitmapChunks[chunkIndex]) {
+          LOG_ERR("SDCF", "Failed to allocate chunked mini bitmap (%u bytes) for style %u", totalBitmapSize, styleIdx);
+          file.close();
+          delete[] readOrder;
+          delete[] mappings;
+          freeStyleMiniData(s);
+          return static_cast<int>(cpCount);
+        }
+        s.miniBitmapChunkCount++;
       }
 
       uint32_t fileOff = s.bitmapFileOffset + glyph.dataOffset;
@@ -732,7 +767,9 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
         file.seekSet(fileOff);
         seekCount++;
       }
-      if (file.read(s.miniBitmap + miniBitmapOffset, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
+      uint8_t* const target = s.miniBitmapIsChunked ? s.miniBitmapChunks[chunkIndex]
+                                                     : s.miniBitmap + miniBitmapOffset;
+      if (file.read(target, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
         LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
         file.close();
         delete[] readOrder;
@@ -742,8 +779,12 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       }
       lastBitmapEnd = fileOff + glyph.dataLength;
 
-      glyph.dataOffset = miniBitmapOffset;
-      miniBitmapOffset += glyph.dataLength;
+      if (s.miniBitmapIsChunked) {
+        glyph.dataOffset = static_cast<uint32_t>(chunkIndex) << 16;
+      } else {
+        glyph.dataOffset = miniBitmapOffset;
+        miniBitmapOffset += glyph.dataLength;
+      }
     }
   }
 
@@ -774,6 +815,8 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   }
   s.miniData.glyphMissHandler = &SdCardFont::onGlyphMiss;
   s.miniData.glyphMissCtx = &overflowCtx_[styleIdx];
+  s.miniData.bitmapLookupHandler = s.miniBitmapIsChunked ? &SdCardFont::lookupChunkedBitmap : nullptr;
+  s.miniData.bitmapLookupCtx = s.miniBitmapIsChunked ? &overflowCtx_[styleIdx] : nullptr;
   s.miniData.kernLookupHandler = &SdCardFont::lookupKernRow;
   s.miniData.kernLookupCtx = &overflowCtx_[styleIdx];
 
@@ -1008,6 +1051,19 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
 uint16_t SdCardFont::getAdvanceOrLoad(const uint32_t codepoint, const uint8_t style) {
   uint16_t advance = 0;
   return tryGetAdvanceOrLoad(codepoint, style, advance) ? advance : 0;
+}
+
+const uint8_t* SdCardFont::lookupChunkedBitmap(void* ctx, const EpdGlyph* glyph) {
+  auto* overflowCtx = static_cast<OverflowContext*>(ctx);
+  if (!overflowCtx || !overflowCtx->self || !glyph) return nullptr;
+
+  const auto& s = overflowCtx->self->styles_[overflowCtx->styleIdx];
+  if (!s.miniBitmapIsChunked) return nullptr;
+
+  const uint8_t chunk = static_cast<uint8_t>(glyph->dataOffset >> 16);
+  const uint16_t offset = static_cast<uint16_t>(glyph->dataOffset & 0xFFFF);
+  if (chunk >= s.miniBitmapChunkCount || !s.miniBitmapChunks[chunk]) return nullptr;
+  return s.miniBitmapChunks[chunk] + offset;
 }
 
 bool SdCardFont::tryGetAdvanceOrLoad(const uint32_t codepoint, uint8_t style, uint16_t& advanceOut) {
@@ -1271,8 +1327,13 @@ int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
 // --- Stats ---
 
 void SdCardFont::logStats(const char* label) {
+#if defined(RENDER_PROFILE)
+  LOG_INF("SDCF", "[%s] total=%ums sd_read=%ums seeks=%u glyphs=%u bitmap=%u bytes", label, stats_.prewarmTotalMs,
+          stats_.sdReadTimeMs, stats_.seekCount, stats_.uniqueGlyphs, stats_.bitmapBytes);
+#else
   LOG_DBG("SDCF", "[%s] total=%ums sd_read=%ums seeks=%u glyphs=%u bitmap=%u bytes", label, stats_.prewarmTotalMs,
           stats_.sdReadTimeMs, stats_.seekCount, stats_.uniqueGlyphs, stats_.bitmapBytes);
+#endif
 }
 
 void SdCardFont::resetStats() { stats_ = Stats{}; }

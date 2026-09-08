@@ -149,6 +149,11 @@ typedef struct {
   /// GfxRenderer::getGlyphBitmap() to retrieve overflow bitmaps via SdCardFont.
   void* glyphMissCtx;
 
+  /// Optional bitmap resolver for fonts whose page cache is stored in small
+  /// non-contiguous allocations.  nullptr means bitmap + dataOffset is valid.
+  const uint8_t* (*bitmapLookupHandler)(void* ctx, const EpdGlyph* glyph);
+  void* bitmapLookupCtx;
+
   /// Optional fallback for kerning matrices that are kept on external storage.
   /// Arguments are validated 1-based class IDs; nullptr means no fallback.
   int8_t (*kernLookupHandler)(void* ctx, uint8_t leftClass, uint8_t rightClass);

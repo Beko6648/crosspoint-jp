@@ -178,6 +178,14 @@ class SdCardFont {
     EpdUnicodeInterval* miniIntervals = nullptr;
     EpdGlyph* miniGlyphs = nullptr;
     uint8_t* miniBitmap = nullptr;
+    // A fragmented heap may not provide one contiguous bitmap allocation for
+    // a text-heavy page.  Keep the same prewarmed glyph set in small chunks.
+    // Chunked fallback allocates one bitmap per glyph, avoiding a large
+    // contiguous request when a retained EPUB page leaves little free heap.
+    static constexpr uint8_t MAX_MINI_BITMAP_CHUNKS = 64;
+    uint8_t* miniBitmapChunks[MAX_MINI_BITMAP_CHUNKS] = {};
+    uint8_t miniBitmapChunkCount = 0;
+    bool miniBitmapIsChunked = false;
     uint32_t miniIntervalCount = 0;
     uint32_t miniGlyphCount = 0;
 
@@ -242,6 +250,7 @@ class SdCardFont {
   void applyKernLigaturePointers(PerStyle& s, EpdFontData& data) const;
   void applyGlyphMissCallback(uint8_t styleIdx);
   static int8_t lookupKernRow(void* ctx, uint8_t leftClass, uint8_t rightClass);
+  static const uint8_t* lookupChunkedBitmap(void* ctx, const EpdGlyph* glyph);
   int32_t findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) const;
   int prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint32_t cpCount, bool metadataOnly);
 
