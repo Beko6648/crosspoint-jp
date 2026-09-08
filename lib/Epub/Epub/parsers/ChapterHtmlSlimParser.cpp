@@ -787,7 +787,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     }
                     // Image dimensions are already clamped to the viewport.
                     // Leave one column and its gutter for the following text.
-                    self->currentPageNextX = xPos - columnSpacing - columnWidth;
+                    // Keep the normal column gutter plus a small visual gap
+                    // before the body column (and its right-side ruby) starts.
+                    self->currentPageNextX = xPos - columnSpacing - columnWidth - 2;
                   }
                   imageY = std::max(0, (self->viewportHeight - displayHeight) / 2);
                 } else {
@@ -1813,6 +1815,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::completeCurrentPage() {
   if (!currentPage) return;
+  // A block image normally reserves room for body columns on either side in
+  // vertical writing. When neither column was produced, center the lone image
+  // after the page's content is known.
+  if (verticalMode && currentPage->elements.size() == 1 &&
+      currentPage->elements.front()->getTag() == TAG_PageImage) {
+    auto& image = static_cast<PageImage&>(*currentPage->elements.front());
+    image.xPos = static_cast<int16_t>(std::max(
+        0, (viewportWidth - static_cast<int>(image.getImageBlock().getWidth())) / 2));
+  }
   completePageFn(std::move(currentPage));
   completedPageCount++;
 }
@@ -1875,11 +1886,15 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     int rubyTopInset = 0;
     if (line->hasRuby() || line->hasEmphasis()) {
       const int requiredBodyY = line->annotationTopInset(renderer, effectiveFontId);
+      const bool followsImage = !currentPage->elements.empty() &&
+                                currentPage->elements.back()->getTag() == TAG_PageImage;
       // Configured line spacing already contributes leading between body
-      // lines. Add only the clearance still missing for ruby; the first line
-      // has no preceding body line and only clears the page edge.
+      // lines. An image provides no text leading, so the following annotated
+      // line must reserve its full ruby/emphasis clearance above the body.
       if (currentPage->elements.empty()) {
         rubyTopInset = std::max(0, requiredBodyY - currentPageNextY);
+      } else if (followsImage) {
+        rubyTopInset = requiredBodyY + 2;
       } else {
         const int bodyLineHeight = renderer.getLineHeight(effectiveFontId);
         const int existingLeading = std::max(0, lineHeight - bodyLineHeight);

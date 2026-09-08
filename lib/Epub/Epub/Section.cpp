@@ -175,7 +175,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 105: ImageBlock dimensions can now be constrained by CSS max-width/max-height.
 // 106: Vertical block images can share a page with body columns.
 // 107: Vertical image band uses the normal column gutter on its right edge.
-constexpr uint8_t SECTION_FILE_VERSION = 107;
+// 109: Horizontal images reserve full annotation clearance for following ruby.
+// 110: Keep a 2px visual gap after an image before the following annotation.
+// 111: Extend the vertical image-to-column gutter by 2px.
+// 112: Center a vertical block image when it is the only element on its page.
+constexpr uint8_t SECTION_FILE_VERSION = 112;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

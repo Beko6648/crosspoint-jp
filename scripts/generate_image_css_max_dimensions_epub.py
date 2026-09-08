@@ -31,7 +31,16 @@ def chapter(title: str, css_class: str, image: str, text: str, inline_style: str
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><title>{title}</title>
 <link rel="stylesheet" type="text/css" href="style.css"/></head><body>
 <h1>{title}</h1><p>{text}</p><img class="{css_class}"{inline_style} src="images/{image}" alt="寸法確認用の格子画像"/>
-<p>画像の次に続く本文です。画像の縦横比を保ち、指定した上限に収まることを確認します。</p>
+<p><ruby>画像直後<rt>がぞうちょくご</rt></ruby>のルビ付き本文です。画像とルビが重ならず、指定した上限に収まることを確認します。</p>
+</body></html>'''
+
+
+def image_only_chapter(title: str, css_class: str, image: str) -> str:
+    """A non-fit image with no body columns; it must be centered in vertical mode."""
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><title>{title}</title>
+<link rel="stylesheet" type="text/css" href="style.css"/></head><body>
+<img class="{css_class}" src="images/{image}" alt="本文のない中央配置確認画像"/>
 </body></html>'''
 
 
@@ -61,6 +70,7 @@ def generate(output: Path, vertical: bool) -> Path:
          ' style="max-width:31%; max-height:29%"'),
         ('縦書きの本文と画像', 'both', 'large.png',
          '画像の右側に本文列を残し、画像の左側にも続きの本文列を配置します。'),
+        ('縦書きの画像だけのページ', 'both', 'large.png', None),
         ('fit の単ページ', 'fit', 'large.png', 'fit指定の画像は縦書きでも単ページに保ちます。'),
     ]
     manifest = '<item id="style" href="style.css" media-type="text/css"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
@@ -68,7 +78,8 @@ def generate(output: Path, vertical: bool) -> Path:
     nav_items = []
     for index, (title, css_class, image, text, *inline_style) in enumerate(cases):
         name = f'chapter{index}.xhtml'
-        files[f'OEBPS/{name}'] = chapter(title, css_class, image, text, *inline_style)
+        files[f'OEBPS/{name}'] = (image_only_chapter(title, css_class, image)
+                                   if text is None else chapter(title, css_class, image, text, *inline_style))
         manifest += f'<item id="c{index}" href="{name}" media-type="application/xhtml+xml"/>'
         spine += f'<itemref idref="c{index}"/>'
         nav_items.append(f'<li><a href="{name}">{title}</a></li>')
