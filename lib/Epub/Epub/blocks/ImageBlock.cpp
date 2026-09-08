@@ -147,6 +147,16 @@ bool hasValidBmpCache(const std::string& imagePath) {
   return ImageCacheValidation::validateBmpCacheFile(bmpPath);
 }
 
+std::string getPngPixelCachePath(const std::string& imagePath) {
+  // Keep this test cache separate from the established .pxc5 BMP cache so a
+  // device can return to the BMP path simply by flashing the previous build.
+  size_t dotPos = imagePath.rfind('.');
+  if (dotPos != std::string::npos) {
+    return imagePath.substr(0, dotPos) + ".pxc6";
+  }
+  return imagePath + ".pxc6";
+}
+
 bool renderBmpCache(GfxRenderer& renderer, const std::string& bmpPath, const int x, const int y, const int width,
                     const int height) {
   FsFile bmpReadFile;
@@ -202,14 +212,14 @@ bool convertToBmpCache(const std::string& imagePath, const std::string& bmpPath,
 
 }  // namespace
 
-bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer) const {
-  if (!FsHelpers::hasPngExtension(imagePath)) return false;
+bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer, const int x, const int y) const {
+  if (!FsHelpers::hasPngExtension(imagePath) && !FsHelpers::hasJpgExtension(imagePath)) return false;
 
-  const std::string bmpPath = getCachePath(imagePath) + ".bmp";
-  if (Storage.exists(bmpPath.c_str())) {
-    if (ImageCacheValidation::validateBmpCacheFile(bmpPath)) return false;
-    LOG_ERR("IMG", "Removing invalid PNG BMP cache before pregeneration: %s", bmpPath.c_str());
-    Storage.remove(bmpPath.c_str());
+  const std::string cachePath = getPngPixelCachePath(imagePath);
+  if (Storage.exists(cachePath.c_str())) {
+    if (ImageCacheValidation::validatePixelCacheFile(cachePath, width, height)) return false;
+    LOG_ERR("IMG", "Removing invalid image pixel cache before pregeneration: %s", cachePath.c_str());
+    Storage.remove(cachePath.c_str());
   }
 
   if (auto* fcm = renderer.getFontCacheManager()) {
@@ -217,8 +227,25 @@ bool ImageBlock::pregeneratePngCache(GfxRenderer& renderer) const {
     fcm->freeKernLigatureData();
   }
 
-  LOG_DBG("IMG", "Pregenerating PNG BMP cache: %s", imagePath.c_str());
-  return convertToBmpCache(imagePath, bmpPath, width, height);
+  ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
+  if (!decoder) return false;
+
+  RenderConfig config;
+  config.x = x;
+  config.y = y;
+  config.maxWidth = width;
+  config.maxHeight = height;
+  config.useGrayscale = true;
+  config.useDithering = true;
+  config.useExactDimensions = true;
+  config.writeToFramebuffer = false;
+  config.cachePath = cachePath;
+
+  LOG_DBG("IMG", "Pregenerating image pixel cache: %s (%dx%d at %d,%d)", imagePath.c_str(), width, height, x, y);
+  if (!decoder->decodeToFramebuffer(imagePath, renderer, config)) return false;
+  const bool valid = ImageCacheValidation::validatePixelCacheFile(cachePath, width, height);
+  if (valid) LOG_INF("IMGQ", "PXC cache ready: %s", cachePath.c_str());
+  return valid;
 }
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
@@ -253,11 +280,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
 
   // Try to render from cache first
   std::string cachePath = getCachePath(imagePath);
-  const std::string bmpPath = cachePath + ".bmp";
-  if (hasValidBmpCache(imagePath) && renderBmpCache(renderer, bmpPath, x, y, width, height)) {
-    return;
+  if (FsHelpers::hasPngExtension(imagePath) || FsHelpers::hasJpgExtension(imagePath)) {
+    cachePath = getPngPixelCachePath(imagePath);
   }
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
+    LOG_INF("IMGQ", "PXC cache hit: %s", cachePath.c_str());
     return;
   }
 
@@ -289,7 +316,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // (CrossPoint Reader). So skip the release when we can render from a cached
   // BMP; the caches are slot-limited and overflow-safe, so keeping them warm
   // across images is safe.
-  if (fcm && !hasValidBmpCache(imagePath)) {
+  if (fcm) {
     fcm->clearCache();
     fcm->freeKernLigatureData();
     LOG_DBG("IMG", "Released font caches before decode: free=%u maxAlloc=%u", ESP.getFreeHeap(),
@@ -309,36 +336,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   config.useExactDimensions = true;  // Use pre-calculated dimensions to avoid rounding mismatches
   config.cachePath = cachePath;      // Enable caching during decode
 
-  // Stream JPEG and PNG sources into a BMP cache. The PNG converter uses a
-  // 32KB inflate ring, avoiding PNGdec's fixed 58KB contiguous allocation.
-  if (FsHelpers::hasJpgExtension(imagePath) || FsHelpers::hasPngExtension(imagePath)) {
-    if (failedBitmapConversionAt != 0 &&
-        static_cast<unsigned long>(millis() - failedBitmapConversionAt) < BITMAP_CONVERSION_RETRY_DELAY_MS) {
-      LOG_DBG("IMG", "Skipping image conversion during global cooldown: %s", imagePath.c_str());
-      return;
-    }
-    bool needsBmpCache = true;
-    if (Storage.exists(bmpPath.c_str())) {
-      if (ImageCacheValidation::validateBmpCacheFile(bmpPath)) {
-        needsBmpCache = false;
-      } else {
-        LOG_DBG("IMG", "Removing invalid BMP cache: %s", bmpPath.c_str());
-        Storage.remove(bmpPath.c_str());
-      }
-    }
-    // Convert the source image to BMP if not cached yet.
-    if (needsBmpCache) {
-      if (!convertToBmpCache(imagePath, bmpPath, width, height)) {
-        failedBitmapConversionAt = millis();
-        return;
-      }
-      failedBitmapConversionAt = 0;
-    }
-    renderBmpCache(renderer, bmpPath, x, y, width, height);
-    return;
-  }
-
-  // For non-JPEG images (PNG), use the direct framebuffer decoder
+  // JPEG and PNG both use the direct framebuffer decoder and a PXC cache in
+  // this test build.
   ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
   if (!decoder) {
     LOG_ERR("IMG", "No decoder found for image: %s", imagePath.c_str());

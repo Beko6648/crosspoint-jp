@@ -4,7 +4,6 @@
 #include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <Epub/converters/ImageCacheValidation.h>
-#include <Epub/converters/JpegCacheGenerator.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -74,23 +73,25 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
   return true;
 }
 
-int pregeneratePngCaches(const Page& page, GfxRenderer& renderer) {
+int pregeneratePngCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
-    const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
-    if (image.pregeneratePngCache(renderer)) generated++;
+    const auto& pageImage = static_cast<const PageImage&>(*element);
+    const auto& image = pageImage.getImageBlock();
+    if (image.pregeneratePngCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
   }
   return generated;
 }
 
-int pregeneratePngCachesFromCachedSection(Section& section, GfxRenderer& renderer, int& pagesScanned) {
+int pregeneratePngCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
+                                          const int yOffset, int& pagesScanned) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
     if (!page) continue;
     ++pagesScanned;
-    if (page->hasImages()) generated += pregeneratePngCaches(*page, renderer);
+    if (page->hasImages()) generated += pregeneratePngCaches(*page, renderer, xOffset, yOffset);
   }
   return generated;
 }
@@ -178,12 +179,8 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
     }
 
     result.sourceCount++;
-    const std::string pixelCachePath = sourcePath.substr(0, sourcePath.size() - 4) + ".pxc5";
-    const std::string bmpCachePath = pixelCachePath + ".bmp";
-    // PNG images now prefer a streamed BMP cache. Keep accepting a valid
-    // legacy pixel cache so existing books do not regenerate unnecessarily.
-    if ((Storage.exists(bmpCachePath.c_str()) && ImageCacheValidation::validateBmpCacheFile(bmpCachePath)) ||
-        (Storage.exists(pixelCachePath.c_str()) && ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0))) {
+    const std::string pixelCachePath = sourcePath.substr(0, sourcePath.size() - 4) + ".pxc6";
+    if (Storage.exists(pixelCachePath.c_str()) && ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0)) {
       result.validCacheCount++;
     } else {
       result.missingOrInvalidCacheCount++;
@@ -352,11 +349,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const auto& epubPath = epubFiles[bookIdx];
     const uint32_t bookStartedAt = millis();
     uint32_t sectionBuildMs = 0;
-    uint32_t imageCacheMs = 0;
     uint32_t pngCacheMs = 0;
     int sectionCacheHits = 0;
     int generatedSections = 0;
-    int generatedImageCaches = 0;
     int generatedPngCaches = 0;
     int cachedPngPagesScanned = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
@@ -440,7 +435,6 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const int headingFontIds[6] = {
         SETTINGS.getHeadingFontId(1, isVertical), SETTINGS.getHeadingFontId(2, isVertical), 0, 0, 0, 0};
-    std::vector<bool> jpegEligibleSections(spineCount, false);
     bool allSectionsReady = true;
 
     for (int i = 0; i < spineCount; i++) {
@@ -478,7 +472,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPngPageScan) {
           const uint32_t pngStartedAt = millis();
-          generatedPngCaches += pregeneratePngCachesFromCachedSection(sec, renderer, cachedPngPagesScanned);
+          generatedPngCaches += pregeneratePngCachesFromCachedSection(sec, renderer, bmLeft, bmTop,
+                                                                       cachedPngPagesScanned);
           pngCacheMs += millis() - pngStartedAt;
         }
       } else {
@@ -492,9 +487,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
                                    ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
                                    cssBodyFontIds, nullptr,
-                                   [this, &generatedPngCaches, &pngCacheMs](const Page& page) {
+                                   [this, &generatedPngCaches, &pngCacheMs, bmLeft, bmTop](const Page& page) {
                                      const uint32_t pngStartedAt = millis();
-                                     generatedPngCaches += pregeneratePngCaches(page, renderer);
+                                     generatedPngCaches += pregeneratePngCaches(page, renderer, bmLeft, bmTop);
                                      pngCacheMs += millis() - pngStartedAt;
                                    },
                                    [&controls, this] { return controls.shouldCancel(renderer); })) {
@@ -505,45 +500,20 @@ void GenerateAllCacheActivity::generateAllCaches() {
         sectionBuildMs += millis() - sectionStartedAt;
         generatedSections++;
       }
-      jpegEligibleSections[i] = true;
     }
 
     if (cancelled) break;
 
-    const uint32_t imageStartedAt = millis();
-    const auto jpegResult = JpegCacheGenerator::generateFromExtractedImages(
-        epub->getCachePath(), jpegEligibleSections, viewportWidth, viewportHeight, "GENALL", "GEN",
-        [this, &cancelled, &controls, &progressDetail, &popupRect, &lastDisplayedProgress, &progressDisplayMs,
-         bookIdx](const int done, const int total) {
-          const int bookProgress = total > 0 ? 80 + (done * 20) / total : 100;
-          const int overallProgress = (bookIdx * 100 + bookProgress) / this->totalCount;
-          if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT || done == total) {
-            progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
-                             std::to_string(this->totalCount) + "  " + tr(STR_CACHE_IMAGES) + " " +
-                             std::to_string(done) + "/" + std::to_string(total);
-            const uint32_t displayStartedAt = millis();
-            GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
-            progressDisplayMs += millis() - displayStartedAt;
-            lastDisplayedProgress = overallProgress;
-          }
-          cancelled = controls.shouldCancel(renderer);
-          return !cancelled;
-        });
-    imageCacheMs += millis() - imageStartedAt;
-    generatedImageCaches += jpegResult.generatedCacheCount;
-    LOG_DBG("GENALL", "JPEG cache scan: sources=%d, valid=%d, generated=%d, invalid=%d, failed=%d, complete=%d",
-            jpegResult.sourceCount, jpegResult.validCacheCount, jpegResult.generatedCacheCount,
-            jpegResult.invalidCacheCount, jpegResult.failedCacheCount, jpegResult.scanComplete);
-    if (allSectionsReady && jpegResult.scanComplete && jpegResult.failedCacheCount == 0) {
+    if (allSectionsReady) {
       if (!epub->markFullCacheGenerated()) LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
     } else {
       LOG_DBG("GENALL", "Cache incomplete for %s; a later run will resume it", epubPath.c_str());
     }
 
     LOG_DBG("GENALL",
-            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), JPEG-BMP=%lu ms (%d images), PNG=%lu ms (%d images, %d cached pages scanned)",
-            millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, imageCacheMs,
-            generatedImageCaches, pngCacheMs, generatedPngCaches, cachedPngPagesScanned);
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d cached pages scanned)",
+            millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pngCacheMs,
+            generatedPngCaches, cachedPngPagesScanned);
     if (cancelled) break;
   }
 
