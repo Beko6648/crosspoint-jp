@@ -59,6 +59,9 @@ def generate(output: Path, vertical: bool) -> Path:
         ('小さな画像の上限', 'inline_limit', 'icon.png', '上限だけの1em指定では、元の8px画像を拡大しません。'),
         ('インラインの上限', '', 'large.png', 'style属性のmax-widthとmax-heightも、外部CSSと同じように反映します。',
          ' style="max-width:31%; max-height:29%"'),
+        ('縦書きの本文と画像', 'both', 'large.png',
+         '画像の右側に本文列を残し、画像の左側にも続きの本文列を配置します。'),
+        ('fit の単ページ', 'fit', 'large.png', 'fit指定の画像は縦書きでも単ページに保ちます。'),
     ]
     manifest = '<item id="style" href="style.css" media-type="text/css"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
     spine = ''

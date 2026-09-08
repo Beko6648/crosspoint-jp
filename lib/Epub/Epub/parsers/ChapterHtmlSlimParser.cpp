@@ -733,38 +733,74 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->startNewTextBlock(parentBlockStyle);
                 }
 
-                if (self->verticalMode && self->currentPage && !self->currentPage->elements.empty()) {
-                  self->completeCurrentPage();
-                  self->currentPage.reset(new Page());
-                  if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create image page");
-                    return;
-                  }
-                  self->currentPageNextY = 0;
-                  self->currentPageNextX = self->viewportWidth - self->renderer.getLineHeight(self->fontId);
-                }
                 // Japanese EPUB authoring profiles commonly use class="fit" for a
                 // full-page illustration. Isolate it in horizontal mode as well so
                 // following text cannot occupy the image region.
                 const bool pageFitImage = hasClassToken(classAttr, "fit");
 
-                // Create page for image - break if it is page-fit or won't fit.
-                if (self->currentPage && !self->currentPage->elements.empty() &&
-                    (pageFitImage || self->currentPageNextY + displayHeight > self->viewportHeight)) {
-                  self->completeCurrentPage();
+                const auto startEmptyImagePage = [&]() -> bool {
                   self->currentPage.reset(new Page());
                   if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create new page");
-                    return;
+                    LOG_ERR("EHP", "Failed to create image page");
+                    return false;
                   }
                   self->currentPageNextY = 0;
-                } else if (!self->currentPage) {
-                  self->currentPage.reset(new Page());
-                  if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create initial page");
+                  const int columnWidth = std::max(
+                      1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
+                  self->currentPageNextX = self->viewportWidth - columnWidth;
+                  return true;
+                };
+
+                int xPos = 0;
+                int imageY = 0;
+                if (self->verticalMode) {
+                  // A vertical block image occupies a horizontal band between
+                  // the columns before it (on the right) and after it (on the
+                  // left). Its y position is always centered in the page.
+                  if (!self->currentPage && !startEmptyImagePage()) return;
+                  bool pageHasContent = !self->currentPage->elements.empty();
+                  const int columnWidth = std::max(
+                      1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
+                  const int columnSpacing = columnWidth / 4;
+
+                  if (pageFitImage && pageHasContent) {
+                    self->completeCurrentPage();
+                    if (!startEmptyImagePage()) return;
+                    pageHasContent = false;
+                  }
+
+                  if (pageFitImage) {
+                    xPos = (self->viewportWidth - displayWidth) / 2;
+                  } else {
+                    // currentPageNextX is the left edge of the next body
+                    // column. Its right edge keeps exactly the ordinary gutter
+                    // from the last column already on the page. Reserve the
+                    // image band there; a fresh page starts at the physical
+                    // right edge.
+                    int imageRight = pageHasContent ? self->currentPageNextX + columnWidth : self->viewportWidth;
+                    xPos = imageRight - displayWidth;
+                    if (xPos < 0 && pageHasContent) {
+                      self->completeCurrentPage();
+                      if (!startEmptyImagePage()) return;
+                      imageRight = self->viewportWidth;
+                      xPos = imageRight - displayWidth;
+                    }
+                    // Image dimensions are already clamped to the viewport.
+                    // Leave one column and its gutter for the following text.
+                    self->currentPageNextX = xPos - columnSpacing - columnWidth;
+                  }
+                  imageY = std::max(0, (self->viewportHeight - displayHeight) / 2);
+                } else {
+                  // Horizontal images retain the existing top-to-bottom flow.
+                  if (self->currentPage && !self->currentPage->elements.empty() &&
+                      (pageFitImage || self->currentPageNextY + displayHeight > self->viewportHeight)) {
+                    self->completeCurrentPage();
+                    if (!startEmptyImagePage()) return;
+                  } else if (!self->currentPage && !startEmptyImagePage()) {
                     return;
                   }
-                  self->currentPageNextY = 0;
+                  xPos = (self->viewportWidth - displayWidth) / 2;
+                  imageY = pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2) : self->currentPageNextY;
                 }
 
                 // Create ImageBlock and add to page
@@ -773,9 +809,6 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   LOG_ERR("EHP", "Failed to create ImageBlock");
                   return;
                 }
-                int xPos = (self->viewportWidth - displayWidth) / 2;
-                const int imageY =
-                    pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2) : self->currentPageNextY;
                 auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, imageY);
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");
@@ -783,19 +816,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
                 self->currentPage->elements.push_back(pageImage);
 
-                if (self->verticalMode || pageFitImage) {
-                  // Vertical images and page-fit illustrations use their own page
-                  // to prevent later text from overlapping the image region.
+                if (pageFitImage) {
+                  // Full-page illustrations remain isolated in both writing modes.
                   self->completeCurrentPage();
-                  self->currentPage.reset(new Page());
-                  if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create page after image");
-                    return;
-                  }
-                  self->currentPageNextY = 0;
-                  self->currentPageNextX = self->viewportWidth - self->renderer.getLineHeight(self->fontId);
+                  if (!startEmptyImagePage()) return;
                 } else {
-                  self->currentPageNextY += displayHeight;
+                  if (!self->verticalMode) self->currentPageNextY += displayHeight;
                 }
 
                 self->depth += 1;
