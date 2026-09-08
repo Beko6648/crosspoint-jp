@@ -172,7 +172,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // Version 103: retain usage-filtered external CSS for small sections at the
 // safe section-build threshold instead of the former unconditional 96KB floor.
 // Version 104: split an overlong sideways Latin run across vertical columns.
-constexpr uint8_t SECTION_FILE_VERSION = 104;
+// 105: ImageBlock dimensions can now be constrained by CSS max-width/max-height.
+constexpr uint8_t SECTION_FILE_VERSION = 105;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

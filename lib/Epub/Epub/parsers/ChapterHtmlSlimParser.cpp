@@ -654,6 +654,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
+                const bool hasCssMaxHeight = imgStyle.hasImageMaxHeight();
+                const bool hasCssMaxWidth = imgStyle.hasImageMaxWidth();
+                const bool hasCssImageConstraint =
+                    hasCssHeight || hasCssWidth || hasCssMaxHeight || hasCssMaxWidth;
 
                 // Compute effective container width for percentage-based image sizes.
                 // If the image is inside a block with horizontal margins/padding (e.g.
@@ -667,84 +671,39 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   }
                 }
 
-                if (hasCssHeight && hasCssWidth && dims.width > 0 && dims.height > 0) {
-                  // Both CSS height and width set: resolve both as max bounds, then fit image
-                  // within those bounds preserving the original aspect ratio. Image decoders use
-                  // a single scale factor for both axes; non-uniform scaling causes diagonal distortion.
-                  int maxW =
-                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
-                  int maxH = static_cast<int>(
-                      imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
+                // The decoder scales with one factor, so resolve every explicit
+                // dimension to an upper bound and keep the original aspect ratio.
+                // width/height retain the reader's established fit-within behavior;
+                // max-width/max-height add further bounds and never enlarge a
+                // naturally smaller image on their own.
+                int maxWidth = containerWidth;
+                int maxHeight = self->viewportHeight;
+                auto applyWidthBound = [&](const CssLength& length) {
+                  int bound = static_cast<int>(length.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
+                  if (bound < 1) bound = 1;
+                  if (bound < maxWidth) maxWidth = bound;
+                };
+                auto applyHeightBound = [&](const CssLength& length) {
+                  int bound = static_cast<int>(length.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
+                  if (bound < 1) bound = 1;
+                  if (bound < maxHeight) maxHeight = bound;
+                };
+                if (hasCssWidth) applyWidthBound(imgStyle.imageWidth);
+                if (hasCssHeight) applyHeightBound(imgStyle.imageHeight);
+                if (hasCssMaxWidth) applyWidthBound(imgStyle.imageMaxWidth);
+                if (hasCssMaxHeight) applyHeightBound(imgStyle.imageMaxHeight);
 
-                  if (maxW > containerWidth) maxW = containerWidth;
-                  if (maxH > self->viewportHeight) maxH = self->viewportHeight;
-                  if (maxW < 1) maxW = 1;
-                  if (maxH < 1) maxH = 1;
+                const float scaleX = static_cast<float>(maxWidth) / dims.width;
+                const float scaleY = static_cast<float>(maxHeight) / dims.height;
+                float scale = (scaleX < scaleY) ? scaleX : scaleY;
+                if (!hasCssHeight && !hasCssWidth && scale > 1.0f) scale = 1.0f;
 
-                  float scaleX = static_cast<float>(maxW) / dims.width;
-                  float scaleY = static_cast<float>(maxH) / dims.height;
-                  float scale = (scaleX < scaleY) ? scaleX : scaleY;
-
-                  displayWidth = static_cast<int>(dims.width * scale + 0.5f);
-                  displayHeight = static_cast<int>(dims.height * scale + 0.5f);
-
-                  if (displayWidth < 1) displayWidth = 1;
-                  if (displayHeight < 1) displayHeight = 1;
-
-                  LOG_DBG("EHP", "Display size from CSS height+width: %dx%d", displayWidth, displayHeight);
-                } else if (hasCssHeight && !hasCssWidth && dims.width > 0 && dims.height > 0) {
-                  // Use CSS height (resolve % against viewport height) and derive width from aspect ratio
-                  displayHeight = static_cast<int>(
-                      imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
-                  if (displayHeight < 1) displayHeight = 1;
-                  displayWidth =
-                      static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
-                  if (displayHeight > self->viewportHeight) {
-                    displayHeight = self->viewportHeight;
-                    // Rescale width to preserve aspect ratio when height is clamped
-                    displayWidth =
-                        static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
-                    if (displayWidth < 1) displayWidth = 1;
-                  }
-                  if (displayWidth > containerWidth) {
-                    displayWidth = containerWidth;
-                    // Rescale height to preserve aspect ratio when width is clamped
-                    displayHeight =
-                        static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
-                    if (displayHeight < 1) displayHeight = 1;
-                  }
-                  if (displayWidth < 1) displayWidth = 1;
-                  LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
-                } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
-                  // Use CSS width (resolve % against container width) and derive height from aspect ratio
-                  displayWidth =
-                      static_cast<int>(imgStyle.imageWidth.toPixels(emSize, static_cast<float>(containerWidth)) + 0.5f);
-                  if (displayWidth > containerWidth) displayWidth = containerWidth;
-                  if (displayWidth < 1) displayWidth = 1;
-                  displayHeight =
-                      static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
-                  if (displayHeight > self->viewportHeight) {
-                    displayHeight = self->viewportHeight;
-                    // Rescale width to preserve aspect ratio when height is clamped
-                    displayWidth =
-                        static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
-                    if (displayWidth < 1) displayWidth = 1;
-                  }
-                  if (displayHeight < 1) displayHeight = 1;
-                  LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
-                } else {
-                  // Scale to fit container while maintaining aspect ratio
-                  int maxWidth = containerWidth;
-                  int maxHeight = self->viewportHeight;
-                  float scaleX = (dims.width > maxWidth) ? (float)maxWidth / dims.width : 1.0f;
-                  float scaleY = (dims.height > maxHeight) ? (float)maxHeight / dims.height : 1.0f;
-                  float scale = (scaleX < scaleY) ? scaleX : scaleY;
-                  if (scale > 1.0f) scale = 1.0f;
-
-                  displayWidth = (int)(dims.width * scale);
-                  displayHeight = (int)(dims.height * scale);
-                  LOG_DBG("EHP", "Display size: %dx%d (scale %.2f)", displayWidth, displayHeight, scale);
-                }
+                displayWidth = static_cast<int>(dims.width * scale + 0.5f);
+                displayHeight = static_cast<int>(dims.height * scale + 0.5f);
+                if (displayWidth < 1) displayWidth = 1;
+                if (displayHeight < 1) displayHeight = 1;
+                LOG_DBG("EHP", "Display size from CSS bounds: %dx%d (max %dx%d)", displayWidth, displayHeight,
+                        maxWidth, maxHeight);
 
                 // Flush any pending text block so it appears before the image
                 if (self->partWordBufferIndex > 0) {
@@ -754,7 +713,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // インライン画像（文字の代替）判定: CSS指定の表示サイズが文字セル1つ分以内なら、
                 // ブロック図版（専用ページ化）ではなく本文中の文字（Word）として扱う。
                 // bookStyle 1(書籍優先)で有効。imgStyle が解決されるのは bookStyle==1 のときのみ。
-                if (self->bookStyle == 1 && self->currentTextBlock && (hasCssHeight || hasCssWidth) &&
+                if (self->bookStyle == 1 && self->currentTextBlock && hasCssImageConstraint &&
                     !hasClassToken(classAttr, "fit")) {
                   // 縦書きの比較基準は「文字セル1つ分（フォントサイズ=emSize）」を使う。
                   // 実グリフ幅(一)基準はフォントファミリ依存（サンセリフはグリフが狭い）で、
