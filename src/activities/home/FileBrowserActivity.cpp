@@ -111,6 +111,19 @@ void sortFileList(std::vector<std::string>& strs) {
 void FileBrowserActivity::cacheCurrentDirectory() {
   if (loadedPath.empty()) return;
 
+  // A large listing is expensive to retain alongside the next directory being
+  // opened. Drop it before scanning the destination so the allocation peak is
+  // bounded. Returning to that directory rescans the SD card.
+  if (files.size() > MAX_CACHED_DIRECTORY_ENTRIES) {
+    loadedPath.clear();
+    std::vector<std::string>().swap(files);
+    std::vector<ReadingStatus>().swap(fileStatuses);
+    std::vector<bool>().swap(readingStatusKnown);
+    std::vector<Epub::CacheGenerationStatus>().swap(fileCacheStatuses);
+    std::vector<bool>().swap(fileCacheStatusKnown);
+    return;
+  }
+
   directoryCache.erase(
       std::remove_if(directoryCache.begin(), directoryCache.end(),
                      [this](const DirectoryCacheEntry& entry) { return entry.path == loadedPath; }),
@@ -119,8 +132,8 @@ void FileBrowserActivity::cacheCurrentDirectory() {
     directoryCache.erase(directoryCache.begin());
   }
   directoryCache.push_back(
-      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusCacheEntries),
-       std::move(readingStatusKnown), std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
+      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusKnown),
+       std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
   loadedPath.clear();
 }
 
@@ -132,7 +145,6 @@ bool FileBrowserActivity::restoreCachedDirectory() {
   loadedPath = std::move(cached->path);
   files = std::move(cached->files);
   fileStatuses = std::move(cached->statuses);
-  readingStatusCacheEntries = std::move(cached->readingStatusCacheEntries);
   readingStatusKnown = std::move(cached->readingStatusKnown);
   fileCacheStatuses = std::move(cached->cacheStatuses);
   fileCacheStatusKnown = std::move(cached->cacheStatusKnown);
@@ -290,11 +302,12 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
   loadedPath = basepath;
   LOG_DBG("FBPERF",
           "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu visible=%lu "
-          "openNext=%lu getName=%lu isDirectory=%lu close=%lu",
+          "openNext=%lu getName=%lu isDirectory=%lu close=%lu free=%lu largest=%lu",
           basepath.c_str(), openMs, scanMs, sortMs, readingStatusMs, millis() - totalStartedAt,
           static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),
           static_cast<unsigned long>(scannedEntries + 1), static_cast<unsigned long>(getNameCalls),
-          static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2));
+          static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2),
+          static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMaxAllocHeap()));
   LOG_DBG("FBPERF", "path=%s epubCacheStatus=deferred epubs=%lu metadata=0 cover=0", basepath.c_str(),
           static_cast<unsigned long>(epubEntries));
   return DirectoryLoadResult::Loaded;
