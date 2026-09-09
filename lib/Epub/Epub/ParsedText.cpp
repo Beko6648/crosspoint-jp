@@ -418,8 +418,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   const int maxSidewaysRunAdvance = std::max(1, static_cast<int>(columnHeight) - cjkSpacing);
   bool needsSidewaysRunSplit = false;
   for (size_t i = 0; i < words.size(); ++i) {
-    const bool sideways = i < wordVerticalBehaviors.size() &&
-                          wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
+    const bool sideways =
+        i < wordVerticalBehaviors.size() && wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
     const bool hasRuby = i < rubyTexts.size() && !rubyTexts[i].empty();
     if (sideways && !hasRuby &&
         renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]) > maxSidewaysRunAdvance) {

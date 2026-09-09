@@ -14,14 +14,14 @@
 #include <variant>
 
 #include "../util/ConfirmationActivity.h"
-#include "CrossPointSettings.h"
 #include "BookIdentity.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "ReadingStatusHelper.h"
 #include "ReadingHistoryStore.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
-#include "components/UITheme.h"
 #include "components/CacheStatusIcon.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -131,9 +131,9 @@ void FileBrowserActivity::cacheCurrentDirectory() {
   if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
     directoryCache.erase(directoryCache.begin());
   }
-  directoryCache.push_back(
-      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusKnown),
-       std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
+  directoryCache.push_back({std::move(loadedPath), std::move(files), std::move(fileStatuses),
+                            std::move(readingStatusKnown), std::move(fileCacheStatuses),
+                            std::move(fileCacheStatusKnown)});
   loadedPath.clear();
 }
 
@@ -241,8 +241,8 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
             files.emplace_back(filename);
           }
         } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-            FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-            FsHelpers::hasBmpExtension(filename)) {
+                   FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+                   FsHelpers::hasBmpExtension(filename)) {
           // Store original (NFD) filename for path construction.
           // NFC normalization is done at display time only.
           files.emplace_back(filename);
@@ -292,8 +292,9 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
     }
     ReadingStatus readingStatus;
     CachedBookStatus cacheStatus = CachedBookStatus::Unknown;
-    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex,
-                                   readingStatus, cacheStatus) && cacheStatus != CachedBookStatus::Unknown) {
+    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex, readingStatus,
+                                   cacheStatus) &&
+        cacheStatus != CachedBookStatus::Unknown) {
       fileCacheStatuses[index] = fromCachedBookStatus(cacheStatus);
       fileCacheStatusKnown[index] = true;
     }
@@ -301,7 +302,8 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   loadedPath = basepath;
   LOG_DBG("FBPERF",
-          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu visible=%lu "
+          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu "
+          "visible=%lu "
           "openNext=%lu getName=%lu isDirectory=%lu close=%lu free=%lu largest=%lu",
           basepath.c_str(), openMs, scanMs, sortMs, readingStatusMs, millis() - totalStartedAt,
           static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),
@@ -369,8 +371,7 @@ void FileBrowserActivity::loop() {
   // but Long press BACK (1s+) from ReaderActivity sends us here with the MappedInput already set.
   // So ignore it the first time.
   if (mode == Mode::Books && mappedInput.isPressed(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= GO_HOME_MS &&
-      basepath != "/" && !lockLongPressBack) {
+      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/" && !lockLongPressBack) {
     {
       // render() reads basepath and the file/status vectors on the render
       // task. loadFiles() can replace those vectors, so keep the update atomic.
@@ -419,7 +420,8 @@ void FileBrowserActivity::loop() {
       const bool inArchive = basepath == "/Archived" || basepath == "/Archived/";
       const bool canRestore = inArchive && !isDirectory && BookIdentity::getArchiveRestorePath(fullPath, restorePath);
 
-      auto handler = [this, fullPath, isDirectory, entry, inArchive, canRestore, restorePath](const ActivityResult& res) {
+      auto handler = [this, fullPath, isDirectory, entry, inArchive, canRestore,
+                      restorePath](const ActivityResult& res) {
         if (!res.isCancelled) {
           // A restorable archived book must never expose deletion on this
           // confirmation screen. The Right button is a labelled cancel.
@@ -462,34 +464,34 @@ void FileBrowserActivity::loop() {
               invalidateDirectoryCache("/Archived");
               LOG_DBG("FileBrowser", "Restored to: %s", restorePath.c_str());
             } else {
-            // Left ボタン → アーカイブ（/Archived/ に移動）
-            std::string filename = isDirectory ? entry.substr(0, entry.length() - 1) : entry;
-            std::string destPath = "/Archived/" + filename;
-            Storage.mkdir("/Archived");
-            // Never replace an existing archived file. The archive command must
-            // be a move, not an implicit destructive overwrite.
-            if (Storage.exists(destPath.c_str())) {
-              LOG_ERR("FileBrowser", "Archive destination already exists: %s", destPath.c_str());
-              statusMessage = tr(STR_ARCHIVE_NAME_EXISTS);
-              requestUpdate(true);
-              return;
-            }
-            if (!isDirectory) clearFileMetadata(fullPath);
-            if (Storage.rename(fullPath.c_str(), destPath.c_str())) {
-              if (!isDirectory) {
-                BookIdentity::recordArchiveLocation(fullPath, destPath);
-                READING_HISTORY.moveBook(fullPath, destPath);
-                RECENT_BOOKS.moveBook(fullPath, destPath);
-                BookIdentity::movePath(fullPath, destPath);
-                moveBookListStatusIndexEntry(fullPath, destPath, bookListStatusIndex);
+              // Left ボタン → アーカイブ（/Archived/ に移動）
+              std::string filename = isDirectory ? entry.substr(0, entry.length() - 1) : entry;
+              std::string destPath = "/Archived/" + filename;
+              Storage.mkdir("/Archived");
+              // Never replace an existing archived file. The archive command must
+              // be a move, not an implicit destructive overwrite.
+              if (Storage.exists(destPath.c_str())) {
+                LOG_ERR("FileBrowser", "Archive destination already exists: %s", destPath.c_str());
+                statusMessage = tr(STR_ARCHIVE_NAME_EXISTS);
+                requestUpdate(true);
+                return;
               }
-              bookListStatusIndexDirty = true;
-              invalidateDirectoryCache("/Archived");
-              LOG_DBG("FileBrowser", "Archived to: %s", destPath.c_str());
-            } else {
-              LOG_ERR("FileBrowser", "Failed to archive: %s", fullPath.c_str());
-              return;
-            }
+              if (!isDirectory) clearFileMetadata(fullPath);
+              if (Storage.rename(fullPath.c_str(), destPath.c_str())) {
+                if (!isDirectory) {
+                  BookIdentity::recordArchiveLocation(fullPath, destPath);
+                  READING_HISTORY.moveBook(fullPath, destPath);
+                  RECENT_BOOKS.moveBook(fullPath, destPath);
+                  BookIdentity::movePath(fullPath, destPath);
+                  moveBookListStatusIndexEntry(fullPath, destPath, bookListStatusIndex);
+                }
+                bookListStatusIndexDirty = true;
+                invalidateDirectoryCache("/Archived");
+                LOG_DBG("FileBrowser", "Archived to: %s", destPath.c_str());
+              } else {
+                LOG_ERR("FileBrowser", "Failed to archive: %s", fullPath.c_str());
+                return;
+              }
             }
           } else if (code == ConfirmationActivity::RESULT_MIDDLE) {
             // Confirm ボタン → 既読にする
@@ -541,8 +543,8 @@ void FileBrowserActivity::loop() {
       const char* markAsReadLabel = isDirectory ? "" : tr(STR_MARK_AS_READ);
       startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "",
                                                                     inArchive ? tr(STR_RESTORE) : tr(STR_ARCHIVE),
-                                                                    inArchive ? tr(STR_CANCEL) : tr(STR_DELETE), tr(STR_CANCEL),
-                                                                    inArchive ? "" : markAsReadLabel),
+                                                                    inArchive ? tr(STR_CANCEL) : tr(STR_DELETE),
+                                                                    tr(STR_CANCEL), inArchive ? "" : markAsReadLabel),
                              handler);
       return;
     } else {

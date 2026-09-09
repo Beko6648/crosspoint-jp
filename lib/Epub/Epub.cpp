@@ -33,13 +33,14 @@ bool findAttributeValue(const std::string_view tag, const std::string_view attri
   while (true) {
     const size_t attributeStart = tag.find(attribute, searchFrom);
     if (attributeStart == std::string_view::npos) return false;
-    const bool validStart = attributeStart == 0 ||
-                            (tag[attributeStart - 1] != ':' && tag[attributeStart - 1] != '-' &&
-                             tag[attributeStart - 1] != '_' &&
-                             !(tag[attributeStart - 1] >= 'a' && tag[attributeStart - 1] <= 'z') &&
-                             !(tag[attributeStart - 1] >= 'A' && tag[attributeStart - 1] <= 'Z'));
+    const bool validStart =
+        attributeStart == 0 ||
+        (tag[attributeStart - 1] != ':' && tag[attributeStart - 1] != '-' && tag[attributeStart - 1] != '_' &&
+         !(tag[attributeStart - 1] >= 'a' && tag[attributeStart - 1] <= 'z') &&
+         !(tag[attributeStart - 1] >= 'A' && tag[attributeStart - 1] <= 'Z'));
     size_t cursor = attributeStart + attribute.size();
-    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+    while (cursor < tag.size() &&
+           (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
       ++cursor;
     }
     if (!validStart || cursor >= tag.size() || tag[cursor] != '=') {
@@ -47,7 +48,8 @@ bool findAttributeValue(const std::string_view tag, const std::string_view attri
       continue;
     }
     ++cursor;
-    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+    while (cursor < tag.size() &&
+           (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
       ++cursor;
     }
     if (cursor >= tag.size() || (tag[cursor] != '\'' && tag[cursor] != '"')) return false;
@@ -77,8 +79,7 @@ bool findRasterCoverImageReference(const std::string_view markup, std::string& r
       const bool hasReference = isHtmlImage ? findAttributeValue(tag, "src", candidate)
                                             : (findAttributeValue(tag, "xlink:href", candidate) ||
                                                findAttributeValue(tag, "href", candidate));
-      if (hasReference &&
-          isRasterImageReference(candidate)) {
+      if (hasReference && isRasterImageReference(candidate)) {
         reference = std::move(candidate);
         return true;
       }

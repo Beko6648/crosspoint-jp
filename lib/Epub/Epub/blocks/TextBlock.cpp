@@ -367,9 +367,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           decorationHeight = wordYpos[i + 1] - wordYpos[i];
         }
         if (decorationHeight <= 0) {
-          decorationHeight = isSingleCjk
-                                 ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
-                                 : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
+          decorationHeight = isSingleCjk ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
+                                         : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
         }
         decorationHeight = std::max(1, decorationHeight);
         if (hasUnderline) {
@@ -408,7 +407,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        const int rightBaseX = wx + (blockHasEmphasis ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4) : rubyBaseOffset + gap);
+        const int rightBaseX =
+            wx + (blockHasEmphasis
+                      ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4)
+                      : rubyBaseOffset + gap);
         // Vertical ruby always stays on the standard right side of its base
         // text. The first column may use the reader's right screen margin.
         // If the margin is too narrow, clamp at the physical screen edge; the
@@ -476,7 +478,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
                                : INT_MAX;
         const int rubyY =
-            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) + rubyOffsetY, minRubyY, maxRubyY);
+            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight
+                                         : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) +
+                           rubyOffsetY,
+                       minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 

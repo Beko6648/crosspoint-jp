@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+
 #include "TextEmphasis.h"
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
@@ -146,8 +147,8 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
-  CssLength imageMaxHeight; // Upper height bound for img, preserving aspect ratio
-  CssLength imageMaxWidth;  // Upper width bound for img, preserving aspect ratio
+  CssLength imageMaxHeight;  // Upper height bound for img, preserving aspect ratio
+  CssLength imageMaxWidth;   // Upper width bound for img, preserving aspect ratio
   CssLength fontSize;       // Text size for Book Priority (resolved relative to the reader font)
   CssLength lineHeightLength;
   float lineHeight = 1.0f;  // Unitless multiplier
@@ -165,7 +166,10 @@ struct CssStyle {
   // Apply properties from another style, only overwriting if the other style
   // has that property explicitly defined
   void applyOver(const CssStyle& base) {
-    if (base.emphasisDefined) { emphasis = base.emphasis; emphasisDefined = true; }
+    if (base.emphasisDefined) {
+      emphasis = base.emphasis;
+      emphasisDefined = true;
+    }
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;
       defined.textAlign = 1;
@@ -273,7 +277,9 @@ struct CssStyle {
   [[nodiscard]] bool hasImageMaxWidth() const { return defined.imageMaxWidth; }
   [[nodiscard]] bool hasFontSize() const { return fontSizeDefined; }
   [[nodiscard]] bool hasLineHeight() const { return lineHeightDefined; }
-  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined || emphasisDefined; }
+  [[nodiscard]] bool anySet() const {
+    return defined.anySet() || fontSizeDefined || lineHeightDefined || emphasisDefined;
+  }
   [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasWritingMode() const { return defined.writingMode; }
 

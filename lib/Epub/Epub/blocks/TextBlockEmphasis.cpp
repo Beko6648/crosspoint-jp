@@ -1,5 +1,3 @@
-#include "TextBlock.h"
-
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <Utf8.h>
@@ -8,6 +6,8 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+
+#include "TextBlock.h"
 
 namespace {
 // A mark is at most 8x8 monochrome pixels, independent of the font cache lifetime.
@@ -44,7 +44,12 @@ uint64_t fontMark(GfxRenderer& renderer, int fontId, uint32_t cp, int size) {
   int left = metrics.width, top = metrics.height, right = -1, bottom = -1;
   for (int y = 0; y < metrics.height; ++y) {
     for (int x = 0; x < metrics.width; ++x) {
-      if (ink(x, y)) { left = std::min(left, x); right = std::max(right, x); top = std::min(top, y); bottom = std::max(bottom, y); }
+      if (ink(x, y)) {
+        left = std::min(left, x);
+        right = std::max(right, x);
+        top = std::min(top, y);
+        bottom = std::max(bottom, y);
+      }
     }
   }
   if (right < left) return 0;
@@ -56,7 +61,8 @@ uint64_t fontMark(GfxRenderer& renderer, int fontId, uint32_t cp, int size) {
   for (int y = 0; y < outHeight; ++y) {
     for (int x = 0; x < outWidth; ++x) {
       int count = 0, total = 0;
-      for (int sy = y * height / outHeight; sy < std::max(y * height / outHeight + 1, (y + 1) * height / outHeight); ++sy) {
+      for (int sy = y * height / outHeight; sy < std::max(y * height / outHeight + 1, (y + 1) * height / outHeight);
+           ++sy) {
         for (int sx = x * width / outWidth; sx < std::max(x * width / outWidth + 1, (x + 1) * width / outWidth); ++sx) {
           ++total;
           if (ink(left + sx, top + sy)) ++count;
@@ -75,7 +81,8 @@ bool TextBlock::hasEmphasis() const {
   for (size_t i = 0; i < emphasis.size() && i < words.size(); ++i) {
     if (emphasis[i] == TextEmphasis::None) continue;
     auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
-    while (uint32_t cp = utf8NextCodepoint(&p)) if (textEmphasis::eligible(cp)) return true;
+    while (uint32_t cp = utf8NextCodepoint(&p))
+      if (textEmphasis::eligible(cp)) return true;
   }
   return false;
 }
@@ -98,7 +105,7 @@ int TextBlock::annotationTopInset(const GfxRenderer& renderer, int fontId) const
   const int ruby = hasRuby() ? getHorizontalRubyTopInset(renderer, fontId) : 0;
   if (!hasEmphasis()) return ruby;
   return std::max(ruby, emphasisSize(renderer, fontId) + 2 +
-                       (hasRuby() && rubyFontId != 0 ? 2 + renderer.getLineHeight(rubyFontId) : 0));
+                            (hasRuby() && rubyFontId != 0 ? 2 + renderer.getLineHeight(rubyFontId) : 0));
 }
 
 void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) const {
@@ -124,20 +131,24 @@ void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) 
       prepared |= 1u << markIndex;
     }
     const auto draw = [&](int centerX, int centerY) {
-      for (int dy = 0; dy < size; ++dy) for (int dx = 0; dx < size; ++dx) {
-        if (marks[markIndex] & (uint64_t{1} << (dy * 8 + dx))) {
-          renderer.drawPixel(centerX - size / 2 + dx, centerY - size / 2 + dy, true);
+      for (int dy = 0; dy < size; ++dy)
+        for (int dx = 0; dx < size; ++dx) {
+          if (marks[markIndex] & (uint64_t{1} << (dy * 8 + dx))) {
+            renderer.drawPixel(centerX - size / 2 + dx, centerY - size / 2 + dy, true);
+          }
         }
-      }
     };
     const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
     if (isVertical) {
       bool eligible = false;
       while (uint32_t cp = utf8NextCodepoint(&p)) eligible |= textEmphasis::eligible(cp);
       if (!eligible || i >= wordYpos.size()) continue;
-      const bool upright = VerticalTextUtils::isUprightInVertical(
-          [&]() { auto* q = reinterpret_cast<const unsigned char*>(words[i].c_str()); return utf8NextCodepoint(&q); }());
-      const bool tcy = VerticalTextUtils::classifyTateChuYoko(words[i].c_str()) != VerticalTextUtils::TateChuYokoKind::None;
+      const bool upright = VerticalTextUtils::isUprightInVertical([&]() {
+        auto* q = reinterpret_cast<const unsigned char*>(words[i].c_str());
+        return utf8NextCodepoint(&q);
+      }());
+      const bool tcy =
+          VerticalTextUtils::classifyTateChuYoko(words[i].c_str()) != VerticalTextUtils::TateChuYokoKind::None;
       if (upright || tcy) {
         const int advance = renderer.getLineHeight(fontId);
         draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + advance / 2);
@@ -155,8 +166,7 @@ void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) 
           prefix.append(reinterpret_cast<const char*>(start), p - start);
           const int after = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
           if (textEmphasis::eligible(cp)) {
-            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2,
-                 y + wordYpos[i] + (before + after) / 2);
+            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + (before + after) / 2);
           }
         }
       }

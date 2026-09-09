@@ -974,9 +974,8 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
 
   constexpr size_t CSS_LENGTH_FIELD_COUNT = 15;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
-  constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 6 * sizeof(uint8_t) +
-      sizeof(uint32_t);
+  constexpr size_t CSS_FIXED_STYLE_BYTES = 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
+                                           sizeof(float) + 6 * sizeof(uint8_t) + sizeof(uint32_t);
 
   // Read each rule
   for (uint16_t i = 0; i < ruleCount; ++i) {
@@ -1094,8 +1093,8 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     }
     style.display = static_cast<CssDisplay>(displayVal);
     uint8_t emphasisVal = 0, emphasisDefined = 0;
-    if (file.read(&emphasisVal, 1) != 1 || !textEmphasis::valid(emphasisVal) ||
-        file.read(&emphasisDefined, 1) != 1 || emphasisDefined > 1) {
+    if (file.read(&emphasisVal, 1) != 1 || !textEmphasis::valid(emphasisVal) || file.read(&emphasisDefined, 1) != 1 ||
+        emphasisDefined > 1) {
       rulesBySelector_.clear();
       return false;
     }

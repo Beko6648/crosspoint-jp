@@ -767,8 +767,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
         file.seekSet(fileOff);
         seekCount++;
       }
-      uint8_t* const target = s.miniBitmapIsChunked ? s.miniBitmapChunks[chunkIndex]
-                                                     : s.miniBitmap + miniBitmapOffset;
+      uint8_t* const target = s.miniBitmapIsChunked ? s.miniBitmapChunks[chunkIndex] : s.miniBitmap + miniBitmapOffset;
       if (file.read(target, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
         LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
         file.close();

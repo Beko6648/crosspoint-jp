@@ -98,7 +98,10 @@ class ChapterHtmlSlimParser {
     bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
-  struct EmphasisEntry { int depth; TextEmphasis value; };
+  struct EmphasisEntry {
+    int depth;
+    TextEmphasis value;
+  };
   std::vector<EmphasisEntry> emphasisStack;
   TextEmphasis activeEmphasis() const {
     return emphasisStack.empty() ? TextEmphasis::None : emphasisStack.back().value;

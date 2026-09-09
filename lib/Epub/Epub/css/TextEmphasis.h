@@ -5,47 +5,68 @@
 
 // Persist the author's choice, not a font-dependent fallback glyph.
 enum class TextEmphasis : uint8_t {
-  None, FilledDot, OpenDot, FilledCircle, OpenCircle, FilledSesame, OpenSesame,
-  FilledTriangle, OpenTriangle, FilledDoubleCircle, OpenDoubleCircle, AutoFilled, AutoOpen
+  None,
+  FilledDot,
+  OpenDot,
+  FilledCircle,
+  OpenCircle,
+  FilledSesame,
+  OpenSesame,
+  FilledTriangle,
+  OpenTriangle,
+  FilledDoubleCircle,
+  OpenDoubleCircle,
+  AutoFilled,
+  AutoOpen
 };
 
 namespace textEmphasis {
 constexpr bool valid(uint8_t value) { return value <= static_cast<uint8_t>(TextEmphasis::AutoOpen); }
 constexpr bool open(TextEmphasis value) {
-  return value == TextEmphasis::OpenDot || value == TextEmphasis::OpenCircle ||
-         value == TextEmphasis::OpenSesame || value == TextEmphasis::OpenTriangle ||
-         value == TextEmphasis::OpenDoubleCircle || value == TextEmphasis::AutoOpen;
+  return value == TextEmphasis::OpenDot || value == TextEmphasis::OpenCircle || value == TextEmphasis::OpenSesame ||
+         value == TextEmphasis::OpenTriangle || value == TextEmphasis::OpenDoubleCircle ||
+         value == TextEmphasis::AutoOpen;
 }
 constexpr uint32_t codepoint(TextEmphasis value, bool vertical) {
   switch (value) {
-    case TextEmphasis::FilledDot: return 0x2022;
-    case TextEmphasis::OpenDot: return 0x25e6;
-    case TextEmphasis::FilledCircle: return 0x25cf;
-    case TextEmphasis::OpenCircle: return 0x25cb;
-    case TextEmphasis::FilledSesame: return 0xfe45;
-    case TextEmphasis::OpenSesame: return 0xfe46;
-    case TextEmphasis::FilledTriangle: return 0x25b2;
-    case TextEmphasis::OpenTriangle: return 0x25b3;
-    case TextEmphasis::FilledDoubleCircle: return 0x25c9;
-    case TextEmphasis::OpenDoubleCircle: return 0x25ce;
-    case TextEmphasis::AutoFilled: return vertical ? 0xfe45 : 0x2022;
-    case TextEmphasis::AutoOpen: return vertical ? 0xfe46 : 0x25e6;
-    default: return 0;
+    case TextEmphasis::FilledDot:
+      return 0x2022;
+    case TextEmphasis::OpenDot:
+      return 0x25e6;
+    case TextEmphasis::FilledCircle:
+      return 0x25cf;
+    case TextEmphasis::OpenCircle:
+      return 0x25cb;
+    case TextEmphasis::FilledSesame:
+      return 0xfe45;
+    case TextEmphasis::OpenSesame:
+      return 0xfe46;
+    case TextEmphasis::FilledTriangle:
+      return 0x25b2;
+    case TextEmphasis::OpenTriangle:
+      return 0x25b3;
+    case TextEmphasis::FilledDoubleCircle:
+      return 0x25c9;
+    case TextEmphasis::OpenDoubleCircle:
+      return 0x25ce;
+    case TextEmphasis::AutoFilled:
+      return vertical ? 0xfe45 : 0x2022;
+    case TextEmphasis::AutoOpen:
+      return vertical ? 0xfe46 : 0x25e6;
+    default:
+      return 0;
   }
 }
 
 // Whitespace, punctuation and nonspacing characters do not get their own mark.
 constexpr bool eligible(uint32_t cp) {
   if (cp == 0x3005 || cp == 0x3006 || cp == 0x3007 || cp == 0x303b || cp == 0x303c) return true;
-  return cp > 0x20 && cp != 0xa0 && cp != 0xad && cp != 0x3000 && cp != 0xfffc &&
-         cp != 0x7f && cp != 0x30fb && cp != 0x309b && cp != 0x309c &&
-         !(cp >= 0x2000 && cp <= 0x206f) && !(cp >= 0x3001 && cp <= 0x303f) &&
-         !(cp >= 0x300 && cp <= 0x36f) && !(cp >= 0xfe00 && cp <= 0xfe0f) &&
-         !(cp >= 0xe0100 && cp <= 0xe01ef) && cp != 0x3099 && cp != 0x309a &&
-         !(cp >= 0xff61 && cp <= 0xff65) && cp != 0xff9e && cp != 0xff9f &&
-         !(cp >= 0xff01 && cp <= 0xff0f) && !(cp >= 0xff1a && cp <= 0xff20) &&
-         !(cp >= 0xff3b && cp <= 0xff40) && !(cp >= 0xff5b && cp <= 0xff60) &&
-         !(cp >= '!' && cp <= '/') && !(cp >= ':' && cp <= '@') &&
+  return cp > 0x20 && cp != 0xa0 && cp != 0xad && cp != 0x3000 && cp != 0xfffc && cp != 0x7f && cp != 0x30fb &&
+         cp != 0x309b && cp != 0x309c && !(cp >= 0x2000 && cp <= 0x206f) && !(cp >= 0x3001 && cp <= 0x303f) &&
+         !(cp >= 0x300 && cp <= 0x36f) && !(cp >= 0xfe00 && cp <= 0xfe0f) && !(cp >= 0xe0100 && cp <= 0xe01ef) &&
+         cp != 0x3099 && cp != 0x309a && !(cp >= 0xff61 && cp <= 0xff65) && cp != 0xff9e && cp != 0xff9f &&
+         !(cp >= 0xff01 && cp <= 0xff0f) && !(cp >= 0xff1a && cp <= 0xff20) && !(cp >= 0xff3b && cp <= 0xff40) &&
+         !(cp >= 0xff5b && cp <= 0xff60) && !(cp >= '!' && cp <= '/') && !(cp >= ':' && cp <= '@') &&
          !(cp >= '[' && cp <= '`') && !(cp >= '{' && cp <= '~');
 }
 
@@ -89,14 +110,21 @@ inline bool parse(std::string_view value, TextEmphasis& result, bool shorthand =
       isOpen = equal(token, "open");
     } else {
       TextEmphasis candidate;
-      if (equal(token, "dot")) candidate = TextEmphasis::FilledDot;
-      else if (equal(token, "circle")) candidate = TextEmphasis::FilledCircle;
-      else if (equal(token, "sesame")) candidate = TextEmphasis::FilledSesame;
-      else if (equal(token, "triangle")) candidate = TextEmphasis::FilledTriangle;
-      else if (equal(token, "double-circle")) candidate = TextEmphasis::FilledDoubleCircle;
-      else if (shorthand && (equal(token, "black") || equal(token, "currentcolor") ||
-                            equal(token, "red") || equal(token, "blue") || hexColor(token))) continue;
-      else return false;
+      if (equal(token, "dot"))
+        candidate = TextEmphasis::FilledDot;
+      else if (equal(token, "circle"))
+        candidate = TextEmphasis::FilledCircle;
+      else if (equal(token, "sesame"))
+        candidate = TextEmphasis::FilledSesame;
+      else if (equal(token, "triangle"))
+        candidate = TextEmphasis::FilledTriangle;
+      else if (equal(token, "double-circle"))
+        candidate = TextEmphasis::FilledDoubleCircle;
+      else if (shorthand && (equal(token, "black") || equal(token, "currentcolor") || equal(token, "red") ||
+                             equal(token, "blue") || hexColor(token)))
+        continue;
+      else
+        return false;
       if (hasShape || none) return false;
       hasShape = true;
       shape = candidate;

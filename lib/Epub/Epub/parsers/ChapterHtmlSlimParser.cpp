@@ -340,8 +340,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // Determine font style from depth-based tracking and CSS effective style
   const bool isBold = boldUntilDepth < depth || effectiveBold;
   const bool isItalic = italicUntilDepth < depth || effectiveItalic;
-  const bool isUnderline = underlineUntilDepth < depth ||
-                           hasTextDecoration(effectiveTextDecoration, CssTextDecoration::Underline);
+  const bool isUnderline =
+      underlineUntilDepth < depth || hasTextDecoration(effectiveTextDecoration, CssTextDecoration::Underline);
   const bool isStrikethrough = hasTextDecoration(effectiveTextDecoration, CssTextDecoration::LineThrough);
 
   // Combine style flags using bitwise OR
@@ -682,10 +682,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // SVG wrappers distinct from ordinary `img` rules.
                 CssStyle imgStyle = parseImageDimensionAttributes(widthAttr, heightAttr);
                 if (self->bookStyle != 0) imgStyle.applyOver(cssStyle);
-                const CssStyle* svgWrapperStyle =
-                    strcmp(name, "image") == 0 && !self->svgImageWrappers.empty()
-                        ? &self->svgImageWrappers.back().style
-                        : nullptr;
+                const CssStyle* svgWrapperStyle = strcmp(name, "image") == 0 && !self->svgImageWrappers.empty()
+                                                      ? &self->svgImageWrappers.back().style
+                                                      : nullptr;
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
                 const bool hasCssMaxHeight = imgStyle.hasImageMaxHeight();
@@ -694,9 +693,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 const bool hasSvgWidth = svgWrapperStyle && svgWrapperStyle->hasImageWidth();
                 const bool hasSvgMaxHeight = svgWrapperStyle && svgWrapperStyle->hasImageMaxHeight();
                 const bool hasSvgMaxWidth = svgWrapperStyle && svgWrapperStyle->hasImageMaxWidth();
-                const bool hasCssImageConstraint =
-                    hasCssHeight || hasCssWidth || hasCssMaxHeight || hasCssMaxWidth || hasSvgHeight || hasSvgWidth ||
-                    hasSvgMaxHeight || hasSvgMaxWidth;
+                const bool hasCssImageConstraint = hasCssHeight || hasCssWidth || hasCssMaxHeight || hasCssMaxWidth ||
+                                                   hasSvgHeight || hasSvgWidth || hasSvgMaxHeight || hasSvgMaxWidth;
 
                 // Compute effective container width for percentage-based image sizes.
                 // If the image is inside a block with horizontal margins/padding (e.g.
@@ -723,7 +721,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (bound < maxWidth) maxWidth = bound;
                 };
                 auto applyHeightBound = [&](const CssLength& length) {
-                  int bound = static_cast<int>(length.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
+                  int bound =
+                      static_cast<int>(length.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
                   if (bound < 1) bound = 1;
                   if (bound < maxHeight) maxHeight = bound;
                 };
@@ -745,8 +744,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 displayHeight = static_cast<int>(dims.height * scale + 0.5f);
                 if (displayWidth < 1) displayWidth = 1;
                 if (displayHeight < 1) displayHeight = 1;
-                LOG_DBG("EHP", "Display size from CSS bounds: %dx%d (max %dx%d)", displayWidth, displayHeight,
-                        maxWidth, maxHeight);
+                LOG_DBG("EHP", "Display size from CSS bounds: %dx%d (max %dx%d)", displayWidth, displayHeight, maxWidth,
+                        maxHeight);
 
                 // Flush any pending text block so it appears before the image
                 if (self->partWordBufferIndex > 0) {
@@ -788,8 +787,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     return false;
                   }
                   self->currentPageNextY = 0;
-                  const int columnWidth = std::max(
-                      1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
+                  const int columnWidth =
+                      std::max(1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
                   self->currentPageNextX = self->viewportWidth - columnWidth;
                   return true;
                 };
@@ -802,8 +801,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   // left). Its y position is always centered in the page.
                   if (!self->currentPage && !startEmptyImagePage()) return;
                   bool pageHasContent = !self->currentPage->elements.empty();
-                  const int columnWidth = std::max(
-                      1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
+                  const int columnWidth =
+                      std::max(1, static_cast<int>(self->renderer.getLineHeight(self->fontId) * self->lineCompression));
                   const int columnSpacing = columnWidth / 4;
 
                   if (pageFitImage && pageHasContent) {
@@ -845,7 +844,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     return;
                   }
                   xPos = (self->viewportWidth - displayWidth) / 2;
-                  imageY = pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2) : self->currentPageNextY;
+                  imageY =
+                      pageFitImage ? std::max(0, (self->viewportHeight - displayHeight) / 2) : self->currentPageNextY;
                 }
 
                 // Create ImageBlock and add to page
@@ -1428,9 +1428,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     // text, UAX #50 is the source of truth: U/Tu characters are individual
     // upright cells, Tr characters remain individual cells for a vertical
     // glyph or rotation fallback, and R characters stay in sideways runs.
-    const bool splitIntoVerticalCell = self->verticalMode &&
-                                       (VerticalTextUtils::isUprightInVertical(cp) ||
-                                        VerticalTextUtils::isTransformedRotatedInVertical(cp));
+    const bool splitIntoVerticalCell = self->verticalMode && (VerticalTextUtils::isUprightInVertical(cp) ||
+                                                              VerticalTextUtils::isTransformedRotatedInVertical(cp));
     if ((!self->verticalMode && isCjkCodepointForSplit(cp)) || splitIntoVerticalCell) {
       // CJK character: flush any buffered content first
       if (self->partWordBufferIndex > 0) {
@@ -1452,8 +1451,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       const bool cjkItalic = self->italicUntilDepth < self->depth || self->effectiveItalic;
       const bool cjkUnderline = self->underlineUntilDepth < self->depth ||
                                 hasTextDecoration(self->effectiveTextDecoration, CssTextDecoration::Underline);
-      const bool cjkStrikethrough =
-          hasTextDecoration(self->effectiveTextDecoration, CssTextDecoration::LineThrough);
+      const bool cjkStrikethrough = hasTextDecoration(self->effectiveTextDecoration, CssTextDecoration::LineThrough);
       EpdFontFamily::Style cjkStyle = EpdFontFamily::REGULAR;
       if (cjkBold) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::BOLD);
       if (cjkItalic) cjkStyle = static_cast<EpdFontFamily::Style>(cjkStyle | EpdFontFamily::ITALIC);
@@ -1525,9 +1523,9 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
   const bool willClearUnderline = self->underlineUntilDepth == self->depth - 1;
 
-  const bool willPopEmphasis = !self->emphasisStack.empty() &&
-                               self->emphasisStack.back().depth == self->depth - 1;
-  const bool styleWillChange = willPopEmphasis || willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
+  const bool willPopEmphasis = !self->emphasisStack.empty() && self->emphasisStack.back().depth == self->depth - 1;
+  const bool styleWillChange =
+      willPopEmphasis || willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
 
@@ -1891,11 +1889,10 @@ void ChapterHtmlSlimParser::completeCurrentPage() {
   // A block image normally reserves room for body columns on either side in
   // vertical writing. When neither column was produced, center the lone image
   // after the page's content is known.
-  if (verticalMode && currentPage->elements.size() == 1 &&
-      currentPage->elements.front()->getTag() == TAG_PageImage) {
+  if (verticalMode && currentPage->elements.size() == 1 && currentPage->elements.front()->getTag() == TAG_PageImage) {
     auto& image = static_cast<PageImage&>(*currentPage->elements.front());
-    image.xPos = static_cast<int16_t>(std::max(
-        0, (viewportWidth - static_cast<int>(image.getImageBlock().getWidth())) / 2));
+    image.xPos =
+        static_cast<int16_t>(std::max(0, (viewportWidth - static_cast<int>(image.getImageBlock().getWidth())) / 2));
   }
   completePageFn(std::move(currentPage));
   completedPageCount++;
@@ -1959,8 +1956,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     int rubyTopInset = 0;
     if (line->hasRuby() || line->hasEmphasis()) {
       const int requiredBodyY = line->annotationTopInset(renderer, effectiveFontId);
-      const bool followsImage = !currentPage->elements.empty() &&
-                                currentPage->elements.back()->getTag() == TAG_PageImage;
+      const bool followsImage =
+          !currentPage->elements.empty() && currentPage->elements.back()->getTag() == TAG_PageImage;
       // Configured line spacing already contributes leading between body
       // lines. An image provides no text leading, so the following annotated
       // line must reserve its full ruby/emphasis clearance above the body.

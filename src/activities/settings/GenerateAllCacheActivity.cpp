@@ -85,7 +85,7 @@ int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xO
 }
 
 int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
-                                          const int yOffset, int& pagesScanned) {
+                                            const int yOffset, int& pagesScanned) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
@@ -477,8 +477,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPixelPageScan) {
           const uint32_t pixelStartedAt = millis();
-          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop,
-                                                                       cachedPixelPagesScanned);
+          generatedPixelCaches +=
+              pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned);
           pixelCacheMs += millis() - pixelStartedAt;
         }
       } else {
@@ -487,17 +487,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::MEDIUM),
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::LARGE),
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::EXTRA_LARGE)};
-        if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
-                                   ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                   ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
-                                   ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
-                                   cssBodyFontIds, nullptr,
-                                   [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
-                                     const uint32_t pixelStartedAt = millis();
-                                     generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
-                                     pixelCacheMs += millis() - pixelStartedAt;
-                                   },
-                                   [&controls, this] { return controls.shouldCancel(renderer); })) {
+        if (!sec.createSectionFile(
+                SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+                viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
+                SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
+                [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                  const uint32_t pixelStartedAt = millis();
+                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                  pixelCacheMs += millis() - pixelStartedAt;
+                },
+                [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
           continue;
@@ -516,7 +516,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     }
 
     LOG_DBG("GENALL",
-            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d cached pages scanned)",
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d "
+            "cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
             generatedPixelCaches, cachedPixelPagesScanned);
     if (cancelled) break;

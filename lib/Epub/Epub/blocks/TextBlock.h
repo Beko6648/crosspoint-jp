@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "Block.h"
 #include "../css/TextEmphasis.h"
+#include "Block.h"
 #include "BlockStyle.h"
 
 // Represents a line of text on a page
