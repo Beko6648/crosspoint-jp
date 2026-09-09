@@ -69,6 +69,14 @@ class ChapterHtmlSlimParser {
   int imageCounter = 0;
   bool verticalMode = false;
 
+  // SVG wrappers frequently carry the sizing rule while their nested <image>
+  // holds the raster reference. Keep that rule until the wrapper closes.
+  struct SvgImageWrapper {
+    int depth = 0;
+    CssStyle style;
+  };
+  std::vector<SvgImageWrapper> svgImageWrappers;
+
   struct EmptyBlockCandidate {
     int depth = 0;
     bool hasContent = false;

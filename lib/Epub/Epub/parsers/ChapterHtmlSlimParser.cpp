@@ -53,6 +53,15 @@ constexpr int NUM_STRIKETHROUGH_TAGS = sizeof(STRIKETHROUGH_TAGS) / sizeof(STRIK
 const char* IMAGE_TAGS[] = {"img", "image"};
 constexpr int NUM_IMAGE_TAGS = sizeof(IMAGE_TAGS) / sizeof(IMAGE_TAGS[0]);
 
+CssStyle parseImageDimensionAttributes(const std::string& width, const std::string& height) {
+  if (width.empty() && height.empty()) return CssStyle{};
+
+  std::string declarations;
+  if (!width.empty()) declarations += "width:" + width + ";";
+  if (!height.empty()) declarations += "height:" + height + ";";
+  return CssParser::parseInlineStyle(declarations);
+}
+
 constexpr float MIN_CSS_FONT_SCALE = 0.75f;
 constexpr float MAX_CSS_FONT_SCALE = 1.50f;
 
@@ -465,12 +474,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Extract class, style, and id attributes
   std::string classAttr;
   std::string styleAttr;
+  std::string widthAttr;
+  std::string heightAttr;
   if (atts != nullptr) {
     for (int i = 0; atts[i]; i += 2) {
       if (strcmp(atts[i], "class") == 0) {
         classAttr = atts[i + 1];
       } else if (strcmp(atts[i], "style") == 0) {
         styleAttr = atts[i + 1];
+      } else if (strcmp(atts[i], "width") == 0) {
+        widthAttr = atts[i + 1];
+      } else if (strcmp(atts[i], "height") == 0) {
+        heightAttr = atts[i + 1];
       } else if (strcmp(atts[i], "id") == 0) {
         // Defer recording until startNewTextBlock, after previous block is flushed to pages
         self->pendingAnchorId = atts[i + 1];
@@ -501,6 +516,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->skipUntilDepth = self->depth;
     self->depth += 1;
     return;
+  }
+
+  if (strcmp(name, "svg") == 0) {
+    // SVG attributes are presentation attributes: CSS and style="" override
+    // them. Preserve their image-dimension subset for a nested raster <image>.
+    CssStyle wrapperStyle = parseImageDimensionAttributes(widthAttr, heightAttr);
+    if (self->bookStyle == 1) wrapperStyle.applyOver(cssStyle);
+    self->svgImageWrappers.push_back({self->depth, std::move(wrapperStyle)});
   }
 
   // Emphasis inherits across block and inline elements, independently of ruby.
@@ -654,19 +677,26 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 int displayWidth = 0;
                 int displayHeight = 0;
                 const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = (self->cssParser && self->bookStyle == 1)
-                                        ? self->cssParser->resolveStyle("img", classAttr)
-                                        : CssStyle{};
-                // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty() && self->bookStyle == 1) {
-                  imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
-                }
+                // cssStyle was resolved using the actual element name. This
+                // keeps `image { ... }` and `image.class { ... }` rules for
+                // SVG wrappers distinct from ordinary `img` rules.
+                CssStyle imgStyle = parseImageDimensionAttributes(widthAttr, heightAttr);
+                if (self->bookStyle == 1) imgStyle.applyOver(cssStyle);
+                const CssStyle* svgWrapperStyle =
+                    strcmp(name, "image") == 0 && !self->svgImageWrappers.empty()
+                        ? &self->svgImageWrappers.back().style
+                        : nullptr;
                 const bool hasCssHeight = imgStyle.hasImageHeight();
                 const bool hasCssWidth = imgStyle.hasImageWidth();
                 const bool hasCssMaxHeight = imgStyle.hasImageMaxHeight();
                 const bool hasCssMaxWidth = imgStyle.hasImageMaxWidth();
+                const bool hasSvgHeight = svgWrapperStyle && svgWrapperStyle->hasImageHeight();
+                const bool hasSvgWidth = svgWrapperStyle && svgWrapperStyle->hasImageWidth();
+                const bool hasSvgMaxHeight = svgWrapperStyle && svgWrapperStyle->hasImageMaxHeight();
+                const bool hasSvgMaxWidth = svgWrapperStyle && svgWrapperStyle->hasImageMaxWidth();
                 const bool hasCssImageConstraint =
-                    hasCssHeight || hasCssWidth || hasCssMaxHeight || hasCssMaxWidth;
+                    hasCssHeight || hasCssWidth || hasCssMaxHeight || hasCssMaxWidth || hasSvgHeight || hasSvgWidth ||
+                    hasSvgMaxHeight || hasSvgMaxWidth;
 
                 // Compute effective container width for percentage-based image sizes.
                 // If the image is inside a block with horizontal margins/padding (e.g.
@@ -697,15 +727,19 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   if (bound < 1) bound = 1;
                   if (bound < maxHeight) maxHeight = bound;
                 };
-                if (hasCssWidth) applyWidthBound(imgStyle.imageWidth);
-                if (hasCssHeight) applyHeightBound(imgStyle.imageHeight);
-                if (hasCssMaxWidth) applyWidthBound(imgStyle.imageMaxWidth);
-                if (hasCssMaxHeight) applyHeightBound(imgStyle.imageMaxHeight);
+                const auto applyImageBounds = [&](const CssStyle& style) {
+                  if (style.hasImageWidth()) applyWidthBound(style.imageWidth);
+                  if (style.hasImageHeight()) applyHeightBound(style.imageHeight);
+                  if (style.hasImageMaxWidth()) applyWidthBound(style.imageMaxWidth);
+                  if (style.hasImageMaxHeight()) applyHeightBound(style.imageMaxHeight);
+                };
+                applyImageBounds(imgStyle);
+                if (svgWrapperStyle) applyImageBounds(*svgWrapperStyle);
 
                 const float scaleX = static_cast<float>(maxWidth) / dims.width;
                 const float scaleY = static_cast<float>(maxHeight) / dims.height;
                 float scale = (scaleX < scaleY) ? scaleX : scaleY;
-                if (!hasCssHeight && !hasCssWidth && scale > 1.0f) scale = 1.0f;
+                if (!hasCssHeight && !hasCssWidth && !hasSvgHeight && !hasSvgWidth && scale > 1.0f) scale = 1.0f;
 
                 displayWidth = static_cast<int>(dims.width * scale + 0.5f);
                 displayHeight = static_cast<int>(dims.height * scale + 0.5f);
@@ -1561,6 +1595,11 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   self->depth -= 1;
   if (willPopEmphasis) self->emphasisStack.pop_back();
+
+  if (strcmp(name, "svg") == 0 && !self->svgImageWrappers.empty() &&
+      self->svgImageWrappers.back().depth == self->depth) {
+    self->svgImageWrappers.pop_back();
+  }
 
   const bool closedEmptyParagraph =
       (strcmp(name, "p") == 0 || strcmp(name, "div") == 0) && self->consumeEmptyBlockCandidate(self->depth);
