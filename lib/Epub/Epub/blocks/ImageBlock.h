@@ -18,9 +18,9 @@ class ImageBlock final : public Block {
   int16_t getHeight() const { return height; }
 
   bool imageExists() const;
-  // Build a missing PNG/JPEG pixel cache without drawing into the current framebuffer.
+  // Build a missing raster-image pixel cache without drawing into the current framebuffer.
   // The page position is used to preserve the rendered Bayer dither pattern.
-  bool pregeneratePngCache(GfxRenderer& renderer, int x, int y) const;
+  bool pregeneratePixelCache(GfxRenderer& renderer, int x, int y) const;
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }

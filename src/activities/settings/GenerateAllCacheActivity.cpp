@@ -73,31 +73,31 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
   return true;
 }
 
-int pregeneratePngCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePngCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
   }
   return generated;
 }
 
-int pregeneratePngCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
+int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
                                           const int yOffset, int& pagesScanned) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
     if (!page) continue;
     ++pagesScanned;
-    if (page->hasImages()) generated += pregeneratePngCaches(*page, renderer, xOffset, yOffset);
+    if (page->hasImages()) generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset);
   }
   return generated;
 }
 
-struct PngCachePreflightResult {
-  explicit PngCachePreflightResult(const int spineCount) : sectionsNeedingPageScan(spineCount, false) {}
+struct PixelCachePreflightResult {
+  explicit PixelCachePreflightResult(const int spineCount) : sectionsNeedingPageScan(spineCount, false) {}
 
   std::vector<bool> sectionsNeedingPageScan;
   int sourceCount = 0;
@@ -107,15 +107,18 @@ struct PngCachePreflightResult {
   bool complete = false;
 };
 
-bool parsePngSourceSection(const std::string_view fileName, const int spineCount, int& sectionIndex) {
+bool isRasterImage(const std::string_view fileName) {
+  return FsHelpers::hasPngExtension(fileName) || FsHelpers::hasJpgExtension(fileName);
+}
+
+bool parseRasterSourceSection(const std::string_view fileName, const int spineCount, int& sectionIndex) {
   constexpr std::string_view prefix = "img_";
-  constexpr size_t extensionLength = 4;
-  if (!FsHelpers::hasPngExtension(fileName) || fileName.size() <= prefix.size() + extensionLength ||
+  const size_t extensionStart = fileName.rfind('.');
+  if (!isRasterImage(fileName) || extensionStart == std::string_view::npos || extensionStart <= prefix.size() ||
       fileName.substr(0, prefix.size()) != prefix) {
     return false;
   }
 
-  const size_t extensionStart = fileName.size() - extensionLength;
   size_t cursor = prefix.size();
   int parsedSectionIndex = 0;
   const size_t sectionStart = cursor;
@@ -137,8 +140,8 @@ bool parsePngSourceSection(const std::string_view fileName, const int spineCount
   return true;
 }
 
-PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int spineCount) {
-  PngCachePreflightResult result(spineCount);
+PixelCachePreflightResult inspectPixelCaches(const std::string& cacheRoot, const int spineCount) {
+  PixelCachePreflightResult result(spineCount);
   std::vector<std::string> zeroLengthSourcePaths;
   auto dir = Storage.open(cacheRoot.c_str());
   if (!dir || !dir.isDirectory()) {
@@ -162,12 +165,12 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
     file.close();
 
     const std::string_view fileName(name);
-    if (!FsHelpers::hasPngExtension(fileName)) continue;
+    if (!isRasterImage(fileName)) continue;
     if (fileName.size() < 4 || fileName.substr(0, 4) != "img_") continue;
 
     int sectionIndex = 0;
-    if (!parsePngSourceSection(fileName, spineCount, sectionIndex)) {
-      // Unexpected PNG names make it unsafe to assume the directory scan was complete.
+    if (!parseRasterSourceSection(fileName, spineCount, sectionIndex)) {
+      // Unexpected raster-image names make it unsafe to assume the directory scan was complete.
       dir.close();
       return result;
     }
@@ -179,7 +182,8 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
     }
 
     result.sourceCount++;
-    const std::string pixelCachePath = sourcePath.substr(0, sourcePath.size() - 4) + ".pxc6";
+    const size_t extensionStart = sourcePath.rfind('.');
+    const std::string pixelCachePath = sourcePath.substr(0, extensionStart) + ".pxc6";
     if (Storage.exists(pixelCachePath.c_str()) && ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0)) {
       result.validCacheCount++;
     } else {
@@ -191,11 +195,11 @@ PngCachePreflightResult inspectPngCaches(const std::string& cacheRoot, const int
   dir.close();
   for (const auto& sourcePath : zeroLengthSourcePaths) {
     if (!Storage.remove(sourcePath.c_str())) {
-      LOG_ERR("GENALL", "Failed to remove zero-length extracted PNG: %s", sourcePath.c_str());
+      LOG_ERR("GENALL", "Failed to remove zero-length extracted image: %s", sourcePath.c_str());
       return result;
     }
     result.removedZeroLengthSourceCount++;
-    LOG_DBG("GENALL", "Removed zero-length extracted PNG: %s", sourcePath.c_str());
+    LOG_DBG("GENALL", "Removed zero-length extracted image: %s", sourcePath.c_str());
   }
   result.complete = true;
   return result;
@@ -349,11 +353,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const auto& epubPath = epubFiles[bookIdx];
     const uint32_t bookStartedAt = millis();
     uint32_t sectionBuildMs = 0;
-    uint32_t pngCacheMs = 0;
+    uint32_t pixelCacheMs = 0;
     int sectionCacheHits = 0;
     int generatedSections = 0;
-    int generatedPngCaches = 0;
-    int cachedPngPagesScanned = 0;
+    int generatedPixelCaches = 0;
+    int cachedPixelPagesScanned = 0;
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     const int progress = (bookIdx * 100) / totalCount;
@@ -383,17 +387,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
     if (spineCount <= 0) continue;
     epub->clearFullCacheGeneratedMarker();
 
-    const uint32_t pngPreflightStartedAt = millis();
-    const auto pngPreflight = inspectPngCaches(epub->getCachePath(), spineCount);
-    const uint32_t pngPreflightMs = millis() - pngPreflightStartedAt;
-    pngCacheMs += pngPreflightMs;
-    if (pngPreflight.complete) {
+    const uint32_t pixelPreflightStartedAt = millis();
+    const auto pixelPreflight = inspectPixelCaches(epub->getCachePath(), spineCount);
+    const uint32_t pixelPreflightMs = millis() - pixelPreflightStartedAt;
+    pixelCacheMs += pixelPreflightMs;
+    if (pixelPreflight.complete) {
       LOG_DBG("GENALL",
-              "PNG cache preflight: sources=%d, valid=%d, missing/invalid=%d, removed-zero-length=%d, time=%lu ms",
-              pngPreflight.sourceCount, pngPreflight.validCacheCount, pngPreflight.missingOrInvalidCacheCount,
-              pngPreflight.removedZeroLengthSourceCount, pngPreflightMs);
+              "Raster cache preflight: sources=%d, valid=%d, missing/invalid=%d, removed-zero-length=%d, time=%lu ms",
+              pixelPreflight.sourceCount, pixelPreflight.validCacheCount, pixelPreflight.missingOrInvalidCacheCount,
+              pixelPreflight.removedZeroLengthSourceCount, pixelPreflightMs);
     } else {
-      LOG_DBG("GENALL", "PNG cache preflight incomplete; using cached-page fallback (%lu ms)", pngPreflightMs);
+      LOG_DBG("GENALL", "Raster cache preflight incomplete; using cached-page fallback (%lu ms)", pixelPreflightMs);
     }
 
     // Generate cover thumbnail
@@ -462,19 +466,20 @@ void GenerateAllCacheActivity::generateAllCaches() {
           SETTINGS.imageRendering, isVertical, ds.charSpacing);
       if (sectionCached) {
         sectionCacheHits++;
-        // JPEG caches are discovered directly from extracted image files below.
         // Read cached pages only when the directory preflight found a missing or
-        // invalid PNG cache. If preflight failed, preserve the previous probe.
-        bool needsPngPageScan = pngPreflight.complete && pngPreflight.sectionsNeedingPageScan[i];
-        if (!pngPreflight.complete) {
-          const std::string pngProbePath = epub->getCachePath() + "/img_" + std::to_string(i) + "_0.png";
-          needsPngPageScan = Storage.exists(pngProbePath.c_str());
+        // invalid raster-image cache. If preflight failed, preserve the fallback probe.
+        bool needsPixelPageScan = pixelPreflight.complete && pixelPreflight.sectionsNeedingPageScan[i];
+        if (!pixelPreflight.complete) {
+          const std::string imagePrefix = epub->getCachePath() + "/img_" + std::to_string(i) + "_0";
+          needsPixelPageScan = Storage.exists((imagePrefix + ".png").c_str()) ||
+                               Storage.exists((imagePrefix + ".jpg").c_str()) ||
+                               Storage.exists((imagePrefix + ".jpeg").c_str());
         }
-        if (needsPngPageScan) {
-          const uint32_t pngStartedAt = millis();
-          generatedPngCaches += pregeneratePngCachesFromCachedSection(sec, renderer, bmLeft, bmTop,
-                                                                       cachedPngPagesScanned);
-          pngCacheMs += millis() - pngStartedAt;
+        if (needsPixelPageScan) {
+          const uint32_t pixelStartedAt = millis();
+          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop,
+                                                                       cachedPixelPagesScanned);
+          pixelCacheMs += millis() - pixelStartedAt;
         }
       } else {
         const uint32_t sectionStartedAt = millis();
@@ -487,10 +492,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
                                    ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
                                    cssBodyFontIds, nullptr,
-                                   [this, &generatedPngCaches, &pngCacheMs, bmLeft, bmTop](const Page& page) {
-                                     const uint32_t pngStartedAt = millis();
-                                     generatedPngCaches += pregeneratePngCaches(page, renderer, bmLeft, bmTop);
-                                     pngCacheMs += millis() - pngStartedAt;
+                                   [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                                     const uint32_t pixelStartedAt = millis();
+                                     generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                                     pixelCacheMs += millis() - pixelStartedAt;
                                    },
                                    [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
@@ -512,8 +517,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     LOG_DBG("GENALL",
             "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d cached pages scanned)",
-            millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pngCacheMs,
-            generatedPngCaches, cachedPngPagesScanned);
+            millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
+            generatedPixelCaches, cachedPixelPagesScanned);
     if (cancelled) break;
   }
 

@@ -325,7 +325,6 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
-  LOG_INF("IMGQ", "PNG illustration: Bayer tone v5");
 
   const size_t freeHeap = ESP.getFreeHeap();
   const size_t maxAllocHeap = ESP.getMaxAllocHeap();

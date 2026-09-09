@@ -103,13 +103,13 @@ ProgressRange getBookmarkPageRange(const std::shared_ptr<Epub>& epub, const int 
           epub->calculateProgress(spineIndex, std::min(1.0f, anchor + step * 0.5f))};
 }
 
-int pregeneratePngCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePngCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
   }
   return generated;
 }
@@ -120,10 +120,10 @@ void EpubReaderActivity::pregenerateCache() {
   CacheGenerationControls controls;
   const uint32_t generationStartedAt = millis();
   uint32_t sectionBuildMs = 0;
-  uint32_t pngCacheMs = 0;
+  uint32_t pixelCacheMs = 0;
   int sectionCacheHits = 0;
   int generatedSections = 0;
-  int generatedPngCaches = 0;
+  int generatedPixelCaches = 0;
   if (!epub) return;
 
   const int spineCount = epub->getSpineItemsCount();
@@ -217,10 +217,10 @@ void EpubReaderActivity::pregenerateCache() {
               viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
               SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
               SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-              [this, &generatedPngCaches, &pngCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
-                const uint32_t pngStartedAt = millis();
-                generatedPngCaches += pregeneratePngCaches(page, renderer, orientedMarginLeft, orientedMarginTop);
-                pngCacheMs += millis() - pngStartedAt;
+              [this, &generatedPixelCaches, &pixelCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
+                const uint32_t pixelStartedAt = millis();
+                generatedPixelCaches += pregeneratePixelCaches(page, renderer, orientedMarginLeft, orientedMarginTop);
+                pixelCacheMs += millis() - pixelStartedAt;
               },
               [&cancelledDuringSection, &controls, this] {
                 cancelledDuringSection = controls.shouldCancel(renderer);
@@ -256,8 +256,8 @@ void EpubReaderActivity::pregenerateCache() {
   LOG_DBG("ERS",
           "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d "
           "images), progress=%lu ms",
-          millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pngCacheMs,
-          generatedPngCaches, progressDisplayMs);
+          millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
+          generatedPixelCaches, progressDisplayMs);
 }
 
 void EpubReaderActivity::onEnter() {
