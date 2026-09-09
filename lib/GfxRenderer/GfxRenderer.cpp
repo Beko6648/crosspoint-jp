@@ -197,6 +197,10 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
       return sdFont->getOverflowBitmap(glyph);  // may be nullptr for zero-width glyphs
     }
   }
+  if (fontData->bitmapLookupHandler) {
+    return fontData->bitmapLookupHandler(fontData->bitmapLookupCtx, glyph);
+  }
+  if (!fontData->bitmap) return nullptr;
   return &fontData->bitmap[glyph->dataOffset];
 }
 

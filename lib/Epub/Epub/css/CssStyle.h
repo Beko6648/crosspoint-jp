@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "TextEmphasis.h"
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
@@ -51,8 +52,16 @@ enum class CssFontStyle : uint8_t { Normal = 0, Italic = 1 };
 // Font weight options - CSS supports 100-900, we simplify to normal/bold
 enum class CssFontWeight : uint8_t { Normal = 0, Bold = 1 };
 
-// Text decoration options
-enum class CssTextDecoration : uint8_t { None = 0, Underline = 1 };
+// Text decorations compose: CSS permits underline and line-through together.
+enum class CssTextDecoration : uint8_t { None = 0, Underline = 1, LineThrough = 2 };
+
+constexpr CssTextDecoration operator|(const CssTextDecoration a, const CssTextDecoration b) {
+  return static_cast<CssTextDecoration>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+}
+
+constexpr bool hasTextDecoration(const CssTextDecoration value, const CssTextDecoration decoration) {
+  return (static_cast<uint8_t>(value) & static_cast<uint8_t>(decoration)) != 0;
+}
 
 // Display options - only None and Block are relevant for e-ink rendering
 enum class CssDisplay : uint8_t { Block = 0, None = 1 };
@@ -79,6 +88,8 @@ struct CssPropertyFlags {
   uint16_t imageWidth : 1;
   uint16_t display : 1;
   uint16_t writingMode : 1;
+  uint16_t imageMaxHeight : 1;
+  uint16_t imageMaxWidth : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -97,19 +108,21 @@ struct CssPropertyFlags {
         imageHeight(0),
         imageWidth(0),
         display(0),
-        writingMode(0) {}
+        writingMode(0),
+        imageMaxHeight(0),
+        imageMaxWidth(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || writingMode;
+           imageWidth || display || writingMode || imageMaxHeight || imageMaxWidth;
   }
 
   void clearAll() {
     textAlign = fontStyle = fontWeight = textDecoration = textIndent = 0;
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
-    imageHeight = imageWidth = display = writingMode = 0;
+    imageHeight = imageWidth = display = writingMode = imageMaxHeight = imageMaxWidth = 0;
   }
 };
 
@@ -133,6 +146,8 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
+  CssLength imageMaxHeight; // Upper height bound for img, preserving aspect ratio
+  CssLength imageMaxWidth;  // Upper width bound for img, preserving aspect ratio
   CssLength fontSize;       // Text size for Book Priority (resolved relative to the reader font)
   CssLength lineHeightLength;
   float lineHeight = 1.0f;  // Unitless multiplier
@@ -142,11 +157,15 @@ struct CssStyle {
   CssDisplay display = CssDisplay::Block;                     // display property (Block or None)
   CssWritingMode writingMode = CssWritingMode::HorizontalTb;  // writing-mode property
 
+  TextEmphasis emphasis = TextEmphasis::None;
+  bool emphasisDefined = false;
+
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
   // Apply properties from another style, only overwriting if the other style
   // has that property explicitly defined
   void applyOver(const CssStyle& base) {
+    if (base.emphasisDefined) { emphasis = base.emphasis; emphasisDefined = true; }
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;
       defined.textAlign = 1;
@@ -207,6 +226,14 @@ struct CssStyle {
       imageWidth = base.imageWidth;
       defined.imageWidth = 1;
     }
+    if (base.hasImageMaxHeight()) {
+      imageMaxHeight = base.imageMaxHeight;
+      defined.imageMaxHeight = 1;
+    }
+    if (base.hasImageMaxWidth()) {
+      imageMaxWidth = base.imageMaxWidth;
+      defined.imageMaxWidth = 1;
+    }
     if (base.hasFontSize()) {
       fontSize = base.fontSize;
       fontSizeDefined = true;
@@ -242,13 +269,17 @@ struct CssStyle {
   [[nodiscard]] bool hasPaddingRight() const { return defined.paddingRight; }
   [[nodiscard]] bool hasImageHeight() const { return defined.imageHeight; }
   [[nodiscard]] bool hasImageWidth() const { return defined.imageWidth; }
+  [[nodiscard]] bool hasImageMaxHeight() const { return defined.imageMaxHeight; }
+  [[nodiscard]] bool hasImageMaxWidth() const { return defined.imageMaxWidth; }
   [[nodiscard]] bool hasFontSize() const { return fontSizeDefined; }
   [[nodiscard]] bool hasLineHeight() const { return lineHeightDefined; }
-  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined; }
+  [[nodiscard]] bool anySet() const { return defined.anySet() || fontSizeDefined || lineHeightDefined || emphasisDefined; }
   [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasWritingMode() const { return defined.writingMode; }
 
   void reset() {
+    emphasis = TextEmphasis::None;
+    emphasisDefined = false;
     textAlign = CssTextAlign::Left;
     fontStyle = CssFontStyle::Normal;
     fontWeight = CssFontWeight::Normal;
@@ -256,7 +287,7 @@ struct CssStyle {
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};
-    imageHeight = imageWidth = fontSize = lineHeightLength = CssLength{};
+    imageHeight = imageWidth = imageMaxHeight = imageMaxWidth = fontSize = lineHeightLength = CssLength{};
     lineHeight = 1.0f;
     lineHeightIsMultiplier = true;
     fontSizeDefined = lineHeightDefined = false;

@@ -22,6 +22,94 @@ constexpr char fullCacheMarkerFile[] = "/.full_cache_complete";
 constexpr char fullCacheMarkerTmpFile[] = "/.full_cache_complete.tmp";
 constexpr char cachePromptSeenMarkerFile[] = "/.cache_prompt_seen";
 constexpr char legacyNoCachePromptMarkerFile[] = "/.no_cache_prompt";
+constexpr size_t MAX_SVG_COVER_BYTES = 128 * 1024;
+
+bool isRasterImageReference(const std::string_view reference) {
+  return FsHelpers::hasPngExtension(reference) || FsHelpers::hasJpgExtension(reference);
+}
+
+bool findAttributeValue(const std::string_view tag, const std::string_view attribute, std::string& value) {
+  size_t searchFrom = 0;
+  while (true) {
+    const size_t attributeStart = tag.find(attribute, searchFrom);
+    if (attributeStart == std::string_view::npos) return false;
+    const bool validStart = attributeStart == 0 ||
+                            (tag[attributeStart - 1] != ':' && tag[attributeStart - 1] != '-' &&
+                             tag[attributeStart - 1] != '_' &&
+                             !(tag[attributeStart - 1] >= 'a' && tag[attributeStart - 1] <= 'z') &&
+                             !(tag[attributeStart - 1] >= 'A' && tag[attributeStart - 1] <= 'Z'));
+    size_t cursor = attributeStart + attribute.size();
+    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+      ++cursor;
+    }
+    if (!validStart || cursor >= tag.size() || tag[cursor] != '=') {
+      searchFrom = attributeStart + attribute.size();
+      continue;
+    }
+    ++cursor;
+    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+      ++cursor;
+    }
+    if (cursor >= tag.size() || (tag[cursor] != '\'' && tag[cursor] != '"')) return false;
+    const char quote = tag[cursor++];
+    const size_t valueEnd = tag.find(quote, cursor);
+    if (valueEnd == std::string_view::npos) return false;
+    value.assign(tag.substr(cursor, valueEnd - cursor));
+    return true;
+  }
+}
+
+bool findRasterCoverImageReference(const std::string_view markup, std::string& reference) {
+  size_t searchFrom = 0;
+  while (true) {
+    const size_t tagStart = markup.find('<', searchFrom);
+    if (tagStart == std::string_view::npos) return false;
+    const size_t tagEnd = markup.find('>', tagStart + 1);
+    if (tagEnd == std::string_view::npos) return false;
+    const std::string_view tag = markup.substr(tagStart, tagEnd - tagStart + 1);
+    const bool isImage = tag.size() >= 6 && tag.substr(0, 6) == "<image";
+    const bool isNamespacedImage = tag.size() >= 10 && tag.substr(0, 10) == "<svg:image";
+    const bool isHtmlImage = tag.size() >= 4 && tag.substr(0, 4) == "<img" &&
+                             (tag.size() == 4 || tag[4] == ' ' || tag[4] == '\t' || tag[4] == '\r' || tag[4] == '\n' ||
+                              tag[4] == '>' || tag[4] == '/');
+    if (isImage || isNamespacedImage || isHtmlImage) {
+      std::string candidate;
+      const bool hasReference = isHtmlImage ? findAttributeValue(tag, "src", candidate)
+                                            : (findAttributeValue(tag, "xlink:href", candidate) ||
+                                               findAttributeValue(tag, "href", candidate));
+      if (hasReference &&
+          isRasterImageReference(candidate)) {
+        reference = std::move(candidate);
+        return true;
+      }
+    }
+    searchFrom = tagEnd + 1;
+  }
+}
+
+std::string resolveSvgCoverImageHref(const Epub& epub, const std::string& coverHref) {
+  if (isRasterImageReference(coverHref)) return coverHref;
+  if (!FsHelpers::checkFileExtension(coverHref, ".svg")) return {};
+
+  size_t svgSize = 0;
+  if (!epub.getItemSize(coverHref, &svgSize) || svgSize == 0 || svgSize > MAX_SVG_COVER_BYTES) {
+    LOG_ERR("EBP", "SVG cover is unavailable or too large: %s", coverHref.c_str());
+    return {};
+  }
+  uint8_t* svgData = epub.readItemContentsToBytes(coverHref, &svgSize, true);
+  if (!svgData) return {};
+  const std::string_view svg(reinterpret_cast<char*>(svgData), svgSize);
+  std::string rasterReference;
+  const bool found = findRasterCoverImageReference(svg, rasterReference);
+  free(svgData);
+  if (!found) return {};
+
+  const size_t lastSlash = coverHref.rfind('/');
+  const std::string basePath = lastSlash == std::string::npos ? "" : coverHref.substr(0, lastSlash + 1);
+  const std::string resolved = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(basePath + rasterReference));
+  size_t rasterSize = 0;
+  return epub.getItemSize(resolved, &rasterSize) && rasterSize > 0 ? resolved : std::string{};
+}
 }  // namespace
 
 bool Epub::prepareSourceFingerprint(const uint64_t fingerprint, bool& markerNeedsWrite) {
@@ -257,26 +345,9 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
         coverPageBase = opfParser.guideCoverPageHref.substr(0, lastSlash + 1);
       }
 
-      // Search for image references: xlink:href="..." (SVG) and src="..." (img)
+      // Search a guide cover page for a raster image nested in an SVG wrapper.
       std::string imageRef;
-      for (const char* pattern : {"xlink:href=\"", "src=\""}) {
-        auto pos = coverPageHtml.find(pattern);
-        while (pos != std::string::npos) {
-          pos += strlen(pattern);
-          const auto endPos = coverPageHtml.find('"', pos);
-          if (endPos != std::string::npos) {
-            const auto ref = std::string_view{coverPageHtml}.substr(pos, endPos - pos);
-            // Cover BMP generation supports JPG/PNG only; skip GIF so an unsupported wrapper image
-            // does not block a later supported cover reference.
-            if (FsHelpers::hasPngExtension(ref) || FsHelpers::hasJpgExtension(ref)) {
-              imageRef = ref;
-              break;
-            }
-          }
-          pos = coverPageHtml.find(pattern, pos);
-        }
-        if (!imageRef.empty()) break;
-      }
+      findRasterCoverImageReference(coverPageHtml, imageRef);
 
       if (!imageRef.empty()) {
         bookMetadata.coverItemHref = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(coverPageBase + imageRef));
@@ -744,7 +815,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     return false;
   }
 
-  const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  const auto coverImageHref = resolveSvgCoverImageHref(*this, bookMetadataCache->coreMetadata.coverItemHref);
   if (coverImageHref.empty()) {
     LOG_ERR("EBP", "No known cover image");
     return false;
@@ -836,7 +907,7 @@ bool Epub::generateThumbBmp(int height) const {
     return false;
   }
 
-  const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  const auto coverImageHref = resolveSvgCoverImageHref(*this, bookMetadataCache->coreMetadata.coverItemHref);
   if (coverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
   } else if (FsHelpers::hasJpgExtension(coverImageHref)) {

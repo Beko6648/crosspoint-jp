@@ -14,24 +14,20 @@
 #include <variant>
 
 #include "../util/ConfirmationActivity.h"
-#include "BookIdentity.h"
 #include "CrossPointSettings.h"
+#include "BookIdentity.h"
 #include "MappedInputManager.h"
-#include "ReadingHistoryStore.h"
 #include "ReadingStatusHelper.h"
+#include "ReadingHistoryStore.h"
 #include "RecentBooksStore.h"
-#include "components/CacheStatusIcon.h"
 #include "components/UITheme.h"
+#include "components/CacheStatusIcon.h"
 #include "fontIds.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 constexpr int CACHE_STATUS_ICON_RADIUS = 7;
 constexpr char CACHE_STATUS_VALUE_SPACER[] = "    ";
-// Virtual first entry in PickDirectory mode. A single control byte that can
-// never collide with a real SD filename.
-constexpr const char* MOVE_HERE_MARKER = "\x01";
-bool isMoveHereEntry(const std::string& entry) { return entry == MOVE_HERE_MARKER; }
 
 CachedBookStatus toCachedBookStatus(const Epub::CacheGenerationStatus status) {
   switch (status) {
@@ -115,6 +111,19 @@ void sortFileList(std::vector<std::string>& strs) {
 void FileBrowserActivity::cacheCurrentDirectory() {
   if (loadedPath.empty()) return;
 
+  // A large listing is expensive to retain alongside the next directory being
+  // opened. Drop it before scanning the destination so the allocation peak is
+  // bounded. Returning to that directory rescans the SD card.
+  if (files.size() > MAX_CACHED_DIRECTORY_ENTRIES) {
+    loadedPath.clear();
+    std::vector<std::string>().swap(files);
+    std::vector<ReadingStatus>().swap(fileStatuses);
+    std::vector<bool>().swap(readingStatusKnown);
+    std::vector<Epub::CacheGenerationStatus>().swap(fileCacheStatuses);
+    std::vector<bool>().swap(fileCacheStatusKnown);
+    return;
+  }
+
   directoryCache.erase(
       std::remove_if(directoryCache.begin(), directoryCache.end(),
                      [this](const DirectoryCacheEntry& entry) { return entry.path == loadedPath; }),
@@ -122,9 +131,9 @@ void FileBrowserActivity::cacheCurrentDirectory() {
   if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
     directoryCache.erase(directoryCache.begin());
   }
-  directoryCache.push_back({std::move(loadedPath), std::move(files), std::move(fileStatuses),
-                            std::move(readingStatusCacheEntries), std::move(readingStatusKnown),
-                            std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
+  directoryCache.push_back(
+      {std::move(loadedPath), std::move(files), std::move(fileStatuses), std::move(readingStatusKnown),
+       std::move(fileCacheStatuses), std::move(fileCacheStatusKnown)});
   loadedPath.clear();
 }
 
@@ -136,7 +145,6 @@ bool FileBrowserActivity::restoreCachedDirectory() {
   loadedPath = std::move(cached->path);
   files = std::move(cached->files);
   fileStatuses = std::move(cached->statuses);
-  readingStatusCacheEntries = std::move(cached->readingStatusCacheEntries);
   readingStatusKnown = std::move(cached->readingStatusKnown);
   fileCacheStatuses = std::move(cached->cacheStatuses);
   fileCacheStatusKnown = std::move(cached->cacheStatusKnown);
@@ -232,10 +240,9 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
           if (FsHelpers::checkFileExtension(filename, ".bin")) {
             files.emplace_back(filename);
           }
-        } else if (mode != Mode::PickDirectory &&
-                   (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-                    FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                    FsHelpers::hasBmpExtension(filename) || FsHelpers::checkFileExtension(filename, ".bin"))) {
+        } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+            FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+            FsHelpers::hasBmpExtension(filename)) {
           // Store original (NFD) filename for path construction.
           // NFC normalization is done at display time only.
           files.emplace_back(filename);
@@ -246,14 +253,7 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
   }
 
   const unsigned long sortStartedAt = millis();
-  if (mode == Mode::PickDirectory) {
-    // Pin the special "move here" entry to the front, then sort the folders.
-    files.erase(std::remove(files.begin(), files.end(), MOVE_HERE_MARKER), files.end());
-    sortFileList(files);
-    files.insert(files.begin(), MOVE_HERE_MARKER);
-  } else {
-    sortFileList(files);
-  }
+  sortFileList(files);
   const unsigned long sortMs = millis() - sortStartedAt;
 
   const unsigned long readingStatusStartedAt = millis();
@@ -292,9 +292,8 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
     }
     ReadingStatus readingStatus;
     CachedBookStatus cacheStatus = CachedBookStatus::Unknown;
-    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex, readingStatus,
-                                   cacheStatus) &&
-        cacheStatus != CachedBookStatus::Unknown) {
+    if (getBookListStatusFromIndex(filepath, readingStatusCacheEntries, bookListStatusIndex,
+                                   readingStatus, cacheStatus) && cacheStatus != CachedBookStatus::Unknown) {
       fileCacheStatuses[index] = fromCachedBookStatus(cacheStatus);
       fileCacheStatusKnown[index] = true;
     }
@@ -302,13 +301,13 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 
   loadedPath = basepath;
   LOG_DBG("FBPERF",
-          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu "
-          "visible=%lu "
-          "openNext=%lu getName=%lu isDirectory=%lu close=%lu",
+          "path=%s cache=miss open=%lu scan=%lu sort=%lu readingStatus=%lu cacheStatus=deferred total=%lu ms raw=%lu visible=%lu "
+          "openNext=%lu getName=%lu isDirectory=%lu close=%lu free=%lu largest=%lu",
           basepath.c_str(), openMs, scanMs, sortMs, readingStatusMs, millis() - totalStartedAt,
           static_cast<unsigned long>(scannedEntries), static_cast<unsigned long>(files.size()),
           static_cast<unsigned long>(scannedEntries + 1), static_cast<unsigned long>(getNameCalls),
-          static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2));
+          static_cast<unsigned long>(isDirectoryCalls), static_cast<unsigned long>(scannedEntries + 2),
+          static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMaxAllocHeap()));
   LOG_DBG("FBPERF", "path=%s epubCacheStatus=deferred epubs=%lu metadata=0 cover=0", basepath.c_str(),
           static_cast<unsigned long>(epubEntries));
   return DirectoryLoadResult::Loaded;
@@ -360,54 +359,6 @@ void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
   }
 }
 
-FileBrowserActivity::MoveResult FileBrowserActivity::moveEntry(const std::string& fullPath,
-                                                               const std::string& destDir) {
-  if (fullPath.empty() || destDir.empty()) return MoveResult::IntoSelf;
-
-  const auto slash = fullPath.find_last_of('/');
-  if (slash == std::string::npos || slash + 1 >= fullPath.size()) return MoveResult::IntoSelf;
-  const std::string name = fullPath.substr(slash + 1);
-  if (name.empty()) return MoveResult::IntoSelf;
-
-  // Normalize without trailing slashes for prefix comparisons.
-  std::string srcNorm = fullPath;
-  if (srcNorm.back() == '/') srcNorm.pop_back();
-  std::string dstNorm = destDir;
-  if (dstNorm.back() == '/') dstNorm.pop_back();
-
-  // Guard A: refuse to move a directory into itself or one of its descendants.
-  {
-    auto src = Storage.open(srcNorm.c_str());
-    if (src && src.isDirectory()) {
-      if (dstNorm == srcNorm || (dstNorm.size() > srcNorm.size() && dstNorm.compare(0, srcNorm.size(), srcNorm) == 0 &&
-                                 dstNorm[srcNorm.size()] == '/')) {
-        return MoveResult::IntoSelf;
-      }
-    }
-  }
-
-  std::string destFull = dstNorm;
-  destFull += "/";
-  destFull += name;
-
-  // Guard B: refuse if a same-named entry already exists at the destination.
-  if (Storage.exists(destFull.c_str())) return MoveResult::TargetExists;
-
-  if (FsHelpers::hasEpubExtension(fullPath)) clearFileMetadata(fullPath);
-
-  // rename failure is rare (guards already applied); fall back to IntoSelf so
-  // the caller still reports that the move did not happen.
-  if (!Storage.rename(fullPath.c_str(), destFull.c_str())) {
-    LOG_ERR("FileBrowser", "Failed to move: %s -> %s", fullPath.c_str(), destFull.c_str());
-    return MoveResult::IntoSelf;
-  }
-
-  invalidateDirectoryCache(dstNorm);
-  invalidateDirectoryCache(FsHelpers::extractFolderPath(fullPath));
-  LOG_DBG("FileBrowser", "Moved: %s -> %s", fullPath.c_str(), destFull.c_str());
-  return MoveResult::Success;
-}
-
 void FileBrowserActivity::loop() {
   if (bookListStatusIndexDirty) {
     RenderLock lock(*this);
@@ -417,8 +368,9 @@ void FileBrowserActivity::loop() {
   // Long press BACK (1s+) goes to root folder
   // but Long press BACK (1s+) from ReaderActivity sends us here with the MappedInput already set.
   // So ignore it the first time.
-  if ((mode == Mode::Books || mode == Mode::PickDirectory) && mappedInput.isPressed(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/" && !lockLongPressBack) {
+  if (mode == Mode::Books && mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= GO_HOME_MS &&
+      basepath != "/" && !lockLongPressBack) {
     {
       // render() reads basepath and the file/status vectors on the render
       // task. loadFiles() can replace those vectors, so keep the update atomic.
@@ -458,14 +410,20 @@ void FileBrowserActivity::loop() {
       return;
     }
 
-    if (mode == Mode::Books && mappedInput.getHeldTime() >= GO_HOME_MS) {
-      // --- LONG PRESS ACTION: DELETE / MOVE / MARK-AS-READ ---
+    if (mappedInput.getHeldTime() >= GO_HOME_MS) {
+      // --- LONG PRESS ACTION: DELETE FILE/FOLDER ---
       std::string cleanBasePath = basepath;
       if (cleanBasePath.back() != '/') cleanBasePath += "/";
       const std::string fullPath = cleanBasePath + (isDirectory ? entry.substr(0, entry.length() - 1) : entry);
+      std::string restorePath;
+      const bool inArchive = basepath == "/Archived" || basepath == "/Archived/";
+      const bool canRestore = inArchive && !isDirectory && BookIdentity::getArchiveRestorePath(fullPath, restorePath);
 
-      auto handler = [this, fullPath, isDirectory, entry](const ActivityResult& res) {
+      auto handler = [this, fullPath, isDirectory, entry, inArchive, canRestore, restorePath](const ActivityResult& res) {
         if (!res.isCancelled) {
+          // A restorable archived book must never expose deletion on this
+          // confirmation screen. The Right button is a labelled cancel.
+          if (inArchive) return;
           // Right ボタン → 削除
           LOG_DBG("FileBrowser", "Attempting to delete: %s", fullPath.c_str());
           if (!isDirectory) clearFileMetadata(fullPath);
@@ -481,49 +439,58 @@ void FileBrowserActivity::loop() {
         } else if (std::holds_alternative<MenuResult>(res.data)) {
           const int code = std::get<MenuResult>(res.data).action;
           if (code == ConfirmationActivity::RESULT_NEVER) {
-            // Left ボタン → 移動: 移動先フォルダを選択して rename で移動
-            moveSourcePath = fullPath;
-            auto moveHandler = [this](const ActivityResult& pickRes) {
-              if (pickRes.isCancelled || !std::holds_alternative<FilePathResult>(pickRes.data)) {
-                moveSourcePath.clear();
-                loadFiles(true);
-                requestUpdate(true);
+            if (inArchive) {
+              // Left ボタン → 書庫から元の場所へ戻す。
+              if (!canRestore) {
+                LOG_ERR("FileBrowser", "Cannot restore: original location was not recorded for %s", fullPath.c_str());
                 return;
               }
-              const std::string destDir = std::get<FilePathResult>(pickRes.data).path;
-              const MoveResult mr = moveEntry(moveSourcePath, destDir);
-              if (mr != MoveResult::Success) {
-                // 移動失敗（同名 or 同一/配下）: メッセージを表示してから一覧へ戻る
-                const char* msg =
-                    mr == MoveResult::TargetExists ? tr(STR_MOVE_TARGET_EXISTS) : tr(STR_CANNOT_MOVE_INTO_SELF);
-                auto msgHandler = [this](const ActivityResult&) {
-                  moveSourcePath.clear();
-                  loadFiles(true);
-                  if (files.empty()) {
-                    selectorIndex = 0;
-                  } else if (selectorIndex >= files.size()) {
-                    selectorIndex = files.size() - 1;
-                  }
-                  requestUpdate(true);
-                };
-                startActivityForResult(
-                    std::make_unique<ConfirmationActivity>(renderer, mappedInput, std::string(msg), "", "",
-                                                           tr(STR_CONFIRM), tr(STR_CANCEL), ""),
-                    msgHandler);
+              if (Storage.exists(restorePath.c_str())) {
+                LOG_ERR("FileBrowser", "Cannot restore because destination exists: %s", restorePath.c_str());
                 return;
               }
-              moveSourcePath.clear();
-              loadFiles(true);
-              if (files.empty()) {
-                selectorIndex = 0;
-              } else if (selectorIndex >= files.size()) {
-                selectorIndex = files.size() - 1;
+              if (!Storage.rename(fullPath.c_str(), restorePath.c_str())) {
+                LOG_ERR("FileBrowser", "Failed to restore: %s", fullPath.c_str());
+                return;
               }
+              READING_HISTORY.moveBook(fullPath, restorePath);
+              RECENT_BOOKS.moveBook(fullPath, restorePath);
+              BookIdentity::movePath(fullPath, restorePath);
+              BookIdentity::clearArchiveLocation(fullPath);
+              moveBookListStatusIndexEntry(fullPath, restorePath, bookListStatusIndex);
+              bookListStatusIndexDirty = true;
+              invalidateDirectoryCache("/Archived");
+              LOG_DBG("FileBrowser", "Restored to: %s", restorePath.c_str());
+            } else {
+            // Left ボタン → アーカイブ（/Archived/ に移動）
+            std::string filename = isDirectory ? entry.substr(0, entry.length() - 1) : entry;
+            std::string destPath = "/Archived/" + filename;
+            Storage.mkdir("/Archived");
+            // Never replace an existing archived file. The archive command must
+            // be a move, not an implicit destructive overwrite.
+            if (Storage.exists(destPath.c_str())) {
+              LOG_ERR("FileBrowser", "Archive destination already exists: %s", destPath.c_str());
+              statusMessage = tr(STR_ARCHIVE_NAME_EXISTS);
               requestUpdate(true);
-            };
-            startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/",
-                                                                         FileBrowserActivity::Mode::PickDirectory),
-                                   moveHandler);
+              return;
+            }
+            if (!isDirectory) clearFileMetadata(fullPath);
+            if (Storage.rename(fullPath.c_str(), destPath.c_str())) {
+              if (!isDirectory) {
+                BookIdentity::recordArchiveLocation(fullPath, destPath);
+                READING_HISTORY.moveBook(fullPath, destPath);
+                RECENT_BOOKS.moveBook(fullPath, destPath);
+                BookIdentity::movePath(fullPath, destPath);
+                moveBookListStatusIndexEntry(fullPath, destPath, bookListStatusIndex);
+              }
+              bookListStatusIndexDirty = true;
+              invalidateDirectoryCache("/Archived");
+              LOG_DBG("FileBrowser", "Archived to: %s", destPath.c_str());
+            } else {
+              LOG_ERR("FileBrowser", "Failed to archive: %s", fullPath.c_str());
+              return;
+            }
+            }
           } else if (code == ConfirmationActivity::RESULT_MIDDLE) {
             // Confirm ボタン → 既読にする
             if (isDirectory) return;
@@ -570,33 +537,16 @@ void FileBrowserActivity::loop() {
 
       std::string heading = entry;
 
-      // ディレクトリ・.bin（ファームウェア）には既読操作を提供しない（btn2を空にする）
-      const bool isBinFile = !isDirectory && FsHelpers::checkFileExtension(entry, ".bin");
-      const char* markAsReadLabel = (isDirectory || isBinFile) ? "" : tr(STR_MARK_AS_READ);
-      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "", tr(STR_MOVE),
-                                                                    tr(STR_DELETE), tr(STR_CANCEL), markAsReadLabel),
+      // ディレクトリには既読操作を提供しない（btn2を空にする）
+      const char* markAsReadLabel = isDirectory ? "" : tr(STR_MARK_AS_READ);
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, "",
+                                                                    inArchive ? tr(STR_RESTORE) : tr(STR_ARCHIVE),
+                                                                    inArchive ? tr(STR_CANCEL) : tr(STR_DELETE), tr(STR_CANCEL),
+                                                                    inArchive ? "" : markAsReadLabel),
                              handler);
       return;
     } else {
       // --- SHORT PRESS ACTION: OPEN/NAVIGATE ---
-      // PickDirectory: confirm the "move here" entry to choose the current
-      // folder as destination; folders navigate downward.
-      if (mode == Mode::PickDirectory) {
-        if (isMoveHereEntry(entry)) {
-          std::string dest = basepath;
-          if (dest.back() != '/') dest += "/";
-          setResult(ActivityResult{FilePathResult{std::move(dest)}});
-          finish();
-        } else if (isDirectory) {
-          if (basepath.back() != '/') basepath += "/";
-          basepath += entry.substr(0, entry.length() - 1);
-          loadFiles();
-          selectorIndex = 0;
-          requestUpdate();
-        }
-        return;
-      }
-
       // render() reads basepath and the file/status vectors on the render
       // task. Mutate them only while it is excluded.
       RenderLock lock(*this);
@@ -609,9 +559,6 @@ void FileBrowserActivity::loop() {
         lock.unlock();
         requestUpdate();
       } else {
-        // .bin files (firmware) are listed for management (delete/archive) but
-        // are not books, so a short press must not try to open them.
-        if (FsHelpers::checkFileExtension(entry, ".bin")) return;
         const std::string fullPath = basepath + entry;
         lock.unlock();  // Activity launch may acquire the render lock.
         onSelectBook(fullPath);
@@ -640,7 +587,7 @@ void FileBrowserActivity::loop() {
         }
 
         requestUpdate();
-      } else if (mode == Mode::PickFirmware || mode == Mode::PickDirectory) {
+      } else if (mode == Mode::PickFirmware) {
         ActivityResult result;
         result.isCancelled = true;
         setResult(std::move(result));
@@ -674,7 +621,6 @@ void FileBrowserActivity::loop() {
 }
 
 std::string getFileName(std::string filename) {
-  if (isMoveHereEntry(filename)) return std::string(tr(STR_MOVE_HERE));
   // NFC normalize for display (original NFD path is preserved in files[] for SD card access)
   utf8NfcNormalizeKana(filename);
   if (filename.back() == '/') {
@@ -693,9 +639,6 @@ std::string getFileExtension(std::string filename) {
     return "";
   }
   const auto pos = filename.rfind('.');
-  if (pos == std::string::npos) {
-    return "";
-  }
   return filename.substr(pos);
 }
 
@@ -783,9 +726,6 @@ void FileBrowserActivity::render(RenderLock&&) {
         },
         nullptr,
         [this](int index) {
-          if (mode == Mode::PickDirectory) {
-            return isMoveHereEntry(files[index]) ? Folder : UITheme::getFileIcon(files[index]);
-          }
           return mode == Mode::PickFirmware ? UITheme::getFileIcon(files[index])
                                             : UITheme::getFileIcon(files[index], fileStatuses[index]);
         },
@@ -850,13 +790,10 @@ void FileBrowserActivity::render(RenderLock&&) {
 
   // Help text
   const bool selectingFirmwareFile = mode == Mode::PickFirmware && !files.empty() && files[selectorIndex].back() != '/';
-  const bool pickingMoveHere = mode == Mode::PickDirectory && !files.empty() && isMoveHereEntry(files[selectorIndex]);
-  const auto labels = mappedInput.mapLabels(
-      basepath == "/" ? (mode == Mode::PickFirmware || mode == Mode::PickDirectory ? tr(STR_BACK) : tr(STR_HOME))
-                      : tr(STR_BACK),
-      files.empty() ? ""
-                    : (selectingFirmwareFile ? tr(STR_SELECT) : (pickingMoveHere ? tr(STR_OK_BUTTON) : tr(STR_OPEN))),
-      files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(basepath == "/" ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK),
+                            files.empty() ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN)),
+                            files.empty() ? "" : tr(STR_DIR_UP), files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   const unsigned long footerMs = millis() - footerStartedAt;

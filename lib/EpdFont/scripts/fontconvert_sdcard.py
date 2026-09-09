@@ -96,6 +96,11 @@ INTERVAL_PRESETS = {
         (0x2713, 0x2713),  # ✓
         (0x2756, 0x2756),  # ❖
     ],
+    # CSS text-emphasis marks. Keep this separate so only families whose
+    # source cmap has both marks opt into the generated SD package.
+    "jp-extra-emphasis": [
+        (0xFE45, 0xFE46),  # ﹅ ﹆
+    ],
     "jp-extra-zen": [
         (0x2103, 0x2103),  # ℃
         (0x2109, 0x2109),  # ℉

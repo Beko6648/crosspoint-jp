@@ -25,13 +25,15 @@ class FileBrowserActivity final : public Activity {
     std::string path;
     std::vector<std::string> files;
     std::vector<ReadingStatus> statuses;
-    std::vector<std::string> readingStatusCacheEntries;
     std::vector<bool> readingStatusKnown;
     std::vector<Epub::CacheGenerationStatus> cacheStatuses;
     std::vector<bool> cacheStatusKnown;
   };
 
-  static constexpr size_t DIRECTORY_CACHE_SIZE = 4;
+  // Keep only a small parent directory for Back navigation. Retaining several
+  // large SD-card listings can exhaust the ESP32 heap while opening a folder.
+  static constexpr size_t DIRECTORY_CACHE_SIZE = 1;
+  static constexpr size_t MAX_CACHED_DIRECTORY_ENTRIES = 128;
 
   // Deletion
   void clearFileMetadata(const std::string& fullPath);

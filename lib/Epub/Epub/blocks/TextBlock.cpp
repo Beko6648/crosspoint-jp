@@ -1,5 +1,6 @@
 #include "TextBlock.h"
 
+#include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
@@ -117,6 +118,11 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   }
 
   const int effectiveFontId = (blockStyle.fontId != 0) ? blockStyle.fontId : fontId;
+  // The first render pass only records text for the SD-font prewarm.  It does
+  // not draw decoration pixels, so querying decoration dimensions here would
+  // fault every glyph from the SD card before the batched preload occurs.
+  const auto* fontCache = renderer.getFontCacheManager();
+  const bool isPrewarmScan = fontCache != nullptr && fontCache->isScanning();
   /*
   // ルビフォントのグリフをプリロード（SDカードフォントの場合）
   if (rubyFontId != 0 && hasRuby() && renderer.isSdCardFont(rubyFontId)) {
@@ -129,6 +135,9 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
     }
   }
 */
+
+  const bool blockHasEmphasis = hasEmphasis();
+  renderEmphasis(renderer, effectiveFontId, x, y);
 
   // Compute column width once for Sideways/TateChuYoko centering
   int columnWidth = 0;
@@ -159,8 +168,13 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   // This adjusts only ruby glyphs; body-text positions remain unchanged.
   int nextVerticalRubyY = INT_MIN;
   size_t imgIdx = 0;  // words 内の画像マーカー出現順 = inlineImages の index
+
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
+    // Decoration bits are block-drawn strokes. SD font data accepts only the
+    // four face indexes, so exclude underline and line-through from glyph
+    // lookup and metric calls.
+    const auto glyphStyle = static_cast<EpdFontFamily::Style>(currentStyle & EpdFontFamily::BOLD_ITALIC);
 #if DEBUG_RUBY_RENDER
     const char* rubyForLog = "";
     if (i < rubyTexts.size()) {
@@ -219,7 +233,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           const uint32_t baseCp = utf8NextCodepoint(&basePtr);
           if (baseCp != 0 && *basePtr == '\0' && !utf8IsJapaneseVoicingMark(baseCp) &&
               VerticalTextUtils::isUprightInVertical(baseCp) && baseIndex < wordYpos.size()) {
-            const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : currentStyle;
+            const auto baseStyle = baseIndex < wordStyles.size() ? wordStyles[baseIndex] : glyphStyle;
             const auto baseFontStyle = static_cast<EpdFontFamily::Style>(baseStyle & EpdFontFamily::BOLD_ITALIC);
             const int baseAdvance = renderer.getTextAdvanceX(effectiveFontId, words[baseIndex].c_str(), baseFontStyle);
             const int measuredEm = renderer.getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", baseFontStyle);  // U+4E00
@@ -271,7 +285,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
               markX = x + wordXpos[baseIndex] + baseMaxX - (markMinX + markMaxX) / 2;
             }
             const int markY = y + wordYpos[baseIndex] - anchorCell / 8;
-            renderer.drawText(effectiveFontId, markX, markY, w, true, currentStyle);
+            renderer.drawText(effectiveFontId, markX, markY, w, true, glyphStyle);
             renderedAsOverlay = true;
           }
         }
@@ -284,10 +298,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         int markMaxX = 0;
         int bodyMinX = 0;
         int bodyMaxX = 0;
-        renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, currentStyle);
-        renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, currentStyle);  // U+4E00
+        renderer.getTextVisibleBoundsX(effectiveFontId, w, &markMinX, &markMaxX, glyphStyle);
+        renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX, glyphStyle);  // U+4E00
         const int centerOffset = (bodyMinX + bodyMaxX - markMinX - markMaxX) / 2;
-        renderer.drawTextVertical(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
+        renderer.drawTextVertical(effectiveFontId, wx + centerOffset, wy, w, true, glyphStyle);
         continue;
       }
 
@@ -308,16 +322,16 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           int glyphMaxX = 0;
           int bodyMinX = 0;
           int bodyMaxX = 0;
-          renderer.getTextVisibleBoundsX(effectiveFontId, w, &glyphMinX, &glyphMaxX, currentStyle);
+          renderer.getTextVisibleBoundsX(effectiveFontId, w, &glyphMinX, &glyphMaxX, glyphStyle);
           renderer.getTextVisibleBoundsX(effectiveFontId, "\xE4\xB8\x80", &bodyMinX, &bodyMaxX,
-                                         currentStyle);  // U+4E00
+                                         glyphStyle);  // U+4E00
           uprightX += (bodyMinX + bodyMaxX - glyphMinX - glyphMaxX) / 2;
         }
         // wordYpos already contains the halfwidth glyph advance plus the
         // fullwidth inter-cell spacing. Adding another half-cell inset here
         // shifts the ink into the next item (and separates a following voiced
         // mark from its base kana).
-        renderer.drawTextVertical(effectiveFontId, uprightX, wy, w, true, currentStyle);
+        renderer.drawTextVertical(effectiveFontId, uprightX, wy, w, true, glyphStyle);
       } else {
         const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w);
         if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
@@ -327,18 +341,47 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           // from the visible fullwidth-numeral center.
           int textMinX = 0;
           int textMaxX = 0;
-          renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, currentStyle);
+          renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, glyphStyle);
           int fullwidthDigitMinX = 0;
           int fullwidthDigitMaxX = 0;
           renderer.getTextVisibleBoundsX(effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX,
-                                         currentStyle);  // U+FF10
+                                         glyphStyle);  // U+FF10
           const int centerOffset = (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
-          renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
+          renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, glyphStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           const int vertShift = renderer.getFontAscenderSize(effectiveFontId) / 3;
           renderer.drawTextSideways(effectiveFontId, wx + verticalBodyCenterOffset, wy + vertShift, w, true,
                                     currentStyle, columnWidth);
+        }
+      }
+
+      const bool hasUnderline = (currentStyle & EpdFontFamily::UNDERLINE) != 0;
+      const bool hasStrikethrough = (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0;
+      if (!isPrewarmScan && (hasUnderline || hasStrikethrough) && words[i] != "\xe2\x80\x83") {
+        // A vertical underline follows the left edge of the character cell, away
+        // from the right-side ruby area. Line-through crosses its center. Use the next item in the same
+        // column when present so a wrapped sideways run stays continuous.
+        int decorationHeight = 0;
+        if (i + 1 < wordYpos.size() && wordXpos[i + 1] == wordXpos[i]) {
+          decorationHeight = wordYpos[i + 1] - wordYpos[i];
+        }
+        if (decorationHeight <= 0) {
+          decorationHeight = isSingleCjk
+                                 ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
+                                 : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
+        }
+        decorationHeight = std::max(1, decorationHeight);
+        if (hasUnderline) {
+          const int underlineX = wx + 1;
+          renderer.drawLine(underlineX, wy, underlineX, wy + decorationHeight, true);
+        }
+        if (hasStrikethrough) {
+          // In vertical writing, text decoration follows the inline (top to
+          // bottom) direction. Draw one centered vertical stroke instead of
+          // a separate horizontal stroke through every character cell.
+          const int strikeX = wx + columnWidth / 2;
+          renderer.drawLine(strikeX, wy, strikeX, wy + decorationHeight, true);
         }
       }
 
@@ -365,7 +408,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        const int rightBaseX = wx + rubyBaseOffset + gap;
+        const int rightBaseX = wx + (blockHasEmphasis ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4) : rubyBaseOffset + gap);
         // Vertical ruby always stays on the standard right side of its base
         // text. The first column may use the reader's right screen margin.
         // If the margin is too narrow, clamp at the physical screen edge; the
@@ -402,7 +445,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       }
     } else {
       const int wordX = wordXpos[i] + x;
-      renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);
+      renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, glyphStyle);
       // 横書きルビ描画
       if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
         size_t rubyBaseEnd = i;
@@ -433,30 +476,37 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
                                : INT_MAX;
         const int rubyY =
-            std::clamp(y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap + rubyOffsetY, minRubyY, maxRubyY);
+            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) + rubyOffsetY, minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 
-      if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
+      const bool hasUnderline = (currentStyle & EpdFontFamily::UNDERLINE) != 0;
+      const bool hasStrikethrough = (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0;
+      if (!isPrewarmScan && (hasUnderline || hasStrikethrough)) {
         const std::string& w = words[i];
-        const int fullWordWidth = renderer.getTextWidth(effectiveFontId, w.c_str(), currentStyle);
-        // y is the top of the text line; add ascender to reach baseline, then offset 2px below
-        const int underlineY = y + renderer.getFontAscenderSize(effectiveFontId) + 2;
-
+        const int fullWordWidth = renderer.getTextWidth(effectiveFontId, w.c_str(), glyphStyle);
         int startX = wordX;
-        int underlineWidth = fullWordWidth;
+        int decorationWidth = fullWordWidth;
 
-        // if word starts with em-space ("\xe2\x80\x83"), account for the additional indent before drawing the line
+        // Do not extend a text decoration through the paragraph's em-space indent.
         if (w.size() >= 3 && static_cast<uint8_t>(w[0]) == 0xE2 && static_cast<uint8_t>(w[1]) == 0x80 &&
             static_cast<uint8_t>(w[2]) == 0x83) {
           const char* visiblePtr = w.c_str() + 3;
-          const int prefixWidth = renderer.getTextAdvanceX(effectiveFontId, "\xe2\x80\x83", currentStyle);
-          const int visibleWidth = renderer.getTextWidth(effectiveFontId, visiblePtr, currentStyle);
+          const int prefixWidth = renderer.getTextAdvanceX(effectiveFontId, "\xe2\x80\x83", glyphStyle);
+          const int visibleWidth = renderer.getTextWidth(effectiveFontId, visiblePtr, glyphStyle);
           startX = wordX + prefixWidth;
-          underlineWidth = visibleWidth;
+          decorationWidth = visibleWidth;
         }
 
-        renderer.drawLine(startX, underlineY, startX + underlineWidth, underlineY, true);
+        if (hasUnderline) {
+          const int underlineY = y + renderer.getFontAscenderSize(effectiveFontId) + 2;
+          renderer.drawLine(startX, underlineY, startX + decorationWidth, underlineY, true);
+        }
+        if (hasStrikethrough) {
+          // Same vertical placement as reader-mod: four fifths of the ascender.
+          const int strikeY = y + renderer.getFontAscenderSize(effectiveFontId) * 4 / 5;
+          renderer.drawLine(startX, strikeY, startX + decorationWidth, strikeY, true);
+        }
       }
     }
   }
@@ -531,6 +581,13 @@ bool TextBlock::serialize(FsFile& file) const {
     serialization::writeString(file, (i < rubyTexts.size()) ? rubyTexts[i] : std::string());
   }
 
+  serialization::writePod(file, static_cast<uint8_t>(hasEmphasis()));
+  if (hasEmphasis()) {
+    for (size_t i = 0; i < words.size(); ++i) {
+      serialization::writePod(file, static_cast<uint8_t>(i < emphasis.size() ? emphasis[i] : TextEmphasis::None));
+    }
+  }
+
   // Inline image data (sparse): 画像の数と内容を書き込む（words 内のマーカー出現順に一致）。
   serialization::writePod(file, static_cast<uint16_t>(inlineImages.size()));
   for (const auto& img : inlineImages) {
@@ -598,6 +655,18 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   std::vector<std::string> rubyTexts(wc);
   for (auto& rt : rubyTexts) serialization::readString(file, rt);
 
+  uint8_t hasEmphasis = 0;
+  if (file.read(&hasEmphasis, 1) != 1 || hasEmphasis > 1) return nullptr;
+  std::vector<TextEmphasis> emphasis;
+  if (hasEmphasis) {
+    emphasis.resize(wc);
+    for (auto& value : emphasis) {
+      uint8_t raw = 0;
+      if (file.read(&raw, 1) != 1 || !textEmphasis::valid(raw)) return nullptr;
+      value = static_cast<TextEmphasis>(raw);
+    }
+  }
+
   // Inline image data (sparse): 画像の数と内容を読み込む（words 内のマーカー出現順に一致）。
   uint16_t imgCount = 0;
   serialization::readPod(file, imgCount);
@@ -617,5 +686,5 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
                                                   blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
-                                                  std::move(inlineImages)));
+                                                  std::move(inlineImages), std::move(emphasis)));
 }

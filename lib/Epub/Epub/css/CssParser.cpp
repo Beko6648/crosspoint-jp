@@ -216,11 +216,25 @@ CssFontWeight CssParser::interpretFontWeight(const std::string& val) {
 CssTextDecoration CssParser::interpretDecoration(const std::string& val) {
   const std::string v = normalized(val);
 
-  // text-decoration can have multiple space-separated values
-  if (v.find("underline") != std::string::npos) {
-    return CssTextDecoration::Underline;
+  // text-decoration is a whitespace-separated list. Match complete tokens so
+  // malformed values such as "notunderline" cannot enable a decoration.
+  CssTextDecoration result = CssTextDecoration::None;
+  bool explicitNone = false;
+  size_t pos = 0;
+  while (pos < v.size()) {
+    while (pos < v.size() && std::isspace(static_cast<unsigned char>(v[pos]))) ++pos;
+    const size_t start = pos;
+    while (pos < v.size() && !std::isspace(static_cast<unsigned char>(v[pos]))) ++pos;
+    const std::string_view token(v.data() + start, pos - start);
+    if (token == "none") {
+      explicitNone = true;
+    } else if (token == "underline") {
+      result = result | CssTextDecoration::Underline;
+    } else if (token == "line-through") {
+      result = result | CssTextDecoration::LineThrough;
+    }
   }
-  return CssTextDecoration::None;
+  return explicitNone ? CssTextDecoration::None : result;
 }
 
 CssWritingMode interpretWritingMode(std::string_view value) {
@@ -368,6 +382,15 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
       style.defined.paddingTop = style.defined.paddingRight = style.defined.paddingBottom = style.defined.paddingLeft =
           1;
     }
+  } else if (propNameBuf == "text-emphasis" || propNameBuf == "-epub-text-emphasis" ||
+             propNameBuf == "-webkit-text-emphasis" || propNameBuf == "text-emphasis-style" ||
+             propNameBuf == "-epub-text-emphasis-style" || propNameBuf == "-webkit-text-emphasis-style") {
+    TextEmphasis emphasis;
+    const bool shorthand = propNameBuf.find("-style") == std::string_view::npos;
+    if (textEmphasis::parse(stripTrailingImportant(propValueBuf), emphasis, shorthand)) {
+      style.emphasis = emphasis;
+      style.emphasisDefined = true;
+    }
   } else if (propNameBuf == "height") {
     CssLength len;
     if (tryInterpretLength(propValueBuf, len)) {
@@ -379,6 +402,18 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
     if (tryInterpretLength(propValueBuf, len)) {
       style.imageWidth = len;
       style.defined.imageWidth = 1;
+    }
+  } else if (propNameBuf == "max-height") {
+    CssLength len;
+    if (tryInterpretLength(propValueBuf, len)) {
+      style.imageMaxHeight = len;
+      style.defined.imageMaxHeight = 1;
+    }
+  } else if (propNameBuf == "max-width") {
+    CssLength len;
+    if (tryInterpretLength(propValueBuf, len)) {
+      style.imageMaxWidth = len;
+      style.defined.imageMaxWidth = 1;
     }
   } else if (propNameBuf == "display") {
     const std::string_view displayValue = stripTrailingImportant(propValueBuf);
@@ -810,6 +845,8 @@ bool CssParser::saveToCache() const {
     writeLength(style.paddingRight);
     writeLength(style.imageHeight);
     writeLength(style.imageWidth);
+    writeLength(style.imageMaxHeight);
+    writeLength(style.imageMaxWidth);
     writeLength(style.fontSize);
     writeLength(style.lineHeightLength);
     file.write(reinterpret_cast<const uint8_t*>(&style.lineHeight), sizeof(style.lineHeight));
@@ -817,9 +854,12 @@ bool CssParser::saveToCache() const {
     file.write(static_cast<uint8_t>(style.fontSizeDefined));
     file.write(static_cast<uint8_t>(style.lineHeightDefined));
     file.write(static_cast<uint8_t>(style.display));
+    file.write(static_cast<uint8_t>(style.emphasis));
+    file.write(static_cast<uint8_t>(style.emphasisDefined));
 
-    // Write defined flags as uint16_t
-    uint16_t definedBits = 0;
+    // Write defined flags as uint32_t. New image bounds use bits above the
+    // original 16-bit image-style flags.
+    uint32_t definedBits = 0;
     if (style.defined.textAlign) definedBits |= 1 << 0;
     if (style.defined.fontStyle) definedBits |= 1 << 1;
     if (style.defined.fontWeight) definedBits |= 1 << 2;
@@ -836,6 +876,8 @@ bool CssParser::saveToCache() const {
     if (style.defined.imageHeight) definedBits |= 1 << 13;
     if (style.defined.imageWidth) definedBits |= 1 << 14;
     if (style.defined.display) definedBits |= 1 << 15;
+    if (style.defined.imageMaxHeight) definedBits |= 1u << 16;
+    if (style.defined.imageMaxWidth) definedBits |= 1u << 17;
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
   }
 
@@ -930,11 +972,11 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     return static_cast<size_t>(file.available()) >= neededBytes;
   };
 
-  constexpr size_t CSS_LENGTH_FIELD_COUNT = 13;
+  constexpr size_t CSS_LENGTH_FIELD_COUNT = 15;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
   constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 4 * sizeof(uint8_t) +
-      sizeof(uint16_t);
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(float) + 6 * sizeof(uint8_t) +
+      sizeof(uint32_t);
 
   // Read each rule
   for (uint16_t i = 0; i < ruleCount; ++i) {
@@ -1020,8 +1062,8 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
         !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
         !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
-        !readLength(style.imageHeight) || !readLength(style.imageWidth) || !readLength(style.fontSize) ||
-        !readLength(style.lineHeightLength)) {
+        !readLength(style.imageHeight) || !readLength(style.imageWidth) || !readLength(style.imageMaxHeight) ||
+        !readLength(style.imageMaxWidth) || !readLength(style.fontSize) || !readLength(style.lineHeightLength)) {
       rulesBySelector_.clear();
       return false;
     }
@@ -1051,9 +1093,17 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
       return false;
     }
     style.display = static_cast<CssDisplay>(displayVal);
+    uint8_t emphasisVal = 0, emphasisDefined = 0;
+    if (file.read(&emphasisVal, 1) != 1 || !textEmphasis::valid(emphasisVal) ||
+        file.read(&emphasisDefined, 1) != 1 || emphasisDefined > 1) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    style.emphasis = static_cast<TextEmphasis>(emphasisVal);
+    style.emphasisDefined = emphasisDefined != 0;
 
     // Read defined flags
-    uint16_t definedBits = 0;
+    uint32_t definedBits = 0;
     if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) {
       rulesBySelector_.clear();
       return false;
@@ -1074,6 +1124,8 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     style.defined.imageHeight = (definedBits & 1 << 13) != 0;
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
     style.defined.display = (definedBits & 1 << 15) != 0;
+    style.defined.imageMaxHeight = (definedBits & (1u << 16)) != 0;
+    style.defined.imageMaxWidth = (definedBits & (1u << 17)) != 0;
 
     if (usage != nullptr && !usage->matches(selector)) {
       continue;

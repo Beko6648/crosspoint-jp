@@ -166,6 +166,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
 
   words.push_back(std::move(word));
+  if (!emphasis.empty()) emphasis.push_back(TextEmphasis::None);
   rubyTexts.push_back("");
 
   EpdFontFamily::Style combinedStyle = fontStyle;
@@ -212,6 +213,12 @@ void ParsedText::addImage(std::string imagePath, const int16_t width, const int1
   img.width = width;
   img.height = height;
   inlineImages.push_back(std::move(img));  // words 内のマーカー出現順に追加
+}
+
+void ParsedText::setEmphasisFrom(size_t start, TextEmphasis value) {
+  if (start >= words.size() || value == TextEmphasis::None) return;
+  emphasis.resize(words.size(), TextEmphasis::None);
+  std::fill(emphasis.begin() + start, emphasis.end(), value);
 }
 
 void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const size_t baseWordCount) {
@@ -308,6 +315,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     const size_t consumed = lineBreakIndices[lineCount - 1];
     words.erase(words.begin(), words.begin() + consumed);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
+    if (!emphasis.empty()) emphasis.erase(emphasis.begin(), emphasis.begin() + consumed);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
     if (!wordVerticalBehaviors.empty()) {
       const size_t vbConsumed = std::min(consumed, wordVerticalBehaviors.size());
@@ -402,6 +410,82 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   }
   const int sp = renderer.getVerticalCharSpacing();
   const int cjkSpacing = cjkCharAdvance * sp / 100;
+
+  // Sideways Latin text is kept as a run so ordinary words retain their
+  // shaping. A run taller than one column, however, has no legal break point
+  // and can never be displayed completely. Split only those oversized runs;
+  // each fragment remains sideways and is laid out in the following column.
+  const int maxSidewaysRunAdvance = std::max(1, static_cast<int>(columnHeight) - cjkSpacing);
+  bool needsSidewaysRunSplit = false;
+  for (size_t i = 0; i < words.size(); ++i) {
+    const bool sideways = i < wordVerticalBehaviors.size() &&
+                          wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
+    const bool hasRuby = i < rubyTexts.size() && !rubyTexts[i].empty();
+    if (sideways && !hasRuby &&
+        renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]) > maxSidewaysRunAdvance) {
+      needsSidewaysRunSplit = true;
+      break;
+    }
+  }
+
+  if (needsSidewaysRunSplit) {
+    std::deque<std::string> splitWords;
+    std::vector<EpdFontFamily::Style> splitWordStyles;
+    std::vector<bool> splitWordContinues;
+    std::deque<std::string> splitRubyTexts;
+    std::vector<VerticalTextUtils::VerticalBehavior> splitVerticalBehaviors;
+    std::vector<TextEmphasis> splitEmphasis;
+    splitWordStyles.reserve(words.size());
+    splitWordContinues.reserve(words.size());
+    splitVerticalBehaviors.reserve(words.size());
+    if (!emphasis.empty()) splitEmphasis.reserve(emphasis.size());
+
+    const auto appendSplitWord = [&](std::string fragment, const size_t sourceIndex, const bool continuation) {
+      splitWords.push_back(std::move(fragment));
+      splitWordStyles.push_back(wordStyles[sourceIndex]);
+      splitWordContinues.push_back(continuation);
+      splitRubyTexts.push_back(rubyTexts[sourceIndex]);
+      splitVerticalBehaviors.push_back(wordVerticalBehaviors[sourceIndex]);
+      if (!emphasis.empty()) splitEmphasis.push_back(emphasis[sourceIndex]);
+    };
+
+    for (size_t i = 0; i < words.size(); ++i) {
+      const bool sideways = wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
+      const bool hasRuby = !rubyTexts[i].empty();
+      if (!sideways || hasRuby ||
+          renderer.getTextAdvanceX(fontId, words[i].c_str(), wordStyles[i]) <= maxSidewaysRunAdvance) {
+        appendSplitWord(words[i], i, wordContinues[i]);
+        continue;
+      }
+
+      std::string fragment;
+      const auto* cursor = reinterpret_cast<const unsigned char*>(words[i].c_str());
+      bool firstFragment = true;
+      while (*cursor) {
+        const auto* start = cursor;
+        utf8NextCodepoint(&cursor);
+        std::string candidate = fragment;
+        candidate.append(reinterpret_cast<const char*>(start), cursor - start);
+        if (!fragment.empty() &&
+            renderer.getTextAdvanceX(fontId, candidate.c_str(), wordStyles[i]) > maxSidewaysRunAdvance) {
+          appendSplitWord(std::move(fragment), i, firstFragment ? wordContinues[i] : true);
+          firstFragment = false;
+          fragment.assign(reinterpret_cast<const char*>(start), cursor - start);
+        } else {
+          fragment = std::move(candidate);
+        }
+      }
+      if (!fragment.empty()) appendSplitWord(std::move(fragment), i, firstFragment ? wordContinues[i] : true);
+    }
+
+    words = std::move(splitWords);
+    wordStyles = std::move(splitWordStyles);
+    wordContinues = std::move(splitWordContinues);
+    rubyTexts = std::move(splitRubyTexts);
+    wordVerticalBehaviors = std::move(splitVerticalBehaviors);
+    if (!emphasis.empty()) emphasis = std::move(splitEmphasis);
+  }
+
   // A body glyph can extend beyond its advance box. Inline images need that
   // overflow as leading clearance, plus a minimum visible gutter on both
   // sides, instead of being centered in an otherwise normal text cell.
@@ -645,9 +729,11 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       y += wordHeights[j];
     }
 
+    std::vector<TextEmphasis> colEmphasis;
+    if (!emphasis.empty()) colEmphasis.assign(emphasis.begin() + start, emphasis.begin() + end);
     processColumn(std::make_shared<TextBlock>(std::move(colWords), std::move(colXpos), std::move(colStyles), blockStyle,
                                               std::move(colYpos), true, std::move(colRubyTexts),
-                                              std::move(colInlineImages)));
+                                              std::move(colInlineImages), std::move(colEmphasis)));
     isFirstColumn = false;
     emitStart = end;
   }
@@ -657,6 +743,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   if (emitStart > 0) {
     words.erase(words.begin(), words.begin() + emitStart);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + emitStart);
+    if (!emphasis.empty()) emphasis.erase(emphasis.begin(), emphasis.begin() + emitStart);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + emitStart);
     if (!wordVerticalBehaviors.empty()) {
       const size_t vbConsumed = std::min(emitStart, wordVerticalBehaviors.size());
@@ -883,6 +970,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
 
   words.insert(words.begin() + wordIndex + 1, remainder);
   wordStyles.insert(wordStyles.begin() + wordIndex + 1, style);
+  if (!emphasis.empty()) emphasis.insert(emphasis.begin() + wordIndex + 1, emphasis[wordIndex]);
   wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
   if (wordIndex + 1 <= rubyTexts.size()) {
     rubyTexts.insert(rubyTexts.begin() + wordIndex + 1, "");
@@ -1008,7 +1096,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     }
   }
 
+  std::vector<TextEmphasis> lineEmphasis;
+  if (!emphasis.empty()) lineEmphasis.assign(emphasis.begin() + lastBreakAt, emphasis.begin() + lineBreak);
   processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
                                           blockStyle, std::vector<int16_t>{}, false, std::move(lineRubyTexts),
-                                          std::move(lineInlineImages)));
+                                          std::move(lineInlineImages), std::move(lineEmphasis)));
 }

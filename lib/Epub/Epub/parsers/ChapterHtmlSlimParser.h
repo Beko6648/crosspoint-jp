@@ -69,6 +69,14 @@ class ChapterHtmlSlimParser {
   int imageCounter = 0;
   bool verticalMode = false;
 
+  // SVG wrappers frequently carry the sizing rule while their nested <image>
+  // holds the raster reference. Keep that rule until the wrapper closes.
+  struct SvgImageWrapper {
+    int depth = 0;
+    CssStyle style;
+  };
+  std::vector<SvgImageWrapper> svgImageWrappers;
+
   struct EmptyBlockCandidate {
     int depth = 0;
     bool hasContent = false;
@@ -82,17 +90,23 @@ class ChapterHtmlSlimParser {
     int depth = 0;
     bool hasBold = false, bold = false;
     bool hasItalic = false, italic = false;
-    bool hasUnderline = false, underline = false;
+    bool hasTextDecoration = false;
+    CssTextDecoration textDecoration = CssTextDecoration::None;
     // Ruby tags use a dedicated end-element path with their own depth updates.
     // Mark their entries so <rb> cannot accidentally pop a parent <ruby> style.
     bool rubyTagStyle = false;
     bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
+  struct EmphasisEntry { int depth; TextEmphasis value; };
+  std::vector<EmphasisEntry> emphasisStack;
+  TextEmphasis activeEmphasis() const {
+    return emphasisStack.empty() ? TextEmphasis::None : emphasisStack.back().value;
+  }
   CssStyle currentCssStyle;
   bool effectiveBold = false;
   bool effectiveItalic = false;
-  bool effectiveUnderline = false;
+  CssTextDecoration effectiveTextDecoration = CssTextDecoration::None;
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;
