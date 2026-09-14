@@ -5,9 +5,9 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
-#include <esp_task_wdt.h>
 
 #include "MappedInputManager.h"
+#include "network/TaskWatchdog.h"
 #include "WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -60,6 +60,23 @@ void CalibreConnectActivity::onExit() {
   delay(30);
   WiFi.mode(WIFI_OFF);
   delay(30);
+
+  // Calibre transfers leave the same Wi-Fi allocations as the ordinary Web UI.
+  // Release rebuildable font data and give the network task a bounded chance to
+  // restore the contiguous heap needed when the received EPUB is opened next.
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->releaseSdFontCaches();
+    fcm->releaseSdFontVerticalGlyphs();
+  }
+  constexpr uint32_t READER_HEAP_RECOVERY_WAIT_MS = 500;
+  constexpr uint32_t READER_MIN_CONTIGUOUS_HEAP = 32 * 1024;
+  const uint32_t heapRecoveryDeadline = millis() + READER_HEAP_RECOVERY_WAIT_MS;
+  while (ESP.getMaxAllocHeap() < READER_MIN_CONTIGUOUS_HEAP && millis() < heapRecoveryDeadline) {
+    delay(20);
+  }
+
+  LOG_DBG("CAL", "Free heap after transfer: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
 }
 void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {
   if (!connected) {
@@ -115,15 +132,19 @@ void CalibreConnectActivity::loop() {
       LOG_DBG("CAL", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
     }
 
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
     constexpr int MAX_ITERATIONS = 80;
     for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
       webServer->handleClient();
       if ((i & 0x07) == 0x07) {
-        esp_task_wdt_reset();
+        resetTaskWatchdogIfSubscribed();
       }
       if ((i & 0x0F) == 0x0F) {
         yield();
+        // This activity runs without the normal loop delay while Calibre is
+        // connected. Refresh GPIO state here so Back remains responsive while
+        // the server is handling a continuous request stream.
+        mappedInput.update();
         if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
           exitRequested = true;
           break;

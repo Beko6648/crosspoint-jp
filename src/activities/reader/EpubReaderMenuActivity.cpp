@@ -1,6 +1,7 @@
 #include "EpubReaderMenuActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -17,7 +18,8 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const bool verticalMode, const bool hasBookmarks,
                                                const Epub::CacheGenerationStatus cacheStatus,
                                                std::function<void()> onFirstLineIndentChanged,
-                                               std::function<void()> onInvertImagesChanged)
+                                               std::function<void()> onInvertImagesChanged,
+                                               std::function<void()> onFontSizeChanged)
     : Activity("EpubReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems(MenuMode::Root, hasBookmarks, cacheStatus)),
       hasBookmarks(hasBookmarks),
@@ -29,7 +31,8 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       bookProgressPercent(bookProgressPercent),
       verticalMode(verticalMode),
       onFirstLineIndentChanged(std::move(onFirstLineIndentChanged)),
-      onInvertImagesChanged(std::move(onInvertImagesChanged)) {}
+      onInvertImagesChanged(std::move(onInvertImagesChanged)),
+      onFontSizeChanged(std::move(onFontSizeChanged)) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(
     const MenuMode mode, const bool hasBookmarks, const Epub::CacheGenerationStatus cacheStatus) {
@@ -52,6 +55,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
       break;
     case MenuMode::DisplayLayout:
       items = {{MenuAction::STYLE_FONT_FAMILY, StrId::STR_FONT_FAMILY},
+               {MenuAction::STYLE_FONT_SIZE, StrId::STR_FONT_SIZE},
                {MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION},
                {MenuAction::STYLE_LINE_SPACING, StrId::STR_LINE_SPACING},
                {MenuAction::STYLE_FIRST_LINE_INDENT, StrId::STR_FIRST_LINE_INDENT},
@@ -123,14 +127,14 @@ void EpubReaderMenuActivity::loop() {
     return;
   }
 
-  // Keep side buttons reserved for reading.  Front Left/Right move through
-  // the menu, then change a value after Confirm enters edit mode.
-  buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
+  // Front and side buttons both move through the menu. Values remain bound to
+  // Front Left/Right after Confirm enters edit mode.
+  buttonNavigator.onPress({MappedInputManager::Button::Right, MappedInputManager::Button::Down}, [this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
 
-  buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
+  buttonNavigator.onPress({MappedInputManager::Button::Left, MappedInputManager::Button::Up}, [this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, static_cast<int>(menuItems.size()));
     requestUpdate();
   });
@@ -198,10 +202,16 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // vertical space to keep the header and list clear.
   const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
   constexpr int landscapeHintGutterWidth = 100;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
-  // Landscape CW places hints on the left edge; CCW keeps them on the right.
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
+  constexpr int landscapeSideHintGutterWidth = 54;
+  const bool isLandscape = isLandscapeCw || isLandscapeCcw;
+  const bool isX3Portrait = gpio.deviceIsX3() && !isLandscape;
+  const int frontHintGutterWidth = isLandscape ? landscapeHintGutterWidth : 0;
+  // X3 places its two side-button hints on the left and right edges in portrait.
+  // Keep menu labels clear of the 30 px hint strips.
+  const int sideHintGutterWidth = isLandscape ? landscapeSideHintGutterWidth : (isX3Portrait ? 30 : 0);
+  // Front hints and side hints occupy opposite edges in landscape.
+  const int contentX = isLandscapeCw ? frontHintGutterWidth : sideHintGutterWidth;
+  const int contentWidth = pageWidth - frontHintGutterWidth - sideHintGutterWidth - (isX3Portrait ? 30 : 0);
   const int hintGutterHeight = isPortraitInverted ? 50 : 0;
   const int contentY = hintGutterHeight;
 
@@ -267,6 +277,9 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
                                                                         : (currentValueIsEditable() ? tr(STR_EDIT) : tr(STR_SELECT)),
                                             tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  if (!editingValue) {
+    GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
+  }
 
   renderer.displayBuffer();
 }
@@ -277,6 +290,13 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
       const auto& settings = SETTINGS.getDirectionSettings(verticalMode);
       if (settings.sdFontFamilyName[0] != '\0') return std::string(settings.sdFontFamilyName);
       return std::string(I18N.get(StrId::STR_NOTO_SANS));
+    }
+    case MenuAction::STYLE_FONT_SIZE: {
+      static constexpr StrId sizeLabels[] = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
+                                             StrId::STR_X_LARGE};
+      const uint8_t size = std::min<uint8_t>(SETTINGS.getDirectionSettings(verticalMode).fontSize,
+                                             CrossPointSettings::EXTRA_LARGE);
+      return std::string(I18N.get(sizeLabels[size]));
     }
     case MenuAction::ROTATE_SCREEN:
       return std::string(I18N.get(orientationLabels[pendingOrientation]));
@@ -301,7 +321,7 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
 bool EpubReaderMenuActivity::currentValueIsEditable() const {
   const auto action = menuItems[selectedIndex].action;
   return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_INVERT_IMAGES ||
-         action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
+         action == MenuAction::STYLE_FONT_SIZE || action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
          action == MenuAction::TILT_PAGE_TURN;
 }
 
@@ -327,6 +347,21 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
         SETTINGS.saveToFile();
       }
       return true;
+    case MenuAction::STYLE_FONT_SIZE: {
+      auto& value = SETTINGS.getDirectionSettings(verticalMode).fontSize;
+      const uint8_t next = static_cast<uint8_t>(std::clamp(static_cast<int>(value) + delta,
+                                                           static_cast<int>(CrossPointSettings::SMALL),
+                                                           static_cast<int>(CrossPointSettings::EXTRA_LARGE)));
+      if (next == value) return false;
+      value = next;
+      if (onFontSizeChanged) {
+        onFontSizeChanged();
+      } else {
+        SETTINGS.saveToFile();
+      }
+      layoutChanged = true;
+      return true;
+    }
     case MenuAction::TILT_PAGE_TURN:
       SETTINGS.tiltPageTurn =
           toggleValue ? (SETTINGS.tiltPageTurn ? CrossPointSettings::TILT_OFF : CrossPointSettings::TILT_NORMAL)

@@ -39,6 +39,8 @@ const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr size_t HIDDEN_ITEMS_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
+constexpr char WEB_SLEEP_IMAGE_DIR[] = "/.sleep";
+constexpr char WEB_SLEEP_OVERLAY_DIR[] = "/.sleep-overlay";
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -291,6 +293,9 @@ void CrossPointWebServer::begin() {
   server->on("/api/sleep/images", HTTP_GET, [this] { handleSleepImageList(); });
   server->on("/api/sleep/thumbnail", HTTP_GET, [this] { handleSleepThumbnail(); });
   server->on("/api/sleep/delete", HTTP_POST, [this] { handleSleepDelete(); });
+  server->on("/api/sleep/overlays", HTTP_GET, [this] { handleSleepOverlayList(); });
+  server->on("/api/sleep/overlay-thumbnail", HTTP_GET, [this] { handleSleepOverlayThumbnail(); });
+  server->on("/api/sleep/overlay-delete", HTTP_POST, [this] { handleSleepOverlayDelete(); });
 
   // WiFi credential management endpoints (CJK)
   server->on("/api/wifi/scan", HTTP_GET, [this] { handleWifiScan(); });
@@ -760,6 +765,9 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.size = 0;
     state.success = false;
     state.error = "";
+    state.errorCode = "";
+    state.structuredResponse = server->hasArg("context") &&
+                               (server->arg("context") == "sleep" || server->arg("context") == "sleep-overlay");
     uploadStartTime = millis();
     lastLoggedSize = 0;
     state.bufferPos = 0;
@@ -786,6 +794,25 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     LOG_DBG("WEB", "[UPLOAD] START: %s to path: %s", state.fileName.c_str(), state.path.c_str());
     LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
 
+    // The Sleep page is usable on a fresh SD card. Its dedicated destination
+    // may not exist yet, unlike a path reached through the file manager.
+    if (state.structuredResponse && (state.path == WEB_SLEEP_IMAGE_DIR || state.path == WEB_SLEEP_OVERLAY_DIR) &&
+        !Storage.exists(state.path.c_str()) &&
+        !Storage.mkdir(state.path.c_str())) {
+      state.errorCode = "SLEEP_FOLDER_CREATE_FAILED";
+      state.error = "Could not create the sleep image directory";
+      LOG_ERR("WEB", "[SLEEP_UPLOAD] code=%s path=%s free=%u maxAlloc=%u", state.errorCode.c_str(),
+              state.path.c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      return;
+    }
+
+    if (state.path == WEB_SLEEP_OVERLAY_DIR && !FsHelpers::hasBmpExtension(std::string(state.fileName.c_str()))) {
+      state.errorCode = "OVERLAY_BMP_REQUIRED";
+      state.error = "Transparent overlays must be BMP files";
+      LOG_ERR("WEB", "[SLEEP_UPLOAD] code=%s file=%s", state.errorCode.c_str(), state.fileName.c_str());
+      return;
+    }
+
     // Create file path
     String filePath = state.path;
     if (!filePath.endsWith("/")) filePath += "/";
@@ -802,8 +829,10 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     // Open file for writing - this can be slow due to FAT cluster allocation
     resetTaskWatchdogIfSubscribed();
     if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
+      state.errorCode = state.structuredResponse ? "SD_FILE_CREATE_FAILED" : "";
       state.error = "Failed to create file on SD card";
-      LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
+      LOG_ERR("WEB", "[UPLOAD] code=%s file=%s free=%u maxAlloc=%u", state.errorCode.c_str(), filePath.c_str(),
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       return;
     }
     resetTaskWatchdogIfSubscribed();
@@ -828,8 +857,15 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         // Flush buffer when full
         if (state.bufferPos >= UploadState::UPLOAD_BUFFER_SIZE) {
           if (!flushUploadBuffer(state)) {
+            state.errorCode = state.structuredResponse ? "SD_WRITE_FAILED" : "";
             state.error = "Failed to write to SD card - disk may be full";
             state.file.close();
+            String filePath = state.path;
+            if (!filePath.endsWith("/")) filePath += "/";
+            filePath += state.fileName;
+            Storage.remove(filePath.c_str());
+            LOG_ERR("WEB", "[UPLOAD] code=%s file=%s free=%u maxAlloc=%u", state.errorCode.c_str(), filePath.c_str(),
+                    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
             return;
           }
         }
@@ -850,9 +886,19 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     if (state.file) {
       // Flush any remaining buffered data
       if (!flushUploadBuffer(state)) {
+        state.errorCode = state.structuredResponse ? "SD_WRITE_FAILED" : "";
         state.error = "Failed to write final data to SD card";
       }
       state.file.close();
+
+      if (!state.error.isEmpty()) {
+        String filePath = state.path;
+        if (!filePath.endsWith("/")) filePath += "/";
+        filePath += state.fileName;
+        Storage.remove(filePath.c_str());
+        LOG_ERR("WEB", "[UPLOAD] code=%s file=%s free=%u maxAlloc=%u", state.errorCode.c_str(), filePath.c_str(),
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      }
 
       if (state.error.isEmpty()) {
         state.success = true;
@@ -883,11 +929,27 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       Storage.remove(filePath.c_str());
     }
     state.error = "Upload aborted";
+    state.errorCode = state.structuredResponse ? "UPLOAD_ABORTED" : "";
     LOG_DBG("WEB", "Upload aborted");
   }
 }
 
 void CrossPointWebServer::handleUploadPost(UploadState& state) const {
+  if (state.structuredResponse) {
+    JsonDocument doc;
+    doc["ok"] = state.success;
+    if (state.success) {
+      doc["file"] = state.fileName;
+      doc["bytes"] = state.size;
+    } else {
+      doc["code"] = state.errorCode.isEmpty() ? "UPLOAD_FAILED" : state.errorCode;
+      doc["message"] = state.error.isEmpty() ? "Unknown error during upload" : state.error;
+    }
+    String json;
+    serializeJson(doc, json);
+    server->send(state.success ? 200 : 400, "application/json", json);
+    return;
+  }
   if (state.success) {
     server->send(200, "text/plain", "File uploaded successfully: " + state.fileName);
   } else {
@@ -1828,7 +1890,7 @@ void CrossPointWebServer::handleSleepImageList() const {
   JsonDocument doc;
   JsonArray arr = doc.to<JsonArray>();
 
-  FsFile dir = Storage.open("/sleep");
+  FsFile dir = Storage.open(WEB_SLEEP_IMAGE_DIR);
   if (dir && dir.isDirectory()) {
     char name[256];
     FsFile file = dir.openNextFile();
@@ -1867,7 +1929,7 @@ void CrossPointWebServer::handleSleepThumbnail() const {
     return;
   }
 
-  String path = "/sleep/" + filename;
+  String path = String(WEB_SLEEP_IMAGE_DIR) + "/" + filename;
   FsFile file;
   if (!Storage.openFileForRead("WEB", path, file)) {
     server->send(404, "text/plain", "File not found");
@@ -1908,7 +1970,7 @@ void CrossPointWebServer::handleSleepDelete() {
   }
 
   char path[280];
-  snprintf(path, sizeof(path), "/sleep/%s", filename);
+  snprintf(path, sizeof(path), "%s/%s", WEB_SLEEP_IMAGE_DIR, filename);
 
   if (Storage.exists(path)) {
     Storage.remove(path);
@@ -1917,6 +1979,83 @@ void CrossPointWebServer::handleSleepDelete() {
   } else {
     server->send(404, "application/json", "{\"error\":\"File not found\"}");
   }
+}
+
+void CrossPointWebServer::handleSleepOverlayList() const {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+
+  FsFile dir = Storage.open(WEB_SLEEP_OVERLAY_DIR);
+  if (dir && dir.isDirectory()) {
+    char name[256];
+    for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
+      if (!file.isDirectory()) {
+        file.getName(name, sizeof(name));
+        if (name[0] != '.' && endsWithIgnoreCase(name, ".bmp")) {
+          JsonObject obj = arr.add<JsonObject>();
+          obj["name"] = name;
+          obj["size"] = file.size();
+        }
+      }
+      file.close();
+      yield();
+      resetTaskWatchdogIfSubscribed();
+    }
+    dir.close();
+  }
+
+  String json;
+  serializeJson(doc, json);
+  server->send(200, "application/json", json);
+}
+
+void CrossPointWebServer::handleSleepOverlayThumbnail() const {
+  String filename = server->arg("file");
+  if (filename.isEmpty() || filename.indexOf("..") >= 0 || filename.indexOf('/') >= 0 || filename.indexOf('\\') >= 0) {
+    server->send(400, "text/plain", "Invalid filename");
+    return;
+  }
+
+  const String path = String(WEB_SLEEP_OVERLAY_DIR) + "/" + filename;
+  FsFile file;
+  if (!Storage.openFileForRead("WEB", path, file)) {
+    server->send(404, "text/plain", "File not found");
+    return;
+  }
+
+  server->setContentLength(file.size());
+  server->send(200, "image/bmp", "");
+  uint8_t buf[512];
+  while (file.available()) {
+    const size_t bytesRead = file.read(buf, sizeof(buf));
+    if (bytesRead == 0) break;
+    server->client().write(buf, bytesRead);
+    resetTaskWatchdogIfSubscribed();
+  }
+  file.close();
+}
+
+void CrossPointWebServer::handleSleepOverlayDelete() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server->arg("plain")) || !doc["file"].is<const char*>()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid request\"}");
+    return;
+  }
+
+  const char* filename = doc["file"];
+  if (strstr(filename, "..") || strchr(filename, '/') || strchr(filename, '\\')) {
+    server->send(400, "application/json", "{\"error\":\"Invalid filename\"}");
+    return;
+  }
+
+  char path[280];
+  snprintf(path, sizeof(path), "%s/%s", WEB_SLEEP_OVERLAY_DIR, filename);
+  if (!Storage.exists(path) || !Storage.remove(path)) {
+    server->send(404, "application/json", "{\"error\":\"File not found\"}");
+    return;
+  }
+  server->send(200, "application/json", "{\"ok\":true}");
+  LOG_DBG("WEB", "Deleted sleep overlay: %s", path);
 }
 
 // --- WiFi credential management API handlers (CJK) ---

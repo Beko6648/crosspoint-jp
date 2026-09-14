@@ -212,33 +212,41 @@ void EpubReaderActivity::pregenerateCache() {
                                      SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::MEDIUM),
                                      SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::LARGE),
                                      SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::EXTRA_LARGE)};
-      if (!sec.createSectionFile(
-              SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-              viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-              SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
-              SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-              [this, &generatedPixelCaches, &pixelCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
-                const uint32_t pixelStartedAt = millis();
-                generatedPixelCaches += pregeneratePixelCaches(page, renderer, orientedMarginLeft, orientedMarginTop);
-                pixelCacheMs += millis() - pixelStartedAt;
-              },
-              [&cancelledDuringSection, &controls, this] {
-                cancelledDuringSection = controls.shouldCancel(renderer);
-                return cancelledDuringSection;
-              })) {
+      const bool sectionCreated = sec.createSectionFile(
+          SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+          SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
+          SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
+          [this, &generatedPixelCaches, &pixelCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
+            const uint32_t pixelStartedAt = millis();
+            generatedPixelCaches += pregeneratePixelCaches(page, renderer, orientedMarginLeft, orientedMarginTop);
+            pixelCacheMs += millis() - pixelStartedAt;
+          },
+          [&cancelledDuringSection, &controls, this] {
+            cancelledDuringSection = controls.shouldCancel(renderer);
+            return cancelledDuringSection;
+          });
+      if (!sectionCreated) {
         if (cancelledDuringSection) {
           LOG_DBG("ERS", "Pregenerate cancelled while building section %d/%d", i, spineCount);
           cancelled = true;
           break;
         }
         LOG_ERR("ERS", "Pregenerate: failed section %d (heap: %d)", i, ESP.getFreeHeap());
-        continue;
+      } else {
+        sectionBuildMs += millis() - sectionStartedAt;
+        generatedSections++;
       }
-      sectionBuildMs += millis() - sectionStartedAt;
-      generatedSections++;
     }
-  }
+    // A full-book run must not carry an earlier chapter's SD-font advance
+    // tables into the next one. They reload lazily for the next layout or
+    // render, while releasing them here restores a contiguous heap block.
+    if (fcm) {
+      fcm->releaseSdFontCaches();
+      fcm->releaseSdFontVerticalGlyphs();
+    }
 
+  }
   const bool imagesComplete = !cancelled;
 
   if (!cancelled && generatedSections + sectionCacheHits == spineCount && imagesComplete) {
@@ -549,7 +557,8 @@ void EpubReaderActivity::loop() {
             renderer, mappedInput, epub->getTitle(), menuCurrentPage, menuTotalPages, bookProgressPercent,
             SETTINGS.orientation, verticalMode, !cachedBookmarks.empty(), epub->getCacheGenerationStatus(),
             [this] { saveBookDirectionFields(BookReaderSettings::DirectionIndent); },
-            [this] { saveBookGlobalField(BookReaderSettings::InvertImages); }),
+            [this] { saveBookGlobalField(BookReaderSettings::InvertImages); },
+            [this] { saveBookDirectionFields(BookReaderSettings::DirectionFontSize); }),
         [this](const ActivityResult& result) {
           // Always apply orientation change even if the menu was cancelled
           const auto& menu = std::get<MenuResult>(result.data);
@@ -583,9 +592,12 @@ void EpubReaderActivity::loop() {
   }
 
   const auto orientation = renderer.getOrientation();
-  const bool reverseSideButtons = verticalMode && (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
-                                                   orientation == GfxRenderer::Orientation::LandscapeCounterClockwise);
-  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseSideButtons);
+  // MappedInputManager rotates the side controls with the device. Keep that
+  // physical direction in landscape; only the CCW front controls need a
+  // reading-direction correction.
+  const bool reverseFrontButtons =
+      verticalMode && orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseFrontButtons);
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -1302,11 +1314,31 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                      SETTINGS.getReaderFontIdForSize(verticalMode, CrossPointSettings::LARGE),
                                      SETTINGS.getReaderFontIdForSize(verticalMode, CrossPointSettings::EXTRA_LARGE)};
 
-      if (!section->createSectionFile(SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing,
-                                      ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                      ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
-                                      ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode),
-                                      cssBodyFontIds)) {
+      bool sectionCreated = section->createSectionFile(
+          SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+          SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode),
+          cssBodyFontIds);
+      // Wi-Fi teardown after a Web UI transfer completes asynchronously. If it
+      // left the largest heap block below the ZIP-stream requirement, yield
+      // once and retry instead of forcing the user to restart the device.
+      constexpr uint32_t SECTION_STREAM_MIN_CONTIGUOUS_HEAP = 32 * 1024;
+      if (!sectionCreated && ESP.getMaxAllocHeap() < SECTION_STREAM_MIN_CONTIGUOUS_HEAP) {
+        if (fcm) {
+          fcm->releaseSdFontCaches();
+          fcm->releaseSdFontVerticalGlyphs();
+        }
+        vTaskDelay(pdMS_TO_TICKS(250));
+        LOG_INF("ERS", "Retrying section build after heap recovery (free=%u, maxAlloc=%u)", ESP.getFreeHeap(),
+                ESP.getMaxAllocHeap());
+        sectionCreated = section->createSectionFile(
+            SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+            viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+            SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds,
+            SETTINGS.getTableFontId(verticalMode), cssBodyFontIds);
+      }
+
+      if (!sectionCreated) {
         LOG_ERR("ERS", "Failed to persist page data to SD (free heap: %d)", ESP.getFreeHeap());
         section.reset();
         // Show error and return to home to avoid infinite retry loop
@@ -1514,6 +1546,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                           (verticalMode ? 0 : horizontalRubyBaseShift);
   const int rubyOffsetY = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetY, 80)) - 16;
   const auto t0 = millis();
+
+  // Section generation may release optional vertical substitution data to
+  // recover the contiguous ZIP-stream buffer on ESP32-C3. Load it only once
+  // the cache is complete and this page is about to be drawn.
+  if (verticalMode) {
+    renderer.ensureSdCardVerticalGlyphsReady(readerFontId);
+  }
 
   // Preload external font glyphs: collect codepoints from page, sort them,
   // and batch-read from SD sequentially. Much faster than random reads during render.

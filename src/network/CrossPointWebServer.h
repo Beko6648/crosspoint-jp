@@ -38,6 +38,8 @@ class CrossPointWebServer {
     size_t size = 0;
     bool success = false;
     String error = "";
+    String errorCode = "";
+    bool structuredResponse = false;
 
     // Upload write buffer - batches small writes into larger SD card operations
     // 4KB is a good balance: large enough to reduce syscall overhead, small enough
@@ -135,6 +137,9 @@ class CrossPointWebServer {
   void handleSleepImageList() const;
   void handleSleepThumbnail() const;
   void handleSleepDelete();
+  void handleSleepOverlayList() const;
+  void handleSleepOverlayThumbnail() const;
+  void handleSleepOverlayDelete();
 
   // WiFi credential management (CJK)
   void handleWifiScan() const;

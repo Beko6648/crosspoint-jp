@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Yomuka - Sleep Screen</title>
+    <title>Yomuka - スリープ画面</title>
     <style>
       :root {
         --font-color: #333;
@@ -124,6 +124,29 @@
       .progress-bar { height: 6px; background: #333; border-radius: 3px; margin-top: 8px; overflow: hidden; }
       .progress-fill { height: 100%; background: var(--accent-color); border-radius: 3px; transition: width 0.1s; width: 0%; }
       #uploadStatus { font-size: 12px; color: #aaa; margin-top: 6px; text-align: center; }
+      #errorPanel { display: none; margin-top: 16px; }
+      #errorMessage { color: #f3a6a6; font-size: 13px; overflow-wrap: anywhere; }
+      #copyError { margin: 10px 0 0; padding: 8px 12px; }
+
+      /* Saved images */
+      .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+      .saved-image { border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; overflow: hidden; }
+      .saved-image img { display: block; width: 100%; height: 180px; object-fit: contain; background: #ddd; }
+      .saved-image-name { margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+      .saved-image-meta { color: var(--label-color); font-size: 11px; margin: 4px 0 8px; }
+      .btn-delete { width: 100%; padding: 7px; color: #fff; background: var(--danger-color); border: 0; border-radius: 4px; cursor: pointer; }
+      .btn-delete:hover { background: var(--danger-hover); }
+      .list-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 0 12px; }
+      .list-toolbar-label { color: var(--label-color); font-size: 12px; margin-right: 2px; }
+      .view-toggle { padding: 6px 9px; border: 1px solid var(--border-color); border-radius: 4px; color: var(--font-color); background: #fff; cursor: pointer; font-size: 12px; }
+      .view-toggle.active { color: #fff; background: var(--accent-color); border-color: var(--accent-color); }
+      .image-list { border-top: 1px solid var(--border-color); }
+      .image-list-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-color); }
+      .image-list-name { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 13px; }
+      .image-list-meta { color: var(--label-color); font-size: 11px; white-space: nowrap; }
+      .image-list .btn-delete { width: auto; flex: 0 0 auto; padding: 6px 10px; }
+      .section-note { color: var(--label-color); font-size: 13px; line-height: 1.5; }
+      .overlay-status { min-height: 18px; margin-top: 8px; color: var(--label-color); font-size: 12px; text-align: center; }
 
       @media (max-width: 600px) {
         .nav-links a { padding: 8px 12px; font-size: 0.9em; }
@@ -133,24 +156,52 @@
   <body>
     <h1>📚 Yomuka</h1>
     <div class="nav-links">
-      <a href="/">Home</a>
-      <a href="/files">File Manager</a>
-      <a href="/settings">Settings</a>
-      <a href="/fonts">Fonts</a>
-      <a href="/sleep" class="active">Sleep</a>
+      <a href="/">ホーム</a>
+      <a href="/files">ファイル管理</a>
+      <a href="/settings">設定</a>
+      <a href="/fonts">フォント</a>
+      <a href="/sleep" class="active">スリープ</a>
     </div>
 
     <!-- List View -->
     <div id="listView">
       <div class="card">
-        <h2>Upload Sleep Image</h2>
+        <h2>スリープ画像をアップロード</h2>
         <div class="upload-area" id="uploadArea">
           <div class="icon">📷</div>
-          <div>Tap to select an image</div>
-          <div class="hint">JPEG, PNG supported</div>
+          <div>選択する画像をタップ</div>
+          <div class="hint">JPEG、PNG、BMPに対応</div>
         </div>
-        <input type="file" id="fileInput" accept="image/*" style="display:none" />
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/bmp,image/x-ms-bmp,.jpg,.jpeg,.png,.bmp" style="display:none" />
       </div>
+
+      <div class="card">
+        <h2>保存済みのスリープ画像</h2>
+        <div class="list-toolbar" aria-label="画像一覧の表示方法">
+          <span class="list-toolbar-label">表示</span>
+          <button class="view-toggle active" id="thumbnailViewButton" type="button" onclick="setSavedImageView('thumbnails')">サムネイル</button>
+          <button class="view-toggle" id="listViewButton" type="button" onclick="setSavedImageView('list')">一覧</button>
+        </div>
+        <div id="savedImages"><p class="empty">読み込み中...</p></div>
+      </div>
+
+      <div class="card">
+        <h2>透過BMPオーバーレイ</h2>
+        <p class="section-note">変換せずにBMPをアップロードします。32ビットBGRA BMPではピクセルごとの透過を維持します。通常のBMPでは白色が透過されます。Yomukaのスリープ画面で「透過カスタム」を選ぶと使用できます。</p>
+        <div class="upload-area" id="overlayUploadArea">
+          <div class="icon">◌</div>
+          <div>透過BMPを選択</div>
+          <div class="hint">BMPのみ</div>
+        </div>
+        <input type="file" id="overlayFileInput" accept="image/bmp,image/x-ms-bmp,.bmp" style="display:none" />
+        <div class="overlay-status" id="overlayUploadStatus"></div>
+        <div id="savedOverlays"><p class="empty">読み込み中...</p></div>
+      </div>
+    </div>
+
+    <div class="card" id="errorPanel">
+      <div id="errorMessage"></div>
+      <button class="btn-cancel" id="copyError" type="button">エラー詳細をコピー</button>
     </div>
 
     <!-- Editor View -->
@@ -167,17 +218,17 @@
         <div class="resolution-hint" id="resHint"></div>
 
         <div class="slider-group">
-          <div class="slider-label"><span>Zoom</span><span id="zoomVal">1.0x</span></div>
+          <div class="slider-label"><span>拡大率</span><span id="zoomVal">1.0x</span></div>
           <input type="range" id="zoomSlider" min="100" max="500" value="100" />
         </div>
 
         <div class="slider-row">
           <div class="slider-group">
-            <div class="slider-label"><span>Brightness</span><span id="brightVal">0</span></div>
+            <div class="slider-label"><span>明るさ</span><span id="brightVal">0</span></div>
             <input type="range" id="brightSlider" min="-100" max="100" value="0" />
           </div>
           <div class="slider-group">
-            <div class="slider-label"><span>Contrast</span><span id="contrastVal">0</span></div>
+            <div class="slider-label"><span>コントラスト</span><span id="contrastVal">0</span></div>
             <input type="range" id="contrastSlider" min="-100" max="100" value="0" />
           </div>
         </div>
@@ -186,8 +237,8 @@
         <div id="uploadStatus"></div>
 
         <div class="editor-actions">
-          <button class="btn-cancel" id="btnCancel">Cancel</button>
-          <button class="btn-upload" id="btnUpload">Upload</button>
+          <button class="btn-cancel" id="btnCancel">キャンセル</button>
+          <button class="btn-upload" id="btnUpload">アップロード</button>
         </div>
       </div>
     </div>
@@ -196,13 +247,22 @@
     // --- State ---
     let screenW = 800, screenH = 480;
     let sourceImg = null;
+    let sourceInfo = null;
+    let firmwareVersion = 'unknown';
+    let lastErrorDetails = '';
     let cropState = { x: 0, y: 0, scale: 1 };
+    let savedImageView = 'thumbnails';
 
     // --- Init ---
     async function init() {
       try {
+        savedImageView = localStorage.getItem('yomukaSleepImageView') === 'list' ? 'list' : 'thumbnails';
+      } catch (e) {}
+      updateSavedImageViewControls();
+      try {
         const res = await fetch('/api/status');
         const data = await res.json();
+        if (data.version) firmwareVersion = data.version;
         if (data.screenWidth) screenW = data.screenWidth;
         if (data.screenHeight) screenH = data.screenHeight;
       } catch (e) {}
@@ -214,18 +274,77 @@
     document.getElementById('fileInput').addEventListener('change', function() {
       const file = this.files[0];
       if (!file) return;
+      const lowerName = file.name.toLowerCase();
+      const supported = file.type === 'image/jpeg' || file.type === 'image/png' ||
+        file.type === 'image/bmp' || file.type === 'image/x-ms-bmp' ||
+        lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') ||
+        lowerName.endsWith('.bmp');
+      if (!supported) {
+        showUploadError('UNSUPPORTED_IMAGE_FORMAT', 'JPEG、PNG、BMP形式の画像を選択してください。', {
+          sourceType: file.type || 'unknown', sourceSize: file.size
+        });
+        this.value = '';
+        return;
+      }
+      const fileInput = this;
+      sourceInfo = { type: file.type || lowerName.split('.').pop() || 'unknown', size: file.size, width: 0, height: 0 };
       const reader = new FileReader();
+      reader.onerror = function() {
+        showUploadError('IMAGE_LOAD_FAILED', '選択した画像を読み込めませんでした。', sourceInfo);
+        fileInput.value = '';
+      };
       reader.onload = function(e) {
         const img = new Image();
         img.onload = function() {
+          if (!img.naturalWidth || !img.naturalHeight) {
+            showUploadError('IMAGE_DIMENSIONS_INVALID', '画像のサイズ情報が正しくありません。', sourceInfo);
+            fileInput.value = '';
+            return;
+          }
+          sourceInfo.width = img.naturalWidth;
+          sourceInfo.height = img.naturalHeight;
           sourceImg = img;
           openEditor();
         };
-        img.onerror = function() { alert('Failed to load image'); };
+        img.onerror = function() {
+          showUploadError('IMAGE_LOAD_FAILED', 'ブラウザが選択した画像を読み込めませんでした。', sourceInfo);
+          fileInput.value = '';
+        };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
       this.value = '';
+    });
+
+    document.getElementById('overlayUploadArea').addEventListener('click', () => document.getElementById('overlayFileInput').click());
+    document.getElementById('overlayFileInput').addEventListener('change', async function() {
+      const file = this.files[0];
+      if (!file) return;
+      const name = file.name.toLowerCase();
+      const isBmp = file.type === 'image/bmp' || file.type === 'image/x-ms-bmp' || name.endsWith('.bmp');
+      if (!isBmp || file.size === 0) {
+        showUploadError('OVERLAY_BMP_REQUIRED', '空でないBMPファイルを選択してください。', {
+          operation: 'sleep_overlay_upload', sourceType: file.type || 'unknown', sourceSize: file.size
+        });
+        this.value = '';
+        return;
+      }
+
+      const status = document.getElementById('overlayUploadStatus');
+      status.textContent = '透過BMPをアップロード中...';
+      try {
+        await uploadOverlayBmp(file);
+        status.textContent = 'アップロードしました。';
+        this.value = '';
+        loadSleepOverlays();
+      } catch (error) {
+        status.textContent = 'アップロードできませんでした。';
+        showUploadError(error.code || 'OVERLAY_UPLOAD_FAILED', error.message || 'オーバーレイをアップロードできませんでした。', {
+          operation: 'sleep_overlay_upload', sourceType: file.type || 'image/bmp', sourceSize: file.size,
+          httpStatus: error.httpStatus || 0
+        });
+        this.value = '';
+      }
     });
 
     // --- Editor ---
@@ -239,6 +358,7 @@
       document.getElementById('brightVal').textContent = '0';
       document.getElementById('contrastVal').textContent = '0';
       document.getElementById('uploadStatus').textContent = '';
+      document.getElementById('errorPanel').style.display = 'none';
       document.getElementById('progressBar').style.display = 'none';
       document.getElementById('btnUpload').disabled = false;
 
@@ -514,20 +634,49 @@
 
       const xhr = new XMLHttpRequest();
       return new Promise((resolve, reject) => {
-        xhr.open('POST', '/upload?path=/sleep');
+        xhr.open('POST', '/upload?path=/.sleep&context=sleep');
         xhr.upload.onprogress = function(e) {
           if (e.lengthComputable) {
             const pct = Math.round(e.loaded / e.total * 100);
             document.getElementById('progressFill').style.width = pct + '%';
-            document.getElementById('uploadStatus').textContent = 'Uploading... ' + pct + '%';
+            document.getElementById('uploadStatus').textContent = 'アップロード中... ' + pct + '%';
           }
         };
         xhr.onload = function() {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error('Upload failed: ' + xhr.status));
+          if (xhr.status >= 200 && xhr.status < 300) return resolve();
+          let response = {};
+          try { response = JSON.parse(xhr.responseText); } catch (e) {}
+          reject({
+            code: response.code || 'UPLOAD_FAILED',
+            message: response.message || ('HTTP ' + xhr.status + ' によりアップロードできませんでした。'),
+            httpStatus: xhr.status
+          });
         };
-        xhr.onerror = function() { reject(new Error('Network error')); };
-        xhr.ontimeout = function() { reject(new Error('Upload timeout')); };
+        xhr.onerror = function() { reject({code: 'NETWORK_ERROR', message: 'Yomukaとの接続が切れました。'}); };
+        xhr.ontimeout = function() { reject({code: 'UPLOAD_TIMEOUT', message: '120秒以内にアップロードが完了しませんでした。'}); };
+        xhr.timeout = 120000;
+        xhr.send(formData);
+      });
+    }
+
+    async function uploadOverlayBmp(file) {
+      const formData = new FormData();
+      formData.append('file', file, file.name);
+      const xhr = new XMLHttpRequest();
+      return new Promise((resolve, reject) => {
+        xhr.open('POST', '/upload?path=/.sleep-overlay&context=sleep-overlay');
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 300) return resolve();
+          let response = {};
+          try { response = JSON.parse(xhr.responseText); } catch (e) {}
+          reject({
+            code: response.code || 'OVERLAY_UPLOAD_FAILED',
+            message: response.message || ('HTTP ' + xhr.status + ' によりアップロードできませんでした。'),
+            httpStatus: xhr.status
+          });
+        };
+        xhr.onerror = function() { reject({code: 'NETWORK_ERROR', message: 'Yomukaとの接続が切れました。'}); };
+        xhr.ontimeout = function() { reject({code: 'UPLOAD_TIMEOUT', message: '120秒以内にアップロードが完了しませんでした。'}); };
         xhr.timeout = 120000;
         xhr.send(formData);
       });
@@ -537,25 +686,192 @@
     document.getElementById('btnUpload').addEventListener('click', async function() {
       this.disabled = true;
       document.getElementById('progressBar').style.display = 'block';
-      document.getElementById('uploadStatus').textContent = 'Generating BMP...';
+      document.getElementById('uploadStatus').textContent = 'BMPを生成中...';
 
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
 
       try {
         const bmpData = generateGrayscaleBmp(screenW, screenH);
         const filename = getNextFilename();
-        document.getElementById('uploadStatus').textContent = 'Uploading...';
+        document.getElementById('uploadStatus').textContent = 'アップロード中...';
         await uploadBmp(bmpData, filename);
 
-        document.getElementById('uploadStatus').textContent = 'Upload complete!';
-        setTimeout(() => { closeEditor(); }, 800);
+        document.getElementById('uploadStatus').textContent = 'アップロードしました。';
+        setTimeout(() => {
+          closeEditor();
+          loadSleepImages();
+        }, 800);
       } catch (err) {
-        document.getElementById('uploadStatus').textContent = 'Error: ' + err.message;
+        const code = err.code || 'CANVAS_PROCESSING_FAILED';
+        showUploadError(code, err.message || '画像を処理できませんでした。', {
+          sourceType: sourceInfo ? sourceInfo.type : 'unknown',
+          sourceSize: sourceInfo ? sourceInfo.size : 0,
+          sourceWidth: sourceInfo ? sourceInfo.width : 0,
+          sourceHeight: sourceInfo ? sourceInfo.height : 0,
+          outputSize: screenW * screenH * 3 + 54,
+          httpStatus: err.httpStatus || 0
+        });
         this.disabled = false;
       }
     });
 
+    function showUploadError(code, message, info) {
+      const status = document.getElementById('uploadStatus');
+      status.textContent = 'エラー [' + code + ']: ' + message;
+      document.getElementById('errorMessage').textContent = status.textContent;
+      document.getElementById('errorPanel').style.display = 'block';
+      const data = info || {};
+      lastErrorDetails = [
+        'Yomuka WebUI error report',
+        'version=' + firmwareVersion,
+        'operation=' + (data.operation || 'sleep_image_upload'),
+        'code=' + code,
+        'message=' + message,
+        'source_type=' + (data.sourceType || data.type || 'unknown'),
+        'source_size=' + (data.sourceSize || data.size || 0),
+        'source_dimensions=' + (data.sourceWidth || data.width || 0) + 'x' + (data.sourceHeight || data.height || 0),
+        'output_dimensions=' + screenW + 'x' + screenH,
+        'output_size=' + (data.outputSize || 0),
+        'http_status=' + (data.httpStatus || 0),
+        'browser=' + navigator.userAgent
+      ].join('\n');
+    }
+
+    document.getElementById('copyError').addEventListener('click', async function() {
+      try {
+        await navigator.clipboard.writeText(lastErrorDetails);
+        this.textContent = 'コピーしました';
+      } catch (e) {
+        window.prompt('次のエラー詳細をコピーしてください。', lastErrorDetails);
+      }
+    });
+
+    function escapeHtml(value) {
+      const node = document.createElement('span');
+      node.textContent = value;
+      return node.innerHTML;
+    }
+
+    function formatSize(bytes) {
+      if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+      if (bytes >= 1024) return Math.round(bytes / 1024) + ' KB';
+      return bytes + ' B';
+    }
+
+    function updateSavedImageViewControls() {
+      const thumbnails = savedImageView === 'thumbnails';
+      const thumbnailButton = document.getElementById('thumbnailViewButton');
+      const listButton = document.getElementById('listViewButton');
+      thumbnailButton.classList.toggle('active', thumbnails);
+      thumbnailButton.setAttribute('aria-pressed', thumbnails ? 'true' : 'false');
+      listButton.classList.toggle('active', !thumbnails);
+      listButton.setAttribute('aria-pressed', thumbnails ? 'false' : 'true');
+    }
+
+    function setSavedImageView(view) {
+      savedImageView = view === 'list' ? 'list' : 'thumbnails';
+      try {
+        localStorage.setItem('yomukaSleepImageView', savedImageView);
+      } catch (e) {}
+      updateSavedImageViewControls();
+      loadSleepImages();
+      loadSleepOverlays();
+    }
+
+    function renderSavedImageList(images, thumbnailPath) {
+      if (savedImageView === 'list') {
+        return '<div class="image-list">' + images.map(image => {
+          const name = escapeHtml(image.name);
+          return '<div class="image-list-row">' +
+            '<div class="image-list-name">' + name + '</div>' +
+            '<div class="image-list-meta">' + formatSize(image.size) + '</div>' +
+            '<button class="btn-delete" data-file="' + name + '">削除</button>' +
+            '</div>';
+        }).join('') + '</div>';
+      }
+      return '<div class="image-grid">' + images.map(image => {
+        const name = escapeHtml(image.name);
+        const file = encodeURIComponent(image.name);
+        return '<div class="saved-image">' +
+          '<img src="' + thumbnailPath + file + '" alt="' + name + '">' +
+          '<div class="saved-image-name">' + name + '</div>' +
+          '<div class="saved-image-meta">' + formatSize(image.size) + '</div>' +
+          '<button class="btn-delete" data-file="' + name + '">削除</button>' +
+          '</div>';
+      }).join('') + '</div>';
+    }
+
+    async function loadSleepImages() {
+      const container = document.getElementById('savedImages');
+      try {
+        const response = await fetch('/api/sleep/images');
+        if (!response.ok) throw new Error('Image list request failed');
+        const images = await response.json();
+        if (!images.length) {
+          container.innerHTML = '<p class="empty">.sleepフォルダに画像はありません。</p>';
+          return;
+        }
+        container.innerHTML = renderSavedImageList(images, '/api/sleep/thumbnail?file=');
+        container.querySelectorAll('.btn-delete').forEach(button => {
+          button.addEventListener('click', () => deleteSleepImage(button.dataset.file));
+        });
+      } catch (error) {
+        container.innerHTML = '<p class="empty">保存済みのスリープ画像を読み込めませんでした。</p>';
+      }
+    }
+
+    async function deleteSleepImage(filename) {
+      if (!confirm('スリープ画像「' + filename + '」を削除しますか？')) return;
+      try {
+        const response = await fetch('/api/sleep/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({file: filename})
+        });
+        if (!response.ok) throw new Error('Delete request failed');
+        loadSleepImages();
+      } catch (error) {
+        showUploadError('SLEEP_DELETE_FAILED', '画像を削除できませんでした。', {});
+      }
+    }
+
+    async function loadSleepOverlays() {
+      const container = document.getElementById('savedOverlays');
+      try {
+        const response = await fetch('/api/sleep/overlays');
+        if (!response.ok) throw new Error('Overlay list request failed');
+        const images = await response.json();
+        if (!images.length) {
+          container.innerHTML = '<p class="empty">透過BMPオーバーレイはありません。</p>';
+          return;
+        }
+        container.innerHTML = renderSavedImageList(images, '/api/sleep/overlay-thumbnail?file=');
+        container.querySelectorAll('.btn-delete').forEach(button => {
+          button.addEventListener('click', () => deleteSleepOverlay(button.dataset.file));
+        });
+      } catch (error) {
+        container.innerHTML = '<p class="empty">透過BMPオーバーレイを読み込めませんでした。</p>';
+      }
+    }
+
+    async function deleteSleepOverlay(filename) {
+      if (!confirm('透過BMPオーバーレイ「' + filename + '」を削除しますか？')) return;
+      try {
+        const response = await fetch('/api/sleep/overlay-delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({file: filename})
+        });
+        if (!response.ok) throw new Error('Delete request failed');
+        loadSleepOverlays();
+      } catch (error) {
+        showUploadError('OVERLAY_DELETE_FAILED', 'オーバーレイを削除できませんでした。', {operation: 'sleep_overlay_delete'});
+      }
+    }
+
     init();
+    loadSleepImages();
+    loadSleepOverlays();
   </script>
   </body>
 </html>

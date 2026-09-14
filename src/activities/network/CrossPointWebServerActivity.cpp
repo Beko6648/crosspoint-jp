@@ -6,7 +6,6 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
-#include <esp_task_wdt.h>
 
 #include <cstddef>
 
@@ -16,6 +15,7 @@
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/TaskWatchdog.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -133,7 +133,23 @@ void CrossPointWebServerActivity::onExit() {
   WiFi.mode(WIFI_OFF);
   delay(30);  // Allow WiFi hardware to power down
 
-  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  // The Web UI can leave the Wi-Fi heap briefly fragmented after a browser
+  // conversion/download. Release rebuildable font data as well, then give the
+  // network task a bounded chance to return the 32KB contiguous buffer needed
+  // when the user immediately opens the generated EPUB.
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    fcm->releaseSdFontCaches();
+    fcm->releaseSdFontVerticalGlyphs();
+  }
+  constexpr uint32_t READER_HEAP_RECOVERY_WAIT_MS = 500;
+  constexpr uint32_t READER_MIN_CONTIGUOUS_HEAP = 32 * 1024;
+  const uint32_t heapRecoveryDeadline = millis() + READER_HEAP_RECOVERY_WAIT_MS;
+  while (ESP.getMaxAllocHeap() < READER_MIN_CONTIGUOUS_HEAP && millis() < heapRecoveryDeadline) {
+    delay(20);
+  }
+
+  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
@@ -365,7 +381,7 @@ void CrossPointWebServerActivity::loop() {
       }
 
       // Reset watchdog BEFORE processing - HTTP header parsing can be slow
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
 
       // Process HTTP requests. Idle state uses a small iteration budget and a
       // short yield between cycles so the CPU (and modem, when sleep is on)
@@ -376,7 +392,7 @@ void CrossPointWebServerActivity::loop() {
         webServer->handleClient();
         // Reset watchdog every 32 iterations
         if ((i & 0x1F) == 0x1F) {
-          esp_task_wdt_reset();
+          resetTaskWatchdogIfSubscribed();
         }
         // Yield and check for exit button every iteration when idle (gives the
         // scheduler a chance to sleep), every 64 when active (throughput).
