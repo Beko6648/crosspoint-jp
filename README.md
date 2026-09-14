@@ -15,8 +15,11 @@ CrossPoint Yomuka は、Xteink X3 / X4 向けの日本語読書に重点を置�
 |---|---|
 | Xteink X3 | 対応。UC8253 / UC8279の表示コントローラを判別し、X3固有の入力・スリープ・表示を確認対象とします。 |
 | Xteink X4 | 対応。X3と同じファームウェアで動作します。 |
+| Xteink X4 Classic（X4 V2） | 未対応。安定版および既存X4用ファームウェアは使用しないでください。Experimental基盤はありますが、実機確認と配布版の対応は未完了です。 |
 
 端末の個体差、SDカード、書籍の構造により動作や表示は変わる場合があります。
+
+X4 Classic（X4 V2）については、現時点で導入や更新の手順を案内していません。状況と確認範囲は[X4 Classic Experimental確認手順](docs/x4-classic-experimental-ja.md)を参照してください。
 
 ## 対応フォーマットと制限
 
