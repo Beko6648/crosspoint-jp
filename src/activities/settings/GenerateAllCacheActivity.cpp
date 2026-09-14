@@ -520,7 +520,6 @@ void GenerateAllCacheActivity::generateAllCaches() {
             "cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
             generatedPixelCaches, cachedPixelPagesScanned);
-    if (cancelled) break;
   }
 
   if (!cancelled) {
