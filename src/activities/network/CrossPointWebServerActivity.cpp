@@ -148,8 +148,7 @@ void CrossPointWebServerActivity::onExit() {
     delay(20);
   }
 
-  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {

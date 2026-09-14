@@ -245,7 +245,6 @@ void EpubReaderActivity::pregenerateCache() {
       fcm->releaseSdFontCaches();
       fcm->releaseSdFontVerticalGlyphs();
     }
-
   }
   const bool imagesComplete = !cancelled;
 
@@ -595,8 +594,7 @@ void EpubReaderActivity::loop() {
   // MappedInputManager rotates the side controls with the device. Keep that
   // physical direction in landscape; only the CCW front controls need a
   // reading-direction correction.
-  const bool reverseFrontButtons =
-      verticalMode && orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  const bool reverseFrontButtons = verticalMode && orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseFrontButtons);
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
@@ -1317,8 +1315,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       bool sectionCreated = section->createSectionFile(
           SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-          SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode),
-          cssBodyFontIds);
+          SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds,
+          SETTINGS.getTableFontId(verticalMode), cssBodyFontIds);
       // Wi-Fi teardown after a Web UI transfer completes asynchronously. If it
       // left the largest heap block below the ZIP-stream requirement, yield
       // once and retry instead of forcing the user to restart the device.

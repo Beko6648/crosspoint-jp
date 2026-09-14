@@ -7,10 +7,10 @@
 #include <WiFi.h>
 
 #include "MappedInputManager.h"
-#include "network/TaskWatchdog.h"
 #include "WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/TaskWatchdog.h"
 
 namespace {
 constexpr const char* HOSTNAME = "crosspoint";
@@ -75,8 +75,7 @@ void CalibreConnectActivity::onExit() {
     delay(20);
   }
 
-  LOG_DBG("CAL", "Free heap after transfer: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  LOG_DBG("CAL", "Free heap after transfer: %d bytes, maxAlloc: %d bytes", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 void CalibreConnectActivity::onWifiSelectionComplete(const bool connected) {
   if (!connected) {

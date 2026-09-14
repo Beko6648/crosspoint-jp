@@ -206,7 +206,7 @@ constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 32 * 1024;  // 32KB
 // A stored ZIP entry does not use the inflate dictionary. Its file stream and
 // the section parser operate in bounded chunks, so they remain safe with a
 // smaller contiguous allocation on fragmented ESP32-C3 heaps.
-constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;  // 16KB
+constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;   // 16KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) +

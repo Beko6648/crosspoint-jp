@@ -30,8 +30,8 @@ constexpr size_t MIN_FREE_HEAP_FOR_PARSING = 20 * 1024;  // 20KB
 // Laying out a buffered block allocates line/column metadata and may preload
 // SD-font metrics. Do not enter that path once either total or contiguous heap
 // has fallen below the section-build reserve. A 36KB total reserve still leaves
-// room for the bounded layout allocations; the SD-font prewarm string and cache-recovery path keep each split substantially smaller
-// than a complete large-section build.
+// room for the bounded layout allocations; the SD-font prewarm string and cache-recovery path keep each split
+// substantially smaller than a complete large-section build.
 constexpr size_t MIN_FREE_HEAP_FOR_BLOCK_FLUSH = 36 * 1024;  // 36KB
 // Block layout allocates several bounded objects rather than one 32KB buffer.
 // SD-font metadata can split an otherwise healthy C3 heap into ~19KB blocks,
@@ -451,8 +451,8 @@ bool ChapterHtmlSlimParser::canFlushTextBlockForMemory() {
     }
   }
 
-  LOG_ERR("EHP", "Insufficient heap for text block flush (free=%u, maxAlloc=%u), stopping chapter gracefully",
-          freeHeap, maxAlloc);
+  LOG_ERR("EHP", "Insufficient heap for text block flush (free=%u, maxAlloc=%u), stopping chapter gracefully", freeHeap,
+          maxAlloc);
   lowMemoryAbortRequested = true;
   return false;
 }

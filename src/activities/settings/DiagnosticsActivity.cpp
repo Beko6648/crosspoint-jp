@@ -52,9 +52,7 @@ const char* deviceName() {
   }
 }
 
-std::string deviceDescription() {
-  return std::string(deviceName()) + " (" + displayControllerName() + ")";
-}
+std::string deviceDescription() { return std::string(deviceName()) + " (" + displayControllerName() + ")"; }
 
 const char* inputStyleName() {
   switch (BoardConfig::ACTIVE.inputStyle) {

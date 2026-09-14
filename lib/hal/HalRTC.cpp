@@ -40,9 +40,8 @@ bool HalRTC::readTime(struct tm& tm) const {
 bool HalRTC::writeTime(const struct tm& tm) const {
   if (!_available) return false;
   const Rtc::DateTime dateTime = {
-      static_cast<uint16_t>(tm.tm_year + 1900), static_cast<uint8_t>(tm.tm_mon + 1),
-      static_cast<uint8_t>(tm.tm_mday),         static_cast<uint8_t>(tm.tm_hour),
-      static_cast<uint8_t>(tm.tm_min),          static_cast<uint8_t>(tm.tm_sec),
+      static_cast<uint16_t>(tm.tm_year + 1900), static_cast<uint8_t>(tm.tm_mon + 1), static_cast<uint8_t>(tm.tm_mday),
+      static_cast<uint8_t>(tm.tm_hour),         static_cast<uint8_t>(tm.tm_min),     static_cast<uint8_t>(tm.tm_sec),
       static_cast<uint8_t>(tm.tm_wday),
   };
   if (!_rtc.set(dateTime)) {

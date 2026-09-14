@@ -766,8 +766,8 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.success = false;
     state.error = "";
     state.errorCode = "";
-    state.structuredResponse = server->hasArg("context") &&
-                               (server->arg("context") == "sleep" || server->arg("context") == "sleep-overlay");
+    state.structuredResponse =
+        server->hasArg("context") && (server->arg("context") == "sleep" || server->arg("context") == "sleep-overlay");
     uploadStartTime = millis();
     lastLoggedSize = 0;
     state.bufferPos = 0;
@@ -797,12 +797,11 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     // The Sleep page is usable on a fresh SD card. Its dedicated destination
     // may not exist yet, unlike a path reached through the file manager.
     if (state.structuredResponse && (state.path == WEB_SLEEP_IMAGE_DIR || state.path == WEB_SLEEP_OVERLAY_DIR) &&
-        !Storage.exists(state.path.c_str()) &&
-        !Storage.mkdir(state.path.c_str())) {
+        !Storage.exists(state.path.c_str()) && !Storage.mkdir(state.path.c_str())) {
       state.errorCode = "SLEEP_FOLDER_CREATE_FAILED";
       state.error = "Could not create the sleep image directory";
-      LOG_ERR("WEB", "[SLEEP_UPLOAD] code=%s path=%s free=%u maxAlloc=%u", state.errorCode.c_str(),
-              state.path.c_str(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      LOG_ERR("WEB", "[SLEEP_UPLOAD] code=%s path=%s free=%u maxAlloc=%u", state.errorCode.c_str(), state.path.c_str(),
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       return;
     }
 

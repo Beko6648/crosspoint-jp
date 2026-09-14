@@ -381,8 +381,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     if (!preservePartialOnError || !fileStream.ok()) {
       Storage.remove(destPath.c_str());
     } else {
-      LOG_INF("HTTP", "Keeping partial download for resume: %s (%zu bytes)", destPath.c_str(),
-              fileStream.downloaded());
+      LOG_INF("HTTP", "Keeping partial download for resume: %s (%zu bytes)", destPath.c_str(), fileStream.downloaded());
     }
     return HTTP_ERROR;
   }

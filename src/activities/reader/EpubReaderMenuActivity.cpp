@@ -292,10 +292,9 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
       return std::string(I18N.get(StrId::STR_NOTO_SANS));
     }
     case MenuAction::STYLE_FONT_SIZE: {
-      static constexpr StrId sizeLabels[] = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
-                                             StrId::STR_X_LARGE};
-      const uint8_t size = std::min<uint8_t>(SETTINGS.getDirectionSettings(verticalMode).fontSize,
-                                             CrossPointSettings::EXTRA_LARGE);
+      static constexpr StrId sizeLabels[] = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE};
+      const uint8_t size =
+          std::min<uint8_t>(SETTINGS.getDirectionSettings(verticalMode).fontSize, CrossPointSettings::EXTRA_LARGE);
       return std::string(I18N.get(sizeLabels[size]));
     }
     case MenuAction::ROTATE_SCREEN:
@@ -321,8 +320,8 @@ std::string EpubReaderMenuActivity::getMenuItemValue(const MenuAction action) co
 bool EpubReaderMenuActivity::currentValueIsEditable() const {
   const auto action = menuItems[selectedIndex].action;
   return action == MenuAction::STYLE_FIRST_LINE_INDENT || action == MenuAction::STYLE_INVERT_IMAGES ||
-         action == MenuAction::STYLE_FONT_SIZE || action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
-         action == MenuAction::TILT_PAGE_TURN;
+         action == MenuAction::STYLE_FONT_SIZE || action == MenuAction::ROTATE_SCREEN ||
+         action == MenuAction::AUTO_PAGE_TURN || action == MenuAction::TILT_PAGE_TURN;
 }
 
 bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool toggleValue) {
@@ -349,9 +348,9 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
       return true;
     case MenuAction::STYLE_FONT_SIZE: {
       auto& value = SETTINGS.getDirectionSettings(verticalMode).fontSize;
-      const uint8_t next = static_cast<uint8_t>(std::clamp(static_cast<int>(value) + delta,
-                                                           static_cast<int>(CrossPointSettings::SMALL),
-                                                           static_cast<int>(CrossPointSettings::EXTRA_LARGE)));
+      const uint8_t next =
+          static_cast<uint8_t>(std::clamp(static_cast<int>(value) + delta, static_cast<int>(CrossPointSettings::SMALL),
+                                          static_cast<int>(CrossPointSettings::EXTRA_LARGE)));
       if (next == value) return false;
       value = next;
       if (onFontSizeChanged) {

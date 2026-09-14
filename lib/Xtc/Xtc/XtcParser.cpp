@@ -226,7 +226,7 @@ XtcError XtcParser::readFirstPageInfo() {
   const uint64_t pageTableSize = static_cast<uint64_t>(m_header.pageCount) * sizeof(PageTableEntry);
 
   if (m_header.pageTableOffset < XTC_MIN_HEADER_SIZE || m_header.pageTableOffset > fileSize ||
-     pageTableSize > fileSize - m_header.pageTableOffset) {
+      pageTableSize > fileSize - m_header.pageTableOffset) {
     LOG_DBG("XTC", "Page table exceeds file bounds");
     return XtcError::CORRUPTED_HEADER;
   }

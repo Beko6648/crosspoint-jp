@@ -44,6 +44,5 @@ class HttpDownloader {
                                       ProgressCallback progress = nullptr, int timeoutMs = 0,
                                       const std::string& username = "", const std::string& password = "",
                                       size_t resumeFrom = 0, CancelCallback shouldCancel = nullptr,
-                                      bool preservePartialOnError = false,
-                                      unsigned long streamIdleTimeoutMs = 0);
+                                      bool preservePartialOnError = false, unsigned long streamIdleTimeoutMs = 0);
 };

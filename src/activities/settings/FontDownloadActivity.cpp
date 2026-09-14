@@ -402,8 +402,7 @@ bool FontDownloadActivity::downloadFamily(ManifestFamily& family) {
             screenshotHeldDuringDownload_ = false;
             return mappedInput.wasPressed(MappedInputManager::Button::Back);
           },
-          /*preservePartialOnError=*/true,
-          FONT_DOWNLOAD_STREAM_IDLE_TIMEOUT_MS);
+          /*preservePartialOnError=*/true, FONT_DOWNLOAD_STREAM_IDLE_TIMEOUT_MS);
       if (result == HttpDownloader::OK || !isRetryableFontDownloadFailure(result)) break;
 
       LOG_ERR("FONT", "Download attempt %d/%d failed: %s (err=%d http=%d)", attempt + 1, FONT_DOWNLOAD_MAX_RETRIES,
