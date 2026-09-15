@@ -1,0 +1,288 @@
+#include <Epub/LayoutMemory.h>
+#include <Epub/ParsedText.h>
+#include <GfxRenderer.h>
+
+#include <cassert>
+#include <iostream>
+#include <tuple>
+
+static bool failTextBlock = false;
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+  if (failTextBlock && size == sizeof(TextBlock)) return nullptr;
+  return ::operator new(size);
+}
+
+int TextBlock::rubyFontId = 2;
+int TextBlock::smallFontId = 0;
+struct ParsedTextTestAccess {
+  static auto snapshot(const ParsedText& p) {
+    std::vector<std::tuple<std::string, int16_t, int16_t>> images;
+    for (const auto& image : p.inlineImages) images.emplace_back(image.imagePath, image.width, image.height);
+    return std::make_tuple(p.words, p.rubyTexts, p.wordStyles, p.wordContinues, p.wordSpaceBefore,
+                           p.wordVerticalBehaviors, p.emphasis, images);
+  }
+};
+
+ParsedText sample() {
+  BlockStyle style;
+  style.alignment = CssTextAlign::Left;
+  style.textIndentDefined = true;
+  ParsedText p(false, style);
+  for (int i = 0; i < 12; ++i) p.addWord("字", EpdFontFamily::REGULAR);
+  p.setRubyForWordAt(1, "じ", 2);
+  p.setEmphasisFrom(4, TextEmphasis::FilledDot);
+  p.addImage("/images/first-long-path.png", 20, 20);
+  p.addWord("終", EpdFontFamily::BOLD);
+  p.addImage("/images/second-long-path.png", 20, 20);
+  return p;
+}
+
+template <class Callback>
+void layout(ParsedText& p, const GfxRenderer& renderer, bool vertical, Callback callback, bool last = true) {
+  if (vertical)
+    p.layoutVerticalColumns(renderer, 1, 100, callback, last);
+  else
+    p.layoutAndExtractLines(renderer, 1, 100, callback, last);
+}
+
+uint32_t firstCodepointForTest(const std::string& word) {
+  const auto* p = reinterpret_cast<const unsigned char*>(word.c_str());
+  return utf8NextCodepoint(&p);
+}
+
+uint32_t lastCodepointForTest(const std::string& word) {
+  size_t i = word.size() - 1;
+  while (i > 0 && (static_cast<unsigned char>(word[i]) & 0xc0) == 0x80) --i;
+  const auto* p = reinterpret_cast<const unsigned char*>(word.c_str() + i);
+  return utf8NextCodepoint(&p);
+}
+
+void assertKinsokuBoundary(const std::vector<std::vector<std::string>>& blocks) {
+  for (size_t i = 1; i < blocks.size(); ++i) {
+    assert(!blocks[i - 1].empty() && !blocks[i].empty());
+    const auto tail = lastCodepointForTest(blocks[i - 1].back());
+    const auto head = firstCodepointForTest(blocks[i].front());
+    assert(!VerticalTextUtils::isKinsokuTail(tail));
+    assert(!VerticalTextUtils::isKinsokuHead(head));
+    assert(!VerticalTextUtils::isKinsokuInseparablePair(tail, head));
+  }
+}
+
+int main() {
+  GfxRenderer renderer;
+  for (bool vertical : {false, true}) {
+    ESP = {};
+    auto p = sample();
+    std::vector<std::string> rendered;
+    std::vector<std::string> imagePaths;
+    layout(p, renderer, vertical, [&](const auto& block) {
+      rendered.insert(rendered.end(), block->getWords().begin(), block->getWords().end());
+      for (const auto& image : block->getInlineImages()) imagePaths.push_back(image.imagePath);
+      assert(block->getRubyTexts().size() == block->getWords().size());
+      return true;
+    });
+    assert(!p.layoutFailed() && p.isEmpty() && rendered.size() == 15);
+    assert((imagePaths == std::vector<std::string>{"/images/first-long-path.png", "/images/second-long-path.png"}));
+    const int totalChecks = ESP.checks;
+
+    // Fail every admission point. The remaining source must exactly equal
+    // the suffix after the blocks accepted before the failure, metadata too.
+    for (int failure = 0; failure < totalChecks; ++failure) {
+      ESP = {};
+      auto candidate = sample();
+      size_t accepted = 0;
+      ESP.failAt = failure;
+      layout(candidate, renderer, vertical, [&](const auto& block) {
+        accepted += block->wordCount();
+        return true;
+      });
+      assert(candidate.layoutFailed());
+      assert(candidate.size() == 15 - accepted);
+      ESP = {};
+      auto reference = sample();
+      size_t referenceAccepted = 0;
+      layout(reference, renderer, vertical, [&](const auto& block) {
+        if (referenceAccepted == accepted) return false;
+        referenceAccepted += block->wordCount();
+        return true;
+      });
+      assert(ParsedTextTestAccess::snapshot(candidate) == ParsedTextTestAccess::snapshot(reference));
+    }
+
+    // Rejection by the page/cache callback also preserves the rejected block.
+    for (int reject = 0; reject < 3; ++reject) {
+      ESP = {};
+      auto rejected = sample();
+      size_t accepted = 0;
+      int calls = 0;
+      layout(rejected, renderer, vertical, [&](const auto& block) {
+        if (calls++ == reject) return false;
+        accepted += block->wordCount();
+        return true;
+      });
+      assert(rejected.layoutFailed() && rejected.size() == 15 - accepted);
+      const auto snapshot = ParsedTextTestAccess::snapshot(rejected);
+      layout(rejected, renderer, vertical, [](const auto&) {
+        assert(false);
+        return true;
+      });
+      rejected.addWord("discarded after failure", EpdFontFamily::REGULAR);
+      assert(snapshot == ParsedTextTestAccess::snapshot(rejected));
+    }
+
+    ESP = {};
+    auto fragmented = sample();
+    const auto before = ParsedTextTestAccess::snapshot(fragmented);
+    ESP.largest = 128;
+    layout(fragmented, renderer, vertical, [](const auto&) {
+      assert(false);
+      return true;
+    });
+    assert(fragmented.layoutFailed() && before == ParsedTextTestAccess::snapshot(fragmented));
+
+    ESP = {};
+    auto objectFailure = sample();
+    failTextBlock = true;
+    layout(objectFailure, renderer, vertical, [](const auto&) {
+      assert(false);
+      return true;
+    });
+    failTextBlock = false;
+    assert(objectFailure.layoutFailed() && before == ParsedTextTestAccess::snapshot(objectFailure));
+
+    ESP = {};
+    renderer.sd = renderer.exhaustPrewarm = true;
+    auto warm = sample();
+    layout(warm, renderer, vertical, [](const auto&) {
+      assert(false);
+      return true;
+    });
+    assert(warm.layoutFailed() && warm.size() == 15);
+    renderer.sd = renderer.exhaustPrewarm = false;
+
+    ESP = {};
+    auto partial = sample();
+    size_t count = 0;
+    layout(
+        partial, renderer, vertical,
+        [&](const auto& b) {
+          count += b->wordCount();
+          return true;
+        },
+        false);
+    assert(!partial.layoutFailed() && !partial.isEmpty());
+    layout(partial, renderer, vertical, [&](const auto& b) {
+      count += b->wordCount();
+      return true;
+    });
+    assert(partial.isEmpty() && count == 15);
+  }
+  // Real Hyphenator and production sideways splitting remain usable, including
+  // the parallel metadata after a long Latin run is split into multiple words.
+  for (bool vertical : {false, true}) {
+    ESP = {};
+    BlockStyle style;
+    style.textIndentDefined = true;
+    ParsedText longWord(true, style);
+    longWord.addWord("abcdefghijklmnopqrstuv", EpdFontFamily::BOLD, VerticalTextUtils::VerticalBehavior::Sideways);
+    longWord.setEmphasisFrom(0, TextEmphasis::FilledDot);
+    std::string joined;
+    layout(longWord, renderer, vertical, [&](const auto& b) {
+      for (const auto& word : b->getWords())
+        for (char c : word)
+          if (c != '-') joined += c;
+      return true;
+    });
+    assert(!longWord.layoutFailed() && longWord.isEmpty());
+    assert(joined == "abcdefghijklmnopqrstuv");
+  }
+  ESP = {};
+  BlockStyle softStyle;
+  softStyle.textIndentDefined = true;
+  ParsedText soft(false, softStyle);
+  soft.addWord(
+      "ab\xc2\xad"
+      "cd",
+      EpdFontFamily::REGULAR);
+  const auto softBefore = ParsedTextTestAccess::snapshot(soft);
+  layout(soft, renderer, false, [](const auto& b) {
+    assert(b->getWords().front() == "abcd");
+    return false;
+  });
+  assert(soft.layoutFailed() && softBefore == ParsedTextTestAccess::snapshot(soft));
+
+  // CJK tokens normally have zero gap, but a literal source space must stay
+  // visible.  The parser records this separately from inline continuations.
+  ESP = {};
+  BlockStyle spacingStyle;
+  spacingStyle.textIndentDefined = true;
+  ParsedText cjkSpace(false, spacingStyle);
+  cjkSpace.addWord("日", EpdFontFamily::REGULAR);
+  cjkSpace.addWord("本", EpdFontFamily::REGULAR);
+  cjkSpace.addWord("語", EpdFontFamily::REGULAR, false, false, true);
+  std::vector<int16_t> cjkXpos;
+  cjkSpace.layoutAndExtractLines(renderer, 1, 100, [&](const auto& block) {
+    cjkXpos = block->getWordXpos();
+    return true;
+  });
+  assert(!cjkSpace.layoutFailed() && cjkSpace.isEmpty());
+  assert((cjkXpos == std::vector<int16_t>{0, 20, 45}));
+
+  // PR #144 の不足していた禁則分類を、既存の横/縦レイアウト経路で確認する。
+  // 中点・開き括弧・連続する省略記号が境界に来る幅で組み、境界違反が残らないことを見る。
+  assert(VerticalTextUtils::isKinsokuHead(0x30FB));   // ・
+  assert(VerticalTextUtils::isKinsokuHead(0x309D));   // ゝ
+  assert(VerticalTextUtils::isKinsokuTail(0x201C));   // “
+  assert(VerticalTextUtils::isKinsokuTail(0x3012));   // 〒
+  assert(VerticalTextUtils::isKinsokuInseparablePair(0x2026, 0x2026));
+  for (bool vertical : {false, true}) {
+    ESP = {};
+    BlockStyle style;
+    style.textIndentDefined = true;
+    ParsedText punctuation(false, style);
+    for (const char* word : {"あ", "い", "・", "う", "「", "え", "お"}) {
+      punctuation.addWord(word, EpdFontFamily::REGULAR);
+    }
+    std::vector<std::vector<std::string>> blocks;
+    if (vertical) {
+      punctuation.layoutVerticalColumns(renderer, 1, 40, [&](const auto& block) {
+        blocks.push_back(block->getWords());
+        return true;
+      });
+    } else {
+      punctuation.layoutAndExtractLines(renderer, 1, 40, [&](const auto& block) {
+        blocks.push_back(block->getWords());
+        return true;
+      });
+    }
+    assert(!punctuation.layoutFailed() && punctuation.isEmpty());
+    assertKinsokuBoundary(blocks);
+
+    ESP = {};
+    ParsedText ellipsis(false, style);
+    ellipsis.addWord("あ", EpdFontFamily::REGULAR);
+    // General Punctuation の省略記号も、和文本文では語間空白なしで前後の字に続く。
+    // CJK 文字を個別トークンにする実機パーサと同じ境界を作る。
+    for (const char* word : {"…", "…"}) ellipsis.addWord(word, EpdFontFamily::REGULAR, false, true);
+    ellipsis.addWord("い", EpdFontFamily::REGULAR);
+    blocks.clear();
+    if (vertical) {
+      ellipsis.layoutVerticalColumns(renderer, 1, 40, [&](const auto& block) {
+        blocks.push_back(block->getWords());
+        return true;
+      });
+    } else {
+      ellipsis.layoutAndExtractLines(renderer, 1, 40, [&](const auto& block) {
+        blocks.push_back(block->getWords());
+        return true;
+      });
+    }
+    assert(!ellipsis.layoutFailed() && ellipsis.isEmpty());
+    assertKinsokuBoundary(blocks);
+  }
+  ESP = {};
+  assert(!LayoutMemory::admit(std::numeric_limits<size_t>::max(), "overflow"));
+  assert(LayoutMemory::multiply(std::numeric_limits<size_t>::max(), 2) == std::numeric_limits<size_t>::max());
+  std::cout
+      << "Layout admission, transactional consumption, sparse images, ruby/emphasis, kinsoku, prewarm and partial flush: PASS\n";
+}

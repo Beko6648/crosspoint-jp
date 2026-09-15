@@ -184,7 +184,15 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 111: Extend the vertical image-to-column gutter by 2px.
 // 112: Center a vertical block image when it is the only element on its page.
 // 113: Text styles may carry a CSS line-through decoration.
-constexpr uint8_t SECTION_FILE_VERSION = 113;
+// 114: Apply inline CSS even when the EPUB has no external stylesheet.
+// 115: Expanded Japanese kinsoku classes and inseparable punctuation pairs.
+// 116: Preserve explicit CJK source spaces and discard segment-break spacing.
+// 117: Ordered-list marker and hanging-indent layout now depend on ol/li attributes.
+// 118: Script words use a smaller font and baseline-specific placement.
+// 119: Short vertical formulas are kept as one horizontal-in-vertical cell.
+// 120: <pre> preserves literal spaces, tabs and line boundaries.
+// 121: Heading blocks suppress reader paragraph spacing after their CSS margin.
+constexpr uint8_t SECTION_FILE_VERSION = 121;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

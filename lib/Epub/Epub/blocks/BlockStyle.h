@@ -45,6 +45,9 @@ struct BlockStyle {
   bool isHtmlRule = false;
   // True for <li> elements — reduces extraParagraphSpacing
   bool isListItem = false;
+  // True for h1-h6. Their own CSS/default margins already provide the
+  // separation from following body text, so no reader paragraph gap is added.
+  bool isHeading = false;
 
   // Combined horizontal insets (margin + padding)
   [[nodiscard]] int16_t leftInset() const { return marginLeft + paddingLeft; }
@@ -87,6 +90,7 @@ struct BlockStyle {
     combinedBlockStyle.drawSeparatorBelow = child.drawSeparatorBelow || drawSeparatorBelow;
     combinedBlockStyle.isHtmlRule = child.isHtmlRule || isHtmlRule;
     combinedBlockStyle.isListItem = child.isListItem;
+    combinedBlockStyle.isHeading = child.isHeading || isHeading;
 
     return combinedBlockStyle;
   }

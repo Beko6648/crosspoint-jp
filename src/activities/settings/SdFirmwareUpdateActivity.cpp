@@ -1,6 +1,7 @@
 #include "SdFirmwareUpdateActivity.h"
 
 #include <Arduino.h>
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -13,6 +14,26 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
+
+namespace {
+
+const char* currentDeviceName() {
+  switch (BoardConfig::ACTIVE.board) {
+    case BoardConfig::Board::XteinkX3:
+    case BoardConfig::Board::XteinkX3Uc8279:
+      return "X3";
+    case BoardConfig::Board::XteinkX4:
+      return "X4";
+    case BoardConfig::Board::XteinkX4Classic:
+      return "X4 Classic";
+    case BoardConfig::Board::XteinkX4Pro:
+      return "X4 Pro";
+    default:
+      return BoardConfig::ACTIVE.name;
+  }
+}
+
+}  // namespace
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
@@ -43,6 +64,10 @@ void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
   const auto* path = std::get_if<FilePathResult>(&result.data);
   if (!path) {
     LOG_ERR("FW", "Picker returned no path");
+    if (recoveryMode) {
+      launchPicker();
+      return;
+    }
     finish();
     return;
   }
@@ -117,7 +142,9 @@ void SdFirmwareUpdateActivity::promptConfirmation() {
     state = State::CONFIRMING;
   }
   // Show "Update firmware?" with the file path as the body line.
-  std::string heading = tr(STR_FIRMWARE_UPDATE_PROMPT);
+  // The default C3 firmware is shared by X3 and X4, but recovery must make
+  // the device on which the confirmation is being shown unambiguous.
+  std::string heading = std::string(tr(STR_FIRMWARE_UPDATE_PROMPT)) + " (" + currentDeviceName() + ")";
   // Use the basename only to keep the body short.
   std::string body = firmwarePath;
   const auto pos = body.find_last_of('/');

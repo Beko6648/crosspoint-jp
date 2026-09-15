@@ -12,6 +12,9 @@
 
 X3/X4は共通ファームウェアです。[Releases](https://github.com/ponto1216-ai/crosspoint-jp/releases)で導入する版と既知の制限を確認し、十分に充電し、SDカードの書籍・設定・フォントをバックアップしてください。
 
+> [!CAUTION]
+> X4 Classic（X4 V2）は未対応です。安定版と既存X4用ファームウェアをX4 Classicへ書き込まないでください。Experimental基盤の状況は[X4 Classic Experimental確認手順](x4-classic-experimental-ja.md)を参照してください。
+
 ## 初回導入（PC）
 
 1. [Yomuka Web Flasher](https://ponto1216-ai.github.io/crosspoint-jp/) をPCのChromeまたはEdgeで開きます。

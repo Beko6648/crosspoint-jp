@@ -270,7 +270,12 @@ GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopP
   // The first Home frame replaces an entire reader page.  Use the same
   // conditioned refresh path as the reader's one-page cadence so grayscale
   // text residue cannot survive the activity transition.
-  renderer.displayBuffer(firstRenderDone ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
+  // The second render only discovers missing cover thumbnails. The initial
+  // HALF refresh already displayed this same frame, so avoid pushing it twice.
+  const bool skipInitialFast = firstRenderDone && !recentsLoaded && !recentsLoading;
+  if (!skipInitialFast) {
+    renderer.displayBuffer(firstRenderDone ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
+  }
 
   if (!firstRenderDone) {
     firstRenderDone = true;

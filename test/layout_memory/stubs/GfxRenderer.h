@@ -1,0 +1,27 @@
+#pragma once
+#include <Arduino.h>
+#include <EpdFontFamily.h>
+#include <Utf8.h>
+class GfxRenderer {
+ public:
+  bool sd = false;
+  bool exhaustPrewarm = false;
+  bool isSdCardFont(int) const { return sd; }
+  void ensureSdCardFontReady(int, const char*, uint8_t) const {
+    if (exhaustPrewarm) ESP.free = ESP.largest = 512;
+  }
+  int getLineHeight(int) const { return 20; }
+  int getSpaceWidth(int, EpdFontFamily::Style) const { return 5; }
+  int getVerticalCharSpacing() const { return 0; }
+  int getTextAdvanceX(int, const char* text, EpdFontFamily::Style) const {
+    auto* p = reinterpret_cast<const unsigned char*>(text);
+    int width = 0;
+    while (const uint32_t cp = utf8NextCodepoint(&p)) {
+      width += cp == 0x00AD || cp == 0x200B ? 0 : cp == ' ' ? 5 : cp < 128 ? 10 : 20;
+    }
+    return width;
+  }
+  int getTextWidth(int font, const char* text, EpdFontFamily::Style style) const {
+    return getTextAdvanceX(font, text, style);
+  }
+};
