@@ -162,7 +162,7 @@ size_t adjustHorizontalKinsokuBreak(const WordContainer& words, const std::vecto
 
     if (breakAt > lineStart + 1 && breakAt < words.size() &&
         VerticalTextUtils::isKinsokuInseparablePair(lastCodepoint(words[breakAt - 1]),
-                                                     firstCodepoint(words[breakAt]))) {
+                                                    firstCodepoint(words[breakAt]))) {
       --breakAt;
       keepContinuationTogether();
       adjusted = true;
@@ -227,10 +227,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 }
 
 bool ParsedText::appendVerticalFormulaDigit(const char digit, const bool superscript) {
-  static constexpr const char* supers[] = {"\xE2\x81\xB0", "\xC2\xB9", "\xC2\xB2", "\xC2\xB3", "\xE2\x81\xB4",
-                                            "\xE2\x81\xB5", "\xE2\x81\xB6", "\xE2\x81\xB7", "\xE2\x81\xB8", "\xE2\x81\xB9"};
-  static constexpr const char* subs[] = {"\xE2\x82\x80", "\xE2\x82\x81", "\xE2\x82\x82", "\xE2\x82\x83", "\xE2\x82\x84",
-                                          "\xE2\x82\x85", "\xE2\x82\x86", "\xE2\x82\x87", "\xE2\x82\x88", "\xE2\x82\x89"};
+  static constexpr const char* supers[] = {"\xE2\x81\xB0", "\xC2\xB9",     "\xC2\xB2",     "\xC2\xB3",
+                                           "\xE2\x81\xB4", "\xE2\x81\xB5", "\xE2\x81\xB6", "\xE2\x81\xB7",
+                                           "\xE2\x81\xB8", "\xE2\x81\xB9"};
+  static constexpr const char* subs[] = {"\xE2\x82\x80", "\xE2\x82\x81", "\xE2\x82\x82", "\xE2\x82\x83",
+                                         "\xE2\x82\x84", "\xE2\x82\x85", "\xE2\x82\x86", "\xE2\x82\x87",
+                                         "\xE2\x82\x88", "\xE2\x82\x89"};
   if (layoutFailed_ || digit < '0' || digit > '9' || words.empty()) return false;
   auto& prior = words.back();
   const char* suffix = (superscript ? supers : subs)[digit - '0'];
@@ -401,7 +403,8 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     if (hyphenationEnabled && allText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES) allText += '-';
     renderer.ensureSdCardFontReady(fontId, allText.c_str(), usedStyleMask(wordStyles));
   }
-  if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId && renderer.isSdCardFont(TextBlock::smallFontId)) {
+  if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId &&
+      renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
       if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
@@ -492,7 +495,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     allText += "\xE4\xB8\x80";  // U+4E00
     renderer.ensureSdCardFontReady(fontId, allText.c_str(), usedStyleMask(wordStyles));
   }
-  if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId && renderer.isSdCardFont(TextBlock::smallFontId)) {
+  if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId &&
+      renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
       if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
@@ -521,7 +525,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     const uint32_t firstCp = utf8NextCodepoint(&p);
     if (vb == VerticalTextUtils::VerticalBehavior::Upright && isCjkBodyCodepoint(firstCp)) {
       cjkCharAdvance = renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(),
-                                                 glyphStyle(wordStyles[i]));
+                                                glyphStyle(wordStyles[i]));
     }
   }
   if (cjkCharAdvance == 0) {
@@ -578,8 +582,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         i < wordVerticalBehaviors.size() && wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
     const bool hasRuby = i < rubyTexts.size() && !rubyTexts[i].empty();
     if (sideways && !hasRuby &&
-        renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i])) >
-            maxSidewaysRunAdvance) {
+        renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(),
+                                 glyphStyle(wordStyles[i])) > maxSidewaysRunAdvance) {
       needsSidewaysRunSplit = true;
       break;
     }
@@ -619,8 +623,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       const bool sideways = wordVerticalBehaviors[i] == VerticalTextUtils::VerticalBehavior::Sideways;
       const bool hasRuby = !rubyTexts[i].empty();
       if (!sideways || hasRuby ||
-          renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i])) <=
-              maxSidewaysRunAdvance) {
+          renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(),
+                                   glyphStyle(wordStyles[i])) <= maxSidewaysRunAdvance) {
         appendSplitWord(words[i], i, wordContinues[i], wordSpaceBefore[i]);
         continue;
       }
@@ -633,9 +637,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         utf8NextCodepoint(&cursor);
         std::string candidate = fragment;
         candidate.append(reinterpret_cast<const char*>(start), cursor - start);
-        if (!fragment.empty() &&
-            renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), candidate.c_str(), glyphStyle(wordStyles[i])) >
-                maxSidewaysRunAdvance) {
+        if (!fragment.empty() && renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), candidate.c_str(),
+                                                          glyphStyle(wordStyles[i])) > maxSidewaysRunAdvance) {
           appendSplitWord(std::move(fragment), i, firstFragment ? wordContinues[i] : true,
                           firstFragment ? wordSpaceBefore[i] : false);
           firstFragment = false;
@@ -708,7 +711,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       // fullwidth body cell when one exists, or the natural halfwidth pitch in
       // a kana-only paragraph. The sideways prolonged mark uses its own short
       // advance so it does not leave a full-cell gap before the next kana.
-      baseHeight = wordCp == 0xFF70 ? renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i]))
+      baseHeight = wordCp == 0xFF70 ? renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]),
+                                                               words[i].c_str(), glyphStyle(wordStyles[i]))
                                     : static_cast<uint16_t>(cjkCharAdvance);
     } else if (isUprightEnclosedAlphanumeric) {
       // Circled digits are visually narrow in many fonts, but Japanese
@@ -717,7 +721,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     } else
       switch (vb) {
         case VerticalTextUtils::VerticalBehavior::Sideways:
-          baseHeight = renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i]));
+          baseHeight = renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(),
+                                                glyphStyle(wordStyles[i]));
           break;
 
         case VerticalTextUtils::VerticalBehavior::TateChuYoko:
@@ -731,7 +736,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
           // would make this character share its cell with the following word
           // (for example, the digit in \"第1章\").  Keep upright CJK text on
           // the paragraph's measured fullwidth pitch in that case.
-          const int measuredAdvance = renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i]));
+          const int measuredAdvance = renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]),
+                                                               words[i].c_str(), glyphStyle(wordStyles[i]));
           baseHeight = static_cast<uint16_t>(measuredAdvance > 0 ? measuredAdvance : cjkCharAdvance);
           break;
       }
@@ -837,7 +843,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
         // Keep repeated ellipses and dashes together, just as horizontal text does.
         while (breakAt > columnStart + 1 && breakAt < words.size() &&
                VerticalTextUtils::isKinsokuInseparablePair(lastCodepoint(words[breakAt - 1]),
-                                                            firstCodepoint(words[breakAt]))) {
+                                                           firstCodepoint(words[breakAt]))) {
           --breakAt;
         }
         // A ruby annotation is positioned over its complete base-text span.
@@ -1131,8 +1137,8 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   wordVerticalBehaviors.insert(wordVerticalBehaviors.begin() + wordIndex + 1, wordVerticalBehaviors[wordIndex]);
   wordStyles.insert(wordStyles.begin() + wordIndex + 1, style);
   if (!emphasis.empty()) emphasis.insert(emphasis.begin() + wordIndex + 1, emphasis[wordIndex]);
-    wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
-    wordSpaceBefore.insert(wordSpaceBefore.begin() + wordIndex + 1, false);
+  wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
+  wordSpaceBefore.insert(wordSpaceBefore.begin() + wordIndex + 1, false);
   if (wordIndex + 1 <= rubyTexts.size()) {
     rubyTexts.insert(rubyTexts.begin() + wordIndex + 1, "");
   }
@@ -1179,8 +1185,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
       actualGapCount++;
       const bool cjkAdj = wordIsCjkVec[lastBreakAt + wordIdx] && wordIsCjkVec[lastBreakAt + wordIdx - 1] &&
-                          !(lastBreakAt + wordIdx < wordSpaceBefore.size() &&
-                            wordSpaceBefore[lastBreakAt + wordIdx]);
+                          !(lastBreakAt + wordIdx < wordSpaceBefore.size() && wordSpaceBefore[lastBreakAt + wordIdx]);
       if (!cjkAdj) {
         nonCjkGapCount++;
       }
@@ -1219,9 +1224,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
       if (isJustified) {
         gap = justifiedSpacing;
       } else {
-        const bool nextCjkAdj = wordIsCjkVec[lastBreakAt + wordIdx] && wordIsCjkVec[lastBreakAt + wordIdx + 1] &&
-                                !(lastBreakAt + wordIdx + 1 < wordSpaceBefore.size() &&
-                                  wordSpaceBefore[lastBreakAt + wordIdx + 1]);
+        const bool nextCjkAdj =
+            wordIsCjkVec[lastBreakAt + wordIdx] && wordIsCjkVec[lastBreakAt + wordIdx + 1] &&
+            !(lastBreakAt + wordIdx + 1 < wordSpaceBefore.size() && wordSpaceBefore[lastBreakAt + wordIdx + 1]);
         gap = nextCjkAdj ? 0 : spaceWidth;
       }
     }

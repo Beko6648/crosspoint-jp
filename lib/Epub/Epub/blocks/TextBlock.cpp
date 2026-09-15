@@ -344,11 +344,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         // Formula tokens contain one of the Unicode super/subscript digits.
         // Detect them from stored text so section-cache serialization remains
         // unchanged; their layout behavior was already fixed before caching.
-        const bool isFormula = words[i].find("\xC2\xB2") != std::string::npos ||
-                               words[i].find("\xC2\xB3") != std::string::npos ||
-                               words[i].find("\xC2\xB9") != std::string::npos ||
-                               words[i].find("\xE2\x81") != std::string::npos ||
-                               words[i].find("\xE2\x82") != std::string::npos;
+        const bool isFormula =
+            words[i].find("\xC2\xB2") != std::string::npos || words[i].find("\xC2\xB3") != std::string::npos ||
+            words[i].find("\xC2\xB9") != std::string::npos || words[i].find("\xE2\x81") != std::string::npos ||
+            words[i].find("\xE2\x82") != std::string::npos;
         if (isFormula) {
           // Do not render Unicode ²/₂ directly: several compact SD fonts
           // intentionally omit those glyphs. Decode the stored marker and
@@ -359,31 +358,41 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             subscript = false;
             const auto c = static_cast<unsigned char>(*p);
             if (c == 0xC2 && (static_cast<unsigned char>(p[1]) == 0xB2 || static_cast<unsigned char>(p[1]) == 0xB3 ||
-                               static_cast<unsigned char>(p[1]) == 0xB9)) {
-              ascii = static_cast<unsigned char>(p[1]) == 0xB2 ? '2' : static_cast<unsigned char>(p[1]) == 0xB3 ? '3' : '1';
-              script = true; p += 2; return true;
+                              static_cast<unsigned char>(p[1]) == 0xB9)) {
+              ascii = static_cast<unsigned char>(p[1]) == 0xB2   ? '2'
+                      : static_cast<unsigned char>(p[1]) == 0xB3 ? '3'
+                                                                 : '1';
+              script = true;
+              p += 2;
+              return true;
             }
             if (c == 0xE2 && static_cast<unsigned char>(p[1]) == 0x82 && static_cast<unsigned char>(p[2]) >= 0x80 &&
                 static_cast<unsigned char>(p[2]) <= 0x89) {
               ascii = static_cast<char>('0' + static_cast<unsigned char>(p[2]) - 0x80);
-              script = subscript = true; p += 3; return true;
+              script = subscript = true;
+              p += 3;
+              return true;
             }
-            ascii = *p++; return ascii != '\0';
+            ascii = *p++;
+            return ascii != '\0';
           };
           int formulaWidth = 0;
           for (const char* p = w; *p;) {
-            char part; bool scriptPart, subPart;
+            char part;
+            bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
             formulaWidth += renderer.getTextAdvanceX(scriptPart ? formulaScriptFont : wordFontId, text, glyphStyle);
           }
           int formulaX = wx + (columnWidth - formulaWidth) / 2;
           for (const char* p = w; *p;) {
-            char part; bool scriptPart, subPart;
+            char part;
+            bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
             const int partFont = scriptPart ? formulaScriptFont : wordFontId;
-            const int partY = wy + (subPart ? std::max(0, renderer.getLineHeight(wordFontId) - renderer.getLineHeight(partFont)) : 0);
+            const int partY =
+                wy + (subPart ? std::max(0, renderer.getLineHeight(wordFontId) - renderer.getLineHeight(partFont)) : 0);
             renderer.drawText(partFont, formulaX, partY, text, true, glyphStyle);
             formulaX += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }

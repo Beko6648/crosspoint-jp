@@ -1728,8 +1728,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool willClearSuperscript = self->superscriptUntilDepth == self->depth - 1;
   const bool willClearSubscript = self->subscriptUntilDepth == self->depth - 1;
 
-  const bool willPopEmphasis = !self->emphasisStack.empty() &&
-                               self->emphasisStack.back().depth == self->depth - 1;
+  const bool willPopEmphasis = !self->emphasisStack.empty() && self->emphasisStack.back().depth == self->depth - 1;
   const bool styleWillChange = willPopEmphasis || willPopStyleStack || willClearBold || willClearItalic ||
                                willClearUnderline || willClearSuperscript || willClearSubscript;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
@@ -1782,12 +1781,11 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     // Flush if style will change OR if we're closing a block/structural element
     const bool isInlineTag =
         !headerOrBlockTag && !tableStructuralTag && !matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS) && self->depth != 1;
-    const bool shouldFlush = styleWillChange || headerOrBlockTag || matches(name, BOLD_TAGS, NUM_BOLD_TAGS) ||
-                             matches(name, ITALIC_TAGS, NUM_ITALIC_TAGS) ||
-                             matches(name, UNDERLINE_TAGS, NUM_UNDERLINE_TAGS) ||
-                             matches(name, STRIKETHROUGH_TAGS, NUM_STRIKETHROUGH_TAGS) || tableStructuralTag ||
-                             strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0 ||
-                             matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS) || self->depth == 1;
+    const bool shouldFlush =
+        styleWillChange || headerOrBlockTag || matches(name, BOLD_TAGS, NUM_BOLD_TAGS) ||
+        matches(name, ITALIC_TAGS, NUM_ITALIC_TAGS) || matches(name, UNDERLINE_TAGS, NUM_UNDERLINE_TAGS) ||
+        matches(name, STRIKETHROUGH_TAGS, NUM_STRIKETHROUGH_TAGS) || tableStructuralTag || strcmp(name, "sup") == 0 ||
+        strcmp(name, "sub") == 0 || matches(name, IMAGE_TAGS, NUM_IMAGE_TAGS) || self->depth == 1;
 
     if (shouldFlush) {
       self->flushPartWordBuffer();

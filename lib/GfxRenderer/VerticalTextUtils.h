@@ -235,12 +235,11 @@ inline bool isKinsokuHead(uint32_t cp) {
   if (cp == 0x3009 || cp == 0x300B) return true;                                  // 〉》
   // PR #144 と JLREQ の不足分。中点、引用符、ハイフン、繰返し記号なども
   // 直前の文字から離して行頭に出さない。横書きもこの判定を共有する。
-  if (cp == 0x30FB || cp == 0xFF65) return true;                                  // ・･
-  if (cp == 0x2019 || cp == 0x201D || cp == 0x301F || cp == 0xFF60) return true;  // ’”〟｠
-  if (cp == 0x2010 || cp == 0x2013 || cp == 0x301C || cp == 0x30A0 || cp == 0xFF5E)
-    return true;  // ‐–〜゠～
+  if (cp == 0x30FB || cp == 0xFF65) return true;                                                  // ・･
+  if (cp == 0x2019 || cp == 0x201D || cp == 0x301F || cp == 0xFF60) return true;                  // ’”〟｠
+  if (cp == 0x2010 || cp == 0x2013 || cp == 0x301C || cp == 0x30A0 || cp == 0xFF5E) return true;  // ‐–〜゠～
   if (cp == 0x3005 || cp == 0x303B || cp == 0x309D || cp == 0x309E || cp == 0x30FD || cp == 0x30FE)
-    return true;  // 々〻ゝゞヽヾ
+    return true;                                  // 々〻ゝゞヽヾ
   if (cp == 0xFF9E || cp == 0xFF9F) return true;  // 半角濁点・半濁点
   if (cp == 0x00B0 || cp == 0x2030 || cp == 0x2032 || cp == 0x2033 || cp == 0x2103 || cp == 0xFF05)
     return true;  // °‰′″℃％

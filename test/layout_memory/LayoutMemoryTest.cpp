@@ -230,10 +230,10 @@ int main() {
 
   // PR #144 の不足していた禁則分類を、既存の横/縦レイアウト経路で確認する。
   // 中点・開き括弧・連続する省略記号が境界に来る幅で組み、境界違反が残らないことを見る。
-  assert(VerticalTextUtils::isKinsokuHead(0x30FB));   // ・
-  assert(VerticalTextUtils::isKinsokuHead(0x309D));   // ゝ
-  assert(VerticalTextUtils::isKinsokuTail(0x201C));   // “
-  assert(VerticalTextUtils::isKinsokuTail(0x3012));   // 〒
+  assert(VerticalTextUtils::isKinsokuHead(0x30FB));  // ・
+  assert(VerticalTextUtils::isKinsokuHead(0x309D));  // ゝ
+  assert(VerticalTextUtils::isKinsokuTail(0x201C));  // “
+  assert(VerticalTextUtils::isKinsokuTail(0x3012));  // 〒
   assert(VerticalTextUtils::isKinsokuInseparablePair(0x2026, 0x2026));
   for (bool vertical : {false, true}) {
     ESP = {};
@@ -283,6 +283,6 @@ int main() {
   ESP = {};
   assert(!LayoutMemory::admit(std::numeric_limits<size_t>::max(), "overflow"));
   assert(LayoutMemory::multiply(std::numeric_limits<size_t>::max(), 2) == std::numeric_limits<size_t>::max());
-  std::cout
-      << "Layout admission, transactional consumption, sparse images, ruby/emphasis, kinsoku, prewarm and partial flush: PASS\n";
+  std::cout << "Layout admission, transactional consumption, sparse images, ruby/emphasis, kinsoku, prewarm and "
+               "partial flush: PASS\n";
 }
