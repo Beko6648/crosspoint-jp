@@ -241,7 +241,10 @@ void ReaderTestViewActivity::render(RenderLock&&) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
         std::vector<std::shared_ptr<TextBlock>> columns;
         sample.layoutVerticalColumns(renderer, fontId, static_cast<uint16_t>(contentHeight),
-                                     [&columns](std::shared_ptr<TextBlock> column) { columns.push_back(std::move(column)); });
+                                     [&columns](std::shared_ptr<TextBlock> column) {
+                                       columns.push_back(std::move(column));
+                                       return true;
+                                     });
         for (const auto& column : columns) {
           int rubyRightInset = 0;
           if (column->hasRuby()) {
@@ -271,7 +274,10 @@ void ReaderTestViewActivity::render(RenderLock&&) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
         std::vector<std::shared_ptr<TextBlock>> lines;
         sample.layoutAndExtractLines(renderer, fontId, static_cast<uint16_t>(contentWidth),
-                                     [&lines](std::shared_ptr<TextBlock> line) { lines.push_back(std::move(line)); });
+                                     [&lines](std::shared_ptr<TextBlock> line) {
+                                       lines.push_back(std::move(line));
+                                       return true;
+                                     });
         for (const auto& line : lines) {
           if (line->hasRuby()) {
             const int rubyInset = TextBlock::getHorizontalRubyTopInset(renderer, fontId);

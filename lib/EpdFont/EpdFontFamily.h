@@ -12,7 +12,14 @@ class EpdFontFamily {
     BOLD_ITALIC = 3,
     UNDERLINE = 4,
     STRIKETHROUGH = 8,
+    // Script flags are rendering overlays.  Keep them outside the four face
+    // selection bits used by resident and SD-card font data.
+    SUPERSCRIPT = 16,
+    SUBSCRIPT = 32,
+    SCRIPT_MASK = SUPERSCRIPT | SUBSCRIPT,
   };
+
+  static constexpr uint8_t FONT_SELECT_MASK = BOLD | ITALIC;
 
   explicit EpdFontFamily(const EpdFont* regular, const EpdFont* bold = nullptr, const EpdFont* italic = nullptr,
                          const EpdFont* boldItalic = nullptr)

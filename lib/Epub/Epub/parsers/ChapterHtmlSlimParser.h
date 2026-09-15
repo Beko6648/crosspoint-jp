@@ -34,11 +34,33 @@ class ChapterHtmlSlimParser {
   int boldUntilDepth = INT_MAX;
   int italicUntilDepth = INT_MAX;
   int underlineUntilDepth = INT_MAX;
+  int superscriptUntilDepth = INT_MAX;
+  int subscriptUntilDepth = INT_MAX;
+  // <pre> is a block with literal ASCII whitespace. Store its opening depth
+  // rather than buffering its full contents so parsing remains bounded.
+  int preUntilDepth = INT_MAX;
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
   char partWordBuffer[MAX_WORD_SIZE + 1] = {};
   int partWordBufferIndex = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
+  // Ordinary source whitespace before the next word.  This is distinct from
+  // an inline-element continuation: CJK tokens have zero automatic spacing,
+  // but an author-written ASCII space must remain visible.
+  bool pendingHorizontalSpace = false;
+  bool verticalFormulaContinuation = false;
+  // A source newline inside <pre> ends a visual line, not a paragraph.
+  bool suppressParagraphSpacingOnce = false;
+  // Ordered-list state.  A fixed stack avoids allocating while parsing a
+  // chapter; deeper lists still render safely as bullets until their parent
+  // context becomes active again.
+  static constexpr size_t MAX_LIST_NESTING = 4;
+  struct ListContext {
+    bool ordered = false;
+    uint16_t nextNumber = 1;
+  };
+  ListContext listStack[MAX_LIST_NESTING];
+  size_t listDepth = 0;
   // Ordinary HTML whitespace collapses to one visible separator in vertical text.
   // Keep it pending so leading and trailing whitespace remains collapsed away.
   bool pendingVerticalWhitespace = false;
@@ -148,6 +170,8 @@ class ChapterHtmlSlimParser {
   void updateEffectiveInlineStyle();
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPartWordBuffer();
+  void appendPreSpaces(uint8_t count);
+  void endPreLine();
   void flushPendingVerticalWhitespace();
   void flushTextBlockForMemory();
   bool canFlushTextBlockForMemory();
@@ -209,6 +233,6 @@ class ChapterHtmlSlimParser {
 
   ~ChapterHtmlSlimParser() = default;
   bool parseAndBuildPages();
-  void addLineToPage(std::shared_ptr<TextBlock> line);
+  bool addLineToPage(std::shared_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
 };

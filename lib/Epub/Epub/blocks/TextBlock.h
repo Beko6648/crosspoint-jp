@@ -13,6 +13,7 @@
 
 // Represents a line of text on a page
 class TextBlock final : public Block {
+  friend class ParsedText;  // Fill pre-sized layout arrays before publishing a block.
  public:
   // インライン画像（本文中の文字として扱う画像）。sparse方式: words 内の画像マーカー(U+FFFC)の
   // Word の数だけを、マーカー出現順に保持する。画像でないWordの空要素は持たない（メモリ最小化）。
@@ -81,6 +82,9 @@ class TextBlock final : public Block {
     return ruby.size() == 1 && ruby[0] == RUBY_CONTINUATION_MARKER;
   }
   static int rubyFontId;  // アプリ層から設定されるルビフォントID（0=ルビ描画しない）
+  // The reader configures an 8pt companion font for <sup>/<sub>. A zero ID
+  // keeps the established body-font fallback for configurations without it.
+  static int smallFontId;
   bool isEmpty() override { return words.empty(); }
   size_t wordCount() const { return words.size(); }
   // given a renderer works out where to break the words into lines

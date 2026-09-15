@@ -1246,6 +1246,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
     }
 
+    // Script text uses the already-supported smaller companion font. Unlike
+    // ruby, this remains active when ruby display is disabled.
+    TextBlock::smallFontId = SETTINGS.getTableFontId(verticalMode);
+    LOG_INF("SCRIPT", "TextBlock::smallFontId=%d", TextBlock::smallFontId);
+
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));

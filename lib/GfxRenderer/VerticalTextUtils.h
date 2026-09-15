@@ -15,6 +15,7 @@ enum class VerticalBehavior : uint8_t {
   Upright,      // CJK ideographs, kana - draw normally, advance downward
   Sideways,     // Latin letters, 3+ digit numbers - rotate 90 CW
   TateChuYoko,  // 1-2 digit numbers - horizontal-in-vertical
+  Formula,      // short ASCII formula with a Unicode super/subscript digit
 };
 
 // Punctuation offset for vertical text (ratio of character size, in 1/8 units)
@@ -236,6 +237,17 @@ inline bool isKinsokuHead(uint32_t cp) {
   if (cp == 0xFF01 || cp == 0xFF1F) return true;                                  // ！？
   if (cp == 0xFF1A || cp == 0xFF1B) return true;                                  // ：；
   if (cp == 0x3009 || cp == 0x300B) return true;                                  // 〉》
+  // PR #144 と JLREQ の不足分。中点、引用符、ハイフン、繰返し記号なども
+  // 直前の文字から離して行頭に出さない。横書きもこの判定を共有する。
+  if (cp == 0x30FB || cp == 0xFF65) return true;                                  // ・･
+  if (cp == 0x2019 || cp == 0x201D || cp == 0x301F || cp == 0xFF60) return true;  // ’”〟｠
+  if (cp == 0x2010 || cp == 0x2013 || cp == 0x301C || cp == 0x30A0 || cp == 0xFF5E)
+    return true;  // ‐–〜゠～
+  if (cp == 0x3005 || cp == 0x303B || cp == 0x309D || cp == 0x309E || cp == 0x30FD || cp == 0x30FE)
+    return true;  // 々〻ゝゞヽヾ
+  if (cp == 0xFF9E || cp == 0xFF9F) return true;  // 半角濁点・半濁点
+  if (cp == 0x00B0 || cp == 0x2030 || cp == 0x2032 || cp == 0x2033 || cp == 0x2103 || cp == 0xFF05)
+    return true;  // °‰′″℃％
   // Small kana (行頭禁止). Keep this shared with the complete small-kana
   // list so ゎ・ヮ・ゕ・ゖ・ヵ・ヶ and Ainu small katakana cannot be omitted.
   if (isSmallKana(cp)) return true;
@@ -251,7 +263,27 @@ inline bool isKinsokuTail(uint32_t cp) {
   if (cp == 0x3014 || cp == 0x3016 || cp == 0x3018 || cp == 0x301A) return true;  // 〔〖〘〚
   if (cp == 0xFF08 || cp == 0xFF3B || cp == 0xFF5B) return true;                  // （［｛
   if (cp == 0x3008 || cp == 0x300A) return true;                                  // 〈《
+  if (cp == 0x2018 || cp == 0x201C || cp == 0x301D || cp == 0xFF5F) return true;  // ‘“〝｟
+  if (cp == 0x00A5 || cp == 0x2116 || cp == 0x3012 || cp == 0xFFE5) return true;  // ¥№〒￥
   return false;
+}
+
+// 同じ省略記号・ダッシュが続く場合は、その間で改行しない。
+// 「……」「――」を CJK 1 文字単位のトークン化後も一続きに保つ。
+inline constexpr bool isKinsokuInseparablePair(uint32_t tail, uint32_t head) {
+  if (tail != head) return false;
+  switch (tail) {
+    case 0x2014:  // —
+    case 0x2015:  // ―
+    case 0x2025:  // ‥
+    case 0x2026:  // …
+    case 0x3033:  // 〳
+    case 0x3034:  // 〴
+    case 0x3035:  // 〵
+      return true;
+    default:
+      return false;
+  }
 }
 
 }  // namespace VerticalTextUtils
