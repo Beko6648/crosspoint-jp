@@ -11,6 +11,7 @@
 #include "ReadingStatusHelper.h"
 #include "ReadingHistoryStore.h"
 #include "RecentBooksStore.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "components/CacheStatusIcon.h"
 #include "fontIds.h"
@@ -88,6 +89,16 @@ void RecentBooksActivity::loop() {
       onSelectBook(recentBooks[selectorIndex].path);
       return;
     }
+    if (screen == Screen::Meter && gpio.deviceIsX3() && !READING_HISTORY.getSummary().hasCalendarTime) {
+      // X3 has no battery-backed clock. Let the reader recover calendar-based
+      // statistics directly from the screen that explains why they are absent.
+      startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) {
+                               meterPage = MeterPage::Overview;
+                               requestUpdate();
+                             });
+      return;
+    }
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -163,6 +174,7 @@ void RecentBooksActivity::render(RenderLock&&) {
                  [](int index) { return HISTORY_MENU_ICONS[index]; });
   } else if (screen == Screen::Meter) {
     const auto summary = READING_HISTORY.getSummary();
+    const bool hasCalendarTime = summary.hasCalendarTime;
     const bool isX3 = gpio.deviceIsX3();
     renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 4, tr(STR_READING_METER));
     if (isX3) {
@@ -188,14 +200,14 @@ void RecentBooksActivity::render(RenderLock&&) {
         }
       };
 
-      if (meterPage == MeterPage::Overview || !summary.hasCalendarTime) {
-        const std::string primaryLabel = summary.hasCalendarTime ? tr(STR_READING_METER_WEEK) : tr(STR_READING_METER_TOTAL);
-        const uint32_t primarySeconds = summary.hasCalendarTime ? summary.weekSeconds : summary.totalSeconds;
+      if (meterPage == MeterPage::Overview || !hasCalendarTime) {
+        const std::string primaryLabel = hasCalendarTime ? tr(STR_READING_METER_WEEK) : tr(STR_READING_METER_TOTAL);
+        const uint32_t primarySeconds = hasCalendarTime ? summary.weekSeconds : summary.totalSeconds;
         renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 43, primaryLabel.c_str());
         renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 68, formatDuration(primarySeconds).c_str(), true,
                                   EpdFontFamily::BOLD);
         int rowY = contentTop + 125;
-        if (summary.hasCalendarTime) {
+        if (hasCalendarTime) {
           drawOverviewRow(rowY, tr(STR_READING_METER_TODAY), formatDuration(summary.todaySeconds));
           rowY += 38;
           drawOverviewRow(rowY, tr(STR_READING_METER_MONTH), formatDuration(summary.monthSeconds));
@@ -206,6 +218,10 @@ void RecentBooksActivity::render(RenderLock&&) {
         drawOverviewRow(rowY, tr(STR_READING_METER_BOOKS), books);
         drawOverviewRow(rowY + 38, tr(STR_READING_METER_FINISHED), finished);
         renderer.drawLine(rowLeft, rowY + 68, rowRight, rowY + 68);
+        if (!hasCalendarTime) {
+          renderer.drawCenteredText(UI_10_FONT_ID, rowY + 104, tr(STR_READING_METER_TIME_UNAVAILABLE));
+          renderer.drawCenteredText(UI_10_FONT_ID, rowY + 128, tr(STR_READING_METER_TIME_SYNC_HINT));
+        }
       } else {
         const int graphLeft = metrics.contentSidePadding + 18;
         const int graphWidth = pageWidth - graphLeft * 2;
@@ -254,7 +270,7 @@ void RecentBooksActivity::render(RenderLock&&) {
         renderer.drawText(UI_10_FONT_ID, pageWidth - metrics.contentSidePadding - valueWidth, y, value.c_str());
       }
     };
-    if (summary.hasCalendarTime) {
+    if (hasCalendarTime) {
       const std::string today = std::string(tr(STR_READING_METER_TODAY)) + ": " + formatDuration(summary.todaySeconds);
       const std::string week = std::string(tr(STR_READING_METER_WEEK)) + ": " + formatDuration(summary.weekSeconds);
       const std::string month = std::string(tr(STR_READING_METER_MONTH)) + ": " + formatDuration(summary.monthSeconds);
@@ -300,7 +316,7 @@ void RecentBooksActivity::render(RenderLock&&) {
       drawBookSummary(contentTop + 96);
     }
     const std::string total = std::string(tr(STR_READING_METER_TOTAL)) + ": " + formatDuration(summary.totalSeconds);
-    if (summary.hasCalendarTime) renderer.drawCenteredText(UI_10_FONT_ID, contentTop + contentHeight - 25, total.c_str());
+    if (hasCalendarTime) renderer.drawCenteredText(UI_10_FONT_ID, contentTop + contentHeight - 25, total.c_str());
     }
   } else if (recentBooks.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOK_HISTORY));
@@ -324,7 +340,12 @@ void RecentBooksActivity::render(RenderLock&&) {
 
   // Help text
   const char* backLabel = screen == Screen::Menu ? tr(STR_HOME) : tr(STR_BACK);
-  const char* confirmLabel = screen == Screen::Menu ? tr(STR_SELECT) : (screen == Screen::Meter ? "" : tr(STR_OPEN));
+  const bool x3MeterTimeRecovery = screen == Screen::Meter && gpio.deviceIsX3() &&
+                                   !READING_HISTORY.getSummary().hasCalendarTime;
+  const char* confirmLabel = screen == Screen::Menu
+                                 ? tr(STR_SELECT)
+                                 : (x3MeterTimeRecovery ? tr(STR_READING_METER_SYNC_TIME)
+                                                        : (screen == Screen::Meter ? "" : tr(STR_OPEN)));
   const bool x3MeterPaging = screen == Screen::Meter && gpio.deviceIsX3() &&
                               READING_HISTORY.getSummary().hasCalendarTime;
   const char* previousLabel = x3MeterPaging && meterPage == MeterPage::Details
