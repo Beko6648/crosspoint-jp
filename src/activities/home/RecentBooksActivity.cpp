@@ -90,7 +90,7 @@ void RecentBooksActivity::loop() {
       return;
     }
     if (screen == Screen::Meter && gpio.deviceIsX3() && !READING_HISTORY.getSummary().hasCalendarTime) {
-      // X3 has no battery-backed clock. Let the reader recover calendar-based
+      // X3 can start without calendar time. Let the reader recover calendar-based
       // statistics directly from the screen that explains why they are absent.
       startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                              [this](const ActivityResult&) {
