@@ -33,6 +33,7 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/settings/SdFirmwareUpdateActivity.h"
 #ifdef GRAYSCALE_TEST_MODE
 #include "activities/util/GrayscaleTestActivity.h"
 #endif
@@ -202,11 +203,28 @@ void configureRubyFont(const bool isVertical) {
   LOG_DBG("RUBY", "Configured ruby font: vertical=%d fontId=%d", isVertical ? 1 : 0, TextBlock::rubyFontId);
 }
 
-void setupDisplayAndFonts() {
+static bool bootRecoveryMode = false;
+static uint8_t bootRecoveryButton = HalGPIO::BTN_UP;
+
+bool isBootRecoveryChordHeld() {
+  if (gpio.isPressed(HalGPIO::BTN_POWER) || gpio.isPressed(bootRecoveryButton)) return true;
+  // X4 revisions use the same ADC ladder but the physical order of its two
+  // side keys has not been consistent in the field.  Keep both suppressed
+  // after a successful recovery entry so neither becomes a picker action.
+  return !gpio.deviceIsX3() && (gpio.isPressed(HalGPIO::BTN_UP) || gpio.isPressed(HalGPIO::BTN_DOWN));
+}
+
+void setupDisplayAndFonts(bool recoveryOnly = false) {
   display.begin();
   renderer.begin();
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
+
+  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
+  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
+  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  // Recovery must render without reading user-selected or damaged SD fonts.
+  if (recoveryOnly) return;
 
   // Initialize font decompressor for compressed reader fonts
   if (!fontDecompressor.init()) {
@@ -220,9 +238,6 @@ void setupDisplayAndFonts() {
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
-  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
@@ -272,6 +287,33 @@ void setup() {
   LOG_INF("MAIN", "Hardware profile: %s", BoardConfig::ACTIVE.name);
   logX3DisplayProbeDiag();
 
+  // InputManager's debounced state takes about 500ms to settle after boot.
+  // X3 has one established recovery key (BTN_UP). X4 uses the same ADC ladder,
+  // but field units do not consistently expose its physical upper key as the
+  // same logical button, so either X4 side key is an intentional recovery key.
+  // Do not gate the X4 chord on the reset classification: its power latch can
+  // report Other despite a physical POWER-button start.
+  const auto wakeupReason = gpio.getWakeupReason();
+  const unsigned long settleStart = millis();
+  while (millis() - settleStart < 500) {
+    gpio.update();
+    delay(10);
+  }
+  const bool upHeld = gpio.isPressed(HalGPIO::BTN_UP);
+  const bool downHeld = gpio.isPressed(HalGPIO::BTN_DOWN);
+  if (gpio.deviceIsX3()) {
+    bootRecoveryButton = HalGPIO::BTN_UP;
+    bootRecoveryMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && upHeld;
+  } else if (upHeld || downHeld) {
+    bootRecoveryButton = upHeld ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
+    bootRecoveryMode = true;
+  }
+  LOG_INF("MAIN", "Recovery input: wake=%d power=%d up=%d down=%d x3=%d", static_cast<int>(wakeupReason),
+          gpio.isPressed(HalGPIO::BTN_POWER) ? 1 : 0, upHeld ? 1 : 0, downHeld ? 1 : 0, gpio.deviceIsX3() ? 1 : 0);
+  if (bootRecoveryMode) {
+    LOG_INF("MAIN", "Boot recovery: POWER + side button");
+  }
+
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   // WDTガード: sd.begin()がSPIハングした場合、5秒で自動再起動する（Issue #23）
@@ -285,6 +327,25 @@ void setup() {
   const bool sdOk = Storage.begin();
   esp_task_wdt_delete(NULL);
   esp_task_wdt_deinit();
+  if (bootRecoveryMode) {
+    LOG_INF("MAIN", "Boot recovery: skipping user state and SD fonts");
+    ButtonNavigator::setMappedInputManager(mappedInputManager);
+    UITheme::getInstance().setTheme(CrossPointSettings::UI_THEME::CLASSIC);
+    setupDisplayAndFonts(true);
+    if (sdOk) {
+      activityManager.replaceActivity(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, true));
+    } else {
+      activityManager.goToFullScreenMessage("SD card error - hold POWER to restart", EpdFontFamily::BOLD);
+    }
+    activityManager.loop();
+    // Do not let the entry chord also move the picker or trigger a restart.
+    while (isBootRecoveryChordHeld()) {
+      delay(50);
+      gpio.update();
+    }
+    gpio.update();
+    return;
+  }
   if (!sdOk) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts();
@@ -308,7 +369,6 @@ void setup() {
   renderer.setDarkMode(SETTINGS.colorMode == CrossPointSettings::COLOR_MODE::DARK_MODE);
   renderer.setInvertImagesInDarkMode(SETTINGS.invertImages);
 
-  const auto wakeupReason = gpio.getWakeupReason();
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
@@ -405,6 +465,14 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   mappedInputManager.update();
+  if (bootRecoveryMode) {
+    // Normal sleep saves APP_STATE and uses the normal sleep screen. Keep
+    // recovery isolated from both; a long POWER press restarts without writes.
+    if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getHeldTime() > 1500) ESP.restart();
+    activityManager.loop();
+    delay(10);
+    return;
+  }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);

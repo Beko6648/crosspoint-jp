@@ -11,11 +11,11 @@
  *  1) onEnter -> push FileBrowserActivity in PickFirmware mode (only .bin files visible).
  *  2) On result: validate the .bin (header magic, size fits OTA partition).
  *  3) Push ConfirmationActivity ("Update firmware?").
- *  4) On confirm: stream the file into the OTA partition via the Arduino Update API,
+ *  4) On confirm: revalidate and stream the file through the shared firmware flasher,
  *     drawing a progress bar; on success ESP.restart().
  *
  * Used both from Settings -> System -> "SD Card Firmware Update", and as the only
- * activity launched in boot recovery mode (left side button + power on X3).
+ * activity launched in boot recovery mode (physical UP + POWER: X3 left / X4 upper side button).
  */
 class SdFirmwareUpdateActivity : public Activity {
  public:

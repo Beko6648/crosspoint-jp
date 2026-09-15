@@ -256,6 +256,12 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
   sortFileList(files);
   const unsigned long sortMs = millis() - sortStartedAt;
 
+  if (mode == Mode::PickFirmware) {
+    // The boot recovery picker must never read book history or cache indexes.
+    loadedPath = basepath;
+    return DirectoryLoadResult::Loaded;
+  }
+
   const unsigned long readingStatusStartedAt = millis();
   getReadingStatusCacheEntries("/.crosspoint", readingStatusCacheEntries);
   fileStatuses.assign(files.size(), ReadingStatus::Unread);
@@ -316,7 +322,7 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
-  loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
+  if (mode == Mode::Books) loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
 
   selectorIndex = 0;
   lockNextConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -663,6 +669,10 @@ void FileBrowserActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+  const bool hasFirmwareFile =
+      mode != Mode::PickFirmware || std::any_of(files.begin(), files.end(), [](const std::string& entry) {
+        return !entry.empty() && entry.back() != '/';
+      });
   const bool showCacheStatusIcons = mode == Mode::Books && UITheme::getInstance().getTheme().showsFileIcons();
   uint32_t loadedReadingStatuses = 0;
   unsigned long readingStatusMs = 0;
@@ -762,8 +772,9 @@ void FileBrowserActivity::render(RenderLock&&) {
   {
     const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
     const int separatorY = pathY - metrics.verticalSpacing / 2;
-    if (!statusMessage.empty()) {
-      renderer.drawCenteredText(SMALL_FONT_ID, separatorY - pathLineHeight - 3, statusMessage.c_str(), true);
+    if (!statusMessage.empty() || !hasFirmwareFile) {
+      const char* message = statusMessage.empty() ? tr(STR_NO_BIN_FILES) : statusMessage.c_str();
+      renderer.drawCenteredText(SMALL_FONT_ID, separatorY - pathLineHeight - 3, message, true);
     }
     renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
     const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
