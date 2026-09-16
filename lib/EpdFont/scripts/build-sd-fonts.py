@@ -195,6 +195,9 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
     elif generated_codepoints_file is not None:
         cmd.extend(["--codepoints-file", str(generated_codepoints_file)])
 
+    if "interval_gap_tolerance" in family:
+        cmd.extend(["--interval-gap-tolerance", str(family["interval_gap_tolerance"])])
+
     # Run fontconvert_sdcard.py
     try:
         result = subprocess.run(
@@ -205,7 +208,12 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
         )
         if result.returncode != 0:
             return name, False, result.stderr.strip() or f"Exit code {result.returncode}"
-        return name, True, ""
+        runtime_summary = "\n".join(
+            line.strip()
+            for line in result.stderr.splitlines()
+            if "[runtime]" in line or "WARNING: resident interval RAM" in line
+        )
+        return name, True, runtime_summary
     except subprocess.TimeoutExpired:
         return name, False, "Timed out after 600s"
     except Exception as e:
@@ -331,6 +339,9 @@ def main():
                 count = len(list(family_dir.glob("*.cpfont")))
                 size = sum(f.stat().st_size for f in family_dir.glob("*.cpfont"))
                 print(f"  OK: {name} ({count} files, {size / 1024 / 1024:.1f} MB)")
+                if message:
+                    for line in message.splitlines():
+                        print(f"    {line}")
             else:
                 print(f"  FAILED: {name}: {message}", file=sys.stderr)
                 failed.append(name)

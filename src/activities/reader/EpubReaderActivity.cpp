@@ -10,6 +10,7 @@
 #include <I18n.h>
 #include <Issue18Diagnostics.h>
 #include <Logging.h>
+#include <SdFontDiagnostics.h>
 #include <esp_system.h>
 
 #include <algorithm>
@@ -67,6 +68,11 @@ constexpr size_t SMALL_BOOK_CACHE_PROMPT_MAX_TEXT_BYTES = 256 * 1024;
 constexpr int SMALL_BOOK_CACHE_PROMPT_MAX_SPINE_ITEMS = 10;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
+
+uint8_t diagnosticPointSize(const uint8_t fontSize) {
+  static constexpr uint8_t POINT_SIZES[] = {12, 14, 16, 18};
+  return fontSize < sizeof(POINT_SIZES) ? POINT_SIZES[fontSize] : 0;
+}
 
 int getStatusBarContentReservation(const int statusBarHeight) {
   return statusBarHeight > 0 ? statusBarHeight + STATUS_BAR_CONTENT_GUARD : 0;
@@ -1171,6 +1177,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 
   const auto& ds = SETTINGS.getDirectionSettings(verticalMode);
+  SD_FONT_DIAG_CONTEXT(ds.sdFontFamilyName, diagnosticPointSize(ds.fontSize), currentSpineIndex, nextPageNumber);
 
   // Apply screen viewable areas and additional padding
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
@@ -1201,6 +1208,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // goToReader() calls ensureSdFontLoaded(false) before verticalMode is known,
     // so we reload here with the correct direction after resolution.
     ensureSdFontLoaded(verticalMode);
+    // Native USB disconnects during reboot. Replay the captured boot-time font
+    // load sample after the monitor has reconnected and the book is opened.
+    SD_FONT_DIAG_REPLAY_FONT_LOAD();
 
     // Load the OpenType 'vert' punctuation data while the reader has not yet
     // allocated page/render buffers. After a large file transfer the heap can
@@ -1260,11 +1270,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Reflow params: lineSpacing=%u, compression=%.2f, viewport=%ux%u, vertical=%d", ds.lineSpacing,
             lineCompression, viewportWidth, viewportHeight, verticalMode);
 
+    SD_FONT_DIAG_LOG("page_layout_check_before", 0);
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing,
                                   ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
                                   ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
                                   ds.charSpacing)) {
       LOG_DBG("ERS", "Cache not found, building...");
+      const uint32_t pageLayoutStartedAt = SD_FONT_DIAG_NOW_US();
+      SD_FONT_DIAG_LOG("page_layout_before", 0);
 
       // Apply vertical character spacing for layout calculation
       renderer.setVerticalCharSpacing(SETTINGS.getVerticalCharSpacingPercent());
@@ -1277,6 +1290,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       if (fcm) {
         fcm->clearCache();
         fcm->freeKernLigatureData();
+        SD_FONT_DIAG_LOG("page_transition_release_after", 0);
       }
 
       const auto popupFn = [this]() { GUI.drawPopup(renderer, tr(STR_INDEXING)); };
@@ -1293,6 +1307,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
           SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode),
           cssBodyFontIds);
+      SD_FONT_DIAG_LOG_AFTER(sectionCreated ? "page_layout_after" : "page_layout_failed", 0, pageLayoutStartedAt);
       // Wi-Fi teardown after a Web UI transfer completes asynchronously. If it
       // left the largest heap block below the ZIP-stream requirement, yield
       // once and retry instead of forcing the user to restart the device.
@@ -1325,6 +1340,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
     } else {
+      SD_FONT_DIAG_LOG("page_layout_cached", 0);
       LOG_DBG("ERS", "Cache found, skipping build...");
     }
 
@@ -1402,7 +1418,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     currentPageFootnotes = std::move(p->footnotes);
 
     const auto start = millis();
+    const uint32_t pageDrawStartedAt = SD_FONT_DIAG_NOW_US();
+    SD_FONT_DIAG_CONTEXT(ds.sdFontFamilyName, diagnosticPointSize(ds.fontSize), currentSpineIndex, section->currentPage);
+    SD_FONT_DIAG_LOG("page_draw_before", 0);
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+    SD_FONT_DIAG_LOG_AFTER("page_draw_after", 0, pageDrawStartedAt);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
@@ -1562,7 +1582,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Include a CJK book/chapter title in the same prewarm pass.  This keeps the
   // status bar from faulting its compressed glyphs after the page is drawn.
   renderStatusBar();
+  SD_FONT_DIAG_LOG("glyph_scan_before_prewarm", 0);
   scope.endScanAndPrewarm();
+  SD_FONT_DIAG_LOG("glyph_scan_after_prewarm", 0);
 #if defined(RENDER_PROFILE)
   fcm->logStats("page");
 #endif

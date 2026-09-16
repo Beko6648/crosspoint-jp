@@ -13,11 +13,16 @@ class GfxRenderer;
 class CssParser;
 
 class Section {
+ public:
+  enum class CreateFailureReason { None, Cancelled, InsufficientMemory, StorageIo, Parse };
+
+ private:
   std::shared_ptr<Epub> epub;
   const int spineIndex;
   GfxRenderer& renderer;
   std::string filePath;
   FsFile file;
+  CreateFailureReason lastCreateFailureReason = CreateFailureReason::None;
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
   // Set only by the full-cache callers that supply page-ready work.  The
   // compile-time switch removes this state from normal firmware builds.
@@ -60,6 +65,7 @@ class Section {
                          const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn = nullptr,
                          const std::function<void(const Page&)>& pageReadyFn = nullptr,
                          const std::function<bool()>& cancelFn = nullptr);
+  CreateFailureReason getLastCreateFailureReason() const { return lastCreateFailureReason; }
   std::unique_ptr<Page> loadPageFromSectionFile();
   std::unique_ptr<Page> loadPageFromSectionFile(uint16_t pageNumber);
 

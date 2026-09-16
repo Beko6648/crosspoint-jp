@@ -297,6 +297,16 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+
+  if (state == FAILED) {
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true,
+                              EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CACHE_INTERRUPTED));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
@@ -335,6 +345,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
   bool cancelled = false;
+  bool storageFailure = false;
 
   // Calculate viewport dimensions (screenMargin depends on writing direction, resolved per-book below)
   // Use a placeholder margin here; it will be recalculated per book after resolving isVertical.
@@ -500,6 +511,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                    [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
+          const auto failureReason = sec.getLastCreateFailureReason();
+          if (failureReason == Section::CreateFailureReason::Cancelled || controls.shouldCancel(renderer)) {
+            cancelled = true;
+            break;
+          }
+          if (failureReason == Section::CreateFailureReason::StorageIo) {
+            LOG_ERR("GENALL", "Stopping cache generation after SD I/O failure at section %d of %s", i,
+                    epubPath.c_str());
+            storageFailure = true;
+            break;
+          }
           continue;
         }
         sectionBuildMs += millis() - sectionStartedAt;
@@ -507,10 +529,13 @@ void GenerateAllCacheActivity::generateAllCaches() {
       }
     }
 
-    if (cancelled) break;
+    if (cancelled || storageFailure) break;
 
     if (allSectionsReady) {
-      if (!epub->markFullCacheGenerated()) LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
+      if (!epub->markFullCacheGenerated()) {
+        LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
+        storageFailure = true;
+      }
     } else {
       LOG_DBG("GENALL", "Cache incomplete for %s; a later run will resume it", epubPath.c_str());
     }
@@ -519,21 +544,23 @@ void GenerateAllCacheActivity::generateAllCaches() {
             "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
             generatedPixelCaches, cachedPixelPagesScanned);
-    if (cancelled) break;
+    if (cancelled || storageFailure) break;
   }
 
-  if (!cancelled) {
+  if (!cancelled && !storageFailure) {
     const uint32_t finalDisplayStartedAt = millis();
     progressDetail = std::string(tr(STR_CACHE_COMPLETE));
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
 
-  summarizeCacheStatuses(epubFiles);
+  if (!storageFailure) {
+    summarizeCacheStatuses(epubFiles);
+  }
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
           millis() - generationStartedAt, progressDisplayMs);
-  state = cancelled ? INTERRUPTED : SUCCESS;
+  state = storageFailure ? FAILED : (cancelled ? INTERRUPTED : SUCCESS);
   requestUpdate();
 }
 
@@ -554,7 +581,7 @@ void GenerateAllCacheActivity::loop() {
     return;
   }
 
-  if (state == SUCCESS || state == INTERRUPTED) {
+  if (state == SUCCESS || state == INTERRUPTED || state == FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       goBack();
     }

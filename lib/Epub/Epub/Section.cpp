@@ -432,6 +432,7 @@ PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIn
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return 0;
   }
 
@@ -443,6 +444,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 #endif
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", pageCount);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return 0;
   }
   LOG_DBG("SCT", "Page %d processed", pageCount);
@@ -641,9 +643,10 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
 }
 
 bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
-                                        uint32_t& fileSize) {
+                                         uint32_t& fileSize) {
   // Retry logic for SD card timing issues
   bool success = false;
+  bool openedTempFile = false;
   for (int attempt = 0; attempt < 3 && !success; attempt++) {
     if (attempt > 0) {
       LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);
@@ -658,6 +661,7 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
     if (!Storage.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
       continue;
     }
+    openedTempFile = true;
 
     success = epub->readItemContentsToStream(localPath, tmpHtml, 1024);
     fileSize = tmpHtml.size();
@@ -667,6 +671,14 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
       Storage.remove(tmpHtmlPath.c_str());
       LOG_DBG("SCT", "Removed incomplete temp file after failed attempt");
     }
+  }
+
+  if (!success) {
+    // A corrupt ZIP entry can fail after the destination was opened. Keep
+    // that separate from the observed SD failure where all three destination
+    // opens failed, so malformed books are not mislabeled as card errors.
+    lastCreateFailureReason =
+        openedTempFile ? CreateFailureReason::Parse : CreateFailureReason::StorageIo;
   }
 
   return success;
@@ -782,8 +794,15 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
                                 const std::function<bool()>& cancelFn) {
+  lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
-  const auto localPath = epub->getSpineItem(spineIndex).href;
+  BookMetadataCache::SpineEntry spineItem;
+  if (!epub->tryGetSpineItem(spineIndex, spineItem)) {
+    LOG_ERR("SCT", "Failed to read spine metadata for section %d", spineIndex);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
+    return false;
+  }
+  const auto& localPath = spineItem.href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
@@ -798,7 +817,11 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Create cache directory if it doesn't exist
   {
     const auto sectionsDir = epub->getCachePath() + "/sections";
-    Storage.mkdir(sectionsDir.c_str());
+    if (!Storage.exists(sectionsDir.c_str()) && !Storage.mkdir(sectionsDir.c_str())) {
+      LOG_ERR("SCT", "Failed to create section cache directory");
+      lastCreateFailureReason = CreateFailureReason::StorageIo;
+      return false;
+    }
   }
 
   // The previous section may leave an SD-font advance table resident. Release
@@ -823,6 +846,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // required buffer. Stored WebUI-generated entries do not need the 32KB
   // inflate dictionary.
   if (!hasEnoughHeapForSectionStream()) {
+    lastCreateFailureReason = CreateFailureReason::InsufficientMemory;
     return false;
   }
 
@@ -844,6 +868,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
 
   if (!Storage.openFileForWrite("SCT", tmpSectionPath, file)) {
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return false;
   }
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
@@ -879,6 +904,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     if (cssParser) {
       cssParser->clear();
     }
+    lastCreateFailureReason = CreateFailureReason::InsufficientMemory;
     return false;
   }
   LOG_DBG("SCT", "Section build heap check passed (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu)",
@@ -928,10 +954,16 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     if (cssParser) {
       cssParser->clear();
     }
+    if (lastCreateFailureReason == CreateFailureReason::None) {
+      lastCreateFailureReason = cancelFn && cancelFn() ? CreateFailureReason::Cancelled : CreateFailureReason::Parse;
+    }
     return false;
   }
 
   if (!finalizeSectionFile(lut, anchors, tmpSectionPath, cssParser, createSectionStart, parseBuildStart)) {
+    if (lastCreateFailureReason == CreateFailureReason::None) {
+      lastCreateFailureReason = CreateFailureReason::StorageIo;
+    }
     return false;
   }
 

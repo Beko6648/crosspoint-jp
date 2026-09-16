@@ -3,6 +3,7 @@
 #include <FontDecompressor.h>
 #include <Logging.h>
 #include <SdCardFont.h>
+#include <SdFontDiagnostics.h>
 
 #include <cstring>
 
@@ -175,7 +176,10 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD]),
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::ITALIC]),
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD_ITALIC]));
+    const uint32_t glyphCacheStartedAt = SD_FONT_DIAG_NOW_US();
+    SD_FONT_DIAG_LOG("glyph_cache_before", styleMask);
     entry.font->prewarm(entry.text.c_str(), styleMask);
+    SD_FONT_DIAG_LOG_AFTER("glyph_cache_after", styleMask, glyphCacheStartedAt);
     entry.text.clear();
     entry.text.shrink_to_fit();
   }

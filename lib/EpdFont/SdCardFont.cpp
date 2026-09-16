@@ -1459,8 +1459,13 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   self->overflow_[slot].codepoint = codepoint;
   self->overflow_[slot].styleIdx = styleIdx;
 
+#if !SD_FONT_DIAGNOSTICS
+  // This can emit hundreds of rows per page. Suppress successful per-glyph
+  // traces while collecting SFD measurements so USB serial does not drop
+  // parts of the page-level diagnostic rows. Error logs above remain active.
   LOG_DBG("SDCF", "Overflow: loaded U+%04X style %u on demand (slot %u/%u)", codepoint, styleIdx, slot,
           OVERFLOW_CAPACITY);
+#endif
 
   return &self->overflow_[slot].glyph;
 }

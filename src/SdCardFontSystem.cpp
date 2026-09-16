@@ -3,6 +3,7 @@
 #include <FontManager.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
+#include <SdFontDiagnostics.h>
 
 #include "CrossPointSettings.h"
 
@@ -41,10 +42,15 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
     if (family) {
       uint8_t basePt = fontSizeEnumToPt(SETTINGS.horizontal.fontSize);
       uint8_t headingPt = computeHeadingBasePt(SETTINGS.horizontal.fontSize);
+      SD_FONT_DIAG_CONTEXT(SETTINGS.horizontal.sdFontFamilyName, basePt, -1, -1);
+      const uint32_t fontLoadStartedAt = SD_FONT_DIAG_NOW_US();
+      SD_FONT_DIAG_FONT_LOAD_BEFORE();
       if (manager_.loadFamily(*family, renderer, basePt, headingPt)) {
+        SD_FONT_DIAG_FONT_LOAD_AFTER(true, fontLoadStartedAt);
         LOG_DBG("SDFS", "Loaded SD card font family: %s (base=%upt, heading=%upt)",
                 SETTINGS.horizontal.sdFontFamilyName, basePt, headingPt);
       } else {
+        SD_FONT_DIAG_FONT_LOAD_AFTER(false, fontLoadStartedAt);
         LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", SETTINGS.horizontal.sdFontFamilyName);
         SETTINGS.horizontal.sdFontFamilyName[0] = '\0';
       }
@@ -93,11 +99,16 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, bool isVertical) {
 
   const auto* family = registry_.findFamily(wantedFamily);
   if (family) {
+    SD_FONT_DIAG_CONTEXT(wantedFamily, wantedBasePt, -1, -1);
+    const uint32_t fontLoadStartedAt = SD_FONT_DIAG_NOW_US();
+    SD_FONT_DIAG_FONT_LOAD_BEFORE();
     if (manager_.loadFamily(*family, renderer, wantedBasePt, wantedHeadingPt)) {
+      SD_FONT_DIAG_FONT_LOAD_AFTER(true, fontLoadStartedAt);
       LOG_DBG("SDFS", "Loaded SD font family: %s (base=%upt, heading=%upt)", wantedFamily, wantedBasePt,
               wantedHeadingPt);
       FontManager::getInstance().setSdCardFontActive(true);
     } else {
+      SD_FONT_DIAG_FONT_LOAD_AFTER(false, fontLoadStartedAt);
       LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", wantedFamily);
       ds.sdFontFamilyName[0] = '\0';
     }

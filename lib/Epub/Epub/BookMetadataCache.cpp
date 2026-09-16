@@ -620,22 +620,41 @@ bool BookMetadataCache::load() {
 }
 
 BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(const int index) {
+  SpineEntry entry;
+  if (!tryGetSpineEntry(index, entry)) {
+    return {};
+  }
+  return entry;
+}
+
+bool BookMetadataCache::tryGetSpineEntry(const int index, SpineEntry& entry) {
   if (!loaded) {
     LOG_ERR("BMC", "getSpineEntry called but cache not loaded");
-    return {};
+    return false;
   }
 
   if (index < 0 || index >= static_cast<int>(spineCount)) {
     LOG_ERR("BMC", "getSpineEntry index %d out of range", index);
-    return {};
+    return false;
   }
 
-  // Seek to spine LUT item, read from LUT and get out data
-  bookFile.seek(lutOffset + sizeof(uint32_t) * index);
-  uint32_t spineEntryPos;
-  serialization::readPod(bookFile, spineEntryPos);
-  bookFile.seek(spineEntryPos);
-  return readSpineEntry(bookFile);
+  // The SD card can disappear after book.bin was validated and opened. Check
+  // every read before trusting its length; an uninitialized string length here
+  // previously reached std::string::resize() and aborted the device.
+  const size_t fileSize = bookFile.size();
+  const size_t lutEntryPos = lutOffset + sizeof(uint32_t) * static_cast<size_t>(index);
+  uint32_t spineEntryPos = 0;
+  SpineEntry candidate;
+  if (fileSize == 0 || lutEntryPos > fileSize || sizeof(spineEntryPos) > fileSize - lutEntryPos ||
+      !bookFile.seek(lutEntryPos) || !readPodChecked(bookFile, spineEntryPos) || spineEntryPos >= fileSize ||
+      !bookFile.seek(spineEntryPos) || !readMetadataString(bookFile, candidate.href, fileSize) ||
+      !readPodChecked(bookFile, candidate.cumulativeSize) || !readPodChecked(bookFile, candidate.tocIndex)) {
+    LOG_ERR("BMC", "Failed to read spine entry %d", index);
+    return false;
+  }
+
+  entry = std::move(candidate);
+  return true;
 }
 
 BookMetadataCache::TocEntry BookMetadataCache::getTocEntry(const int index) {
