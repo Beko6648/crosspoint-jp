@@ -1,6 +1,6 @@
-#include <cassert>
-
 #include <VerticalTextUtils.h>
+
+#include <cassert>
 
 using VerticalTextUtils::UaxVerticalOrientation;
 
@@ -19,7 +19,7 @@ int main() {
 
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x3001) == UaxVerticalOrientation::TransformedUpright);  // 、
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x30FC) == UaxVerticalOrientation::TransformedRotated);  // ー
-  assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);              // ｰ
+  assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);             // ｰ
 
   // Tr punctuation and Japanese curly quotes must follow the same single-cell
   // path through parsing, layout, and rendering.
@@ -32,8 +32,7 @@ int main() {
 
   const auto* openingQuote = VerticalTextUtils::getVerticalPunctuationOffset(0x201C);
   const auto* closingQuote = VerticalTextUtils::getVerticalPunctuationOffset(0x201D);
-  assert(openingQuote != nullptr && openingQuote->rotate && openingQuote->dxEighths > 0 &&
-         openingQuote->dyEighths > 0);
+  assert(openingQuote != nullptr && openingQuote->rotate && openingQuote->dxEighths > 0 && openingQuote->dyEighths > 0);
   assert(closingQuote != nullptr && closingQuote->rotate && closingQuote->dxEighths < 0);
 
   using VerticalTextUtils::TateChuYokoKind;

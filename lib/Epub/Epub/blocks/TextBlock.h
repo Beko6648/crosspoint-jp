@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "Block.h"
 #include "../css/TextEmphasis.h"
+#include "Block.h"
 #include "BlockStyle.h"
 
 // Represents a line of text on a page
@@ -38,9 +38,9 @@ class TextBlock final : public Block {
  public:
   explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
                      std::vector<EpdFontFamily::Style> word_styles, const BlockStyle& blockStyle = BlockStyle(),
-                      std::vector<int16_t> word_ypos = {}, bool vertical = false,
-                      std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {},
-                      std::vector<TextEmphasis> emphasis = {}, uint8_t tate_chu_yoko_max_digits = 2)
+                     std::vector<int16_t> word_ypos = {}, bool vertical = false,
+                     std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {},
+                     std::vector<TextEmphasis> emphasis = {}, uint8_t tate_chu_yoko_max_digits = 2)
       : words(std::move(words)),
         wordXpos(std::move(word_xpos)),
         wordStyles(std::move(word_styles)),

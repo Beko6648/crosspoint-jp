@@ -33,17 +33,17 @@ struct PunctuationOffset {
 // dx/dyEighths are post-rotation fine-tuning offsets (usually 0).
 static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     // Punctuation - rotate to reposition from horizontal to vertical placement
-    {0x3001, 0, 0, true},  // 、 ideographic comma
-    {0x3002, 0, 0, true},  // 。 ideographic period
-    {0xFF0C, 0, 0, true},  // ， fullwidth comma
-    {0xFF0E, 0, 0, true},  // ． fullwidth period
-    {0xFF1A, 0, 0, true},  // ： fullwidth colon
-    {0xFF1B, 0, 0, true},  // ； fullwidth semicolon
-    {0xFF1C, 0, 0, true},  // fullwidth less-than sign
-    {0xFF1E, 0, 0, true},  // fullwidth greater-than sign
-    {0xFF61, 0, 0, true},  // ｡ halfwidth ideographic period
-    {0xFF64, 0, 0, true},  // ､ halfwidth ideographic comma
-    {0xFF65, 0, -2, true}, // ･ halfwidth katakana middle dot (raise in cell)
+    {0x3001, 0, 0, true},   // 、 ideographic comma
+    {0x3002, 0, 0, true},   // 。 ideographic period
+    {0xFF0C, 0, 0, true},   // ， fullwidth comma
+    {0xFF0E, 0, 0, true},   // ． fullwidth period
+    {0xFF1A, 0, 0, true},   // ： fullwidth colon
+    {0xFF1B, 0, 0, true},   // ； fullwidth semicolon
+    {0xFF1C, 0, 0, true},   // fullwidth less-than sign
+    {0xFF1E, 0, 0, true},   // fullwidth greater-than sign
+    {0xFF61, 0, 0, true},   // ｡ halfwidth ideographic period
+    {0xFF64, 0, 0, true},   // ､ halfwidth ideographic comma
+    {0xFF65, 0, -2, true},  // ･ halfwidth katakana middle dot (raise in cell)
     // Brackets - rotate so opening/closing direction matches vertical flow
     {0x300C, 0, 0, true},  // 「 left corner bracket
     {0x300D, 0, 0, true},  // 」 right corner bracket
@@ -82,14 +82,14 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0x201C, 2, 3, true},   // “ opening double quotation mark
     {0x201D, -2, 0, true},  // ” closing double quotation mark
     // Long marks - rotate to vertical orientation
-    {0x30FC, 0, 0, true},  // ー katakana long vowel mark
-    {0xFF70, 0, 0, true},  // ｰ halfwidth katakana-hiragana prolonged sound mark
-    {0x2014, 0, 0, true},  // — em dash
-    {0x2015, 0, 0, true},  // ― horizontal bar
-    {0x2026, 0, 0, true},  // … ellipsis
-    {0x301C, -1, 0, true}, // 〜 wave dash: center the rotated fallback glyph
-    {0xFF0D, 0, 0, true},  // － fullwidth hyphen-minus
-    {0xFF5E, 0, 0, true},  // ～ fullwidth tilde
+    {0x30FC, 0, 0, true},   // ー katakana long vowel mark
+    {0xFF70, 0, 0, true},   // ｰ halfwidth katakana-hiragana prolonged sound mark
+    {0x2014, 0, 0, true},   // — em dash
+    {0x2015, 0, 0, true},   // ― horizontal bar
+    {0x2026, 0, 0, true},   // … ellipsis
+    {0x301C, -1, 0, true},  // 〜 wave dash: center the rotated fallback glyph
+    {0xFF0D, 0, 0, true},   // － fullwidth hyphen-minus
+    {0xFF5E, 0, 0, true},   // ～ fullwidth tilde
 };
 static constexpr int VERTICAL_PUNCTUATION_COUNT = sizeof(VERTICAL_PUNCTUATION) / sizeof(VERTICAL_PUNCTUATION[0]);
 
@@ -115,13 +115,10 @@ inline bool isHalfwidthKatakana(uint32_t cp) {
 // Circled digits and related enclosed alphanumerics are conventionally kept
 // upright in Japanese vertical text. They are narrow glyphs, but use a full
 // Japanese character cell for line breaking and spacing.
-inline bool isEnclosedAlphanumeric(uint32_t cp) {
-  return cp >= 0x2460 && cp <= 0x24FF;
-}
+inline bool isEnclosedAlphanumeric(uint32_t cp) { return cp >= 0x2460 && cp <= 0x24FF; }
 
 inline bool isTateChuYokoPunctuationPair(const char* text) {
-  return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') &&
-         text[2] == '\0';
+  return text != nullptr && (text[0] == '!' || text[0] == '?') && (text[1] == '!' || text[1] == '?') && text[2] == '\0';
 }
 
 // Short ASCII runs that share one Japanese vertical character cell.
@@ -166,9 +163,7 @@ inline bool isAsciiAlphabeticWord(const char* text) {
 
 // Determine if a codepoint should be drawn upright in vertical text.
 // CJK ideographs, kana, CJK symbols, fullwidth forms, etc.
-inline bool isUprightInVertical(uint32_t cp) {
-  return isUaxUprightInVertical(cp);
-}
+inline bool isUprightInVertical(uint32_t cp) { return isUaxUprightInVertical(cp); }
 
 // Tr characters require a vertical presentation when the font has one, but
 // still reserve a single Japanese cell when Yomuka falls back to rotation.
@@ -275,19 +270,18 @@ inline bool isKinsokuHead(uint32_t cp) {
   if (cp == 0x3009 || cp == 0x300B) return true;                                  // 〉》
   // PR #144 と JLREQ の不足分。中点、引用符、ハイフン、繰返し記号なども
   // 直前の文字から離して行頭に出さない。横書きもこの判定を共有する。
-  if (cp == 0x30FB || cp == 0xFF65) return true;                                  // ・･
-  if (cp == 0x2019 || cp == 0x201D || cp == 0x301F || cp == 0xFF60) return true;  // ’”〟｠
-  if (cp == 0x2010 || cp == 0x2013 || cp == 0x301C || cp == 0x30A0 || cp == 0xFF5E)
-    return true;  // ‐–〜゠～
+  if (cp == 0x30FB || cp == 0xFF65) return true;                                                  // ・･
+  if (cp == 0x2019 || cp == 0x201D || cp == 0x301F || cp == 0xFF60) return true;                  // ’”〟｠
+  if (cp == 0x2010 || cp == 0x2013 || cp == 0x301C || cp == 0x30A0 || cp == 0xFF5E) return true;  // ‐–〜゠～
   if (cp == 0x3005 || cp == 0x303B || cp == 0x309D || cp == 0x309E || cp == 0x30FD || cp == 0x30FE)
-    return true;  // 々〻ゝゞヽヾ
+    return true;                                  // 々〻ゝゞヽヾ
   if (cp == 0xFF9E || cp == 0xFF9F) return true;  // 半角濁点・半濁点
   if (cp == 0x00B0 || cp == 0x2030 || cp == 0x2032 || cp == 0x2033 || cp == 0x2103 || cp == 0xFF05)
     return true;  // °‰′″℃％
   // Small kana (行頭禁止). Keep this shared with the complete small-kana
   // list so ゎ・ヮ・ゕ・ゖ・ヵ・ヶ and Ainu small katakana cannot be omitted.
   if (isSmallKana(cp)) return true;
-  if (cp == 0x30FC || cp == 0xFF70) return true;                                                  // ーｰ
+  if (cp == 0x30FC || cp == 0xFF70) return true;  // ーｰ
   return false;
 }
 
@@ -295,7 +289,7 @@ inline bool isKinsokuHead(uint32_t cp) {
 inline bool isKinsokuTail(uint32_t cp) {
   // Opening brackets (行末禁止)
   if (cp == 0x300C || cp == 0x300E || cp == 0x3010) return true;                  // 「『【
-  if (cp == 0xFF62) return true;                                                    // ｢
+  if (cp == 0xFF62) return true;                                                  // ｢
   if (cp == 0x3014 || cp == 0x3016 || cp == 0x3018 || cp == 0x301A) return true;  // 〔〖〘〚
   if (cp == 0xFF08 || cp == 0xFF3B || cp == 0xFF5B) return true;                  // （［｛
   if (cp == 0x3008 || cp == 0x300A) return true;                                  // 〈《

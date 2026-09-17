@@ -326,8 +326,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       if (isSingleVerticalGlyph) {
         int uprightX = wx;
-        if (VerticalTextUtils::isHalfwidthKatakana(firstCp) ||
-            VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
+        if (VerticalTextUtils::isHalfwidthKatakana(firstCp) || VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
           // Narrow upright glyphs can carry uneven side bearings. Align their
           // visible ink with the body CJK glyph, just as TateChuYoko aligns
           // halfwidth digits below.
@@ -350,11 +349,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         // Formula tokens contain one of the Unicode super/subscript digits.
         // Detect them from stored text so no per-word behavior array is needed
         // in the serialized page block.
-        const bool isFormula = words[i].find("\xC2\xB2") != std::string::npos ||
-                               words[i].find("\xC2\xB3") != std::string::npos ||
-                               words[i].find("\xC2\xB9") != std::string::npos ||
-                               words[i].find("\xE2\x81") != std::string::npos ||
-                               words[i].find("\xE2\x82") != std::string::npos;
+        const bool isFormula =
+            words[i].find("\xC2\xB2") != std::string::npos || words[i].find("\xC2\xB3") != std::string::npos ||
+            words[i].find("\xC2\xB9") != std::string::npos || words[i].find("\xE2\x81") != std::string::npos ||
+            words[i].find("\xE2\x82") != std::string::npos;
         if (isFormula) {
           // Do not render Unicode ²/₂ directly: several compact SD fonts
           // intentionally omit those glyphs. Decode the stored marker and
@@ -365,22 +363,30 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             subscript = false;
             const auto c = static_cast<unsigned char>(*p);
             if (c == 0xC2 && (static_cast<unsigned char>(p[1]) == 0xB2 || static_cast<unsigned char>(p[1]) == 0xB3 ||
-                               static_cast<unsigned char>(p[1]) == 0xB9)) {
-              ascii = static_cast<unsigned char>(p[1]) == 0xB2 ? '2' : static_cast<unsigned char>(p[1]) == 0xB3 ? '3' : '1';
-              script = true; p += 2; return true;
+                              static_cast<unsigned char>(p[1]) == 0xB9)) {
+              ascii = static_cast<unsigned char>(p[1]) == 0xB2   ? '2'
+                      : static_cast<unsigned char>(p[1]) == 0xB3 ? '3'
+                                                                 : '1';
+              script = true;
+              p += 2;
+              return true;
             }
             if (c == 0xE2 && static_cast<unsigned char>(p[1]) == 0x82 && static_cast<unsigned char>(p[2]) >= 0x80 &&
                 static_cast<unsigned char>(p[2]) <= 0x89) {
               ascii = static_cast<char>('0' + static_cast<unsigned char>(p[2]) - 0x80);
-              script = subscript = true; p += 3; return true;
+              script = subscript = true;
+              p += 3;
+              return true;
             }
-            ascii = *p++; return ascii != '\0';
+            ascii = *p++;
+            return ascii != '\0';
           };
           int formulaWidth = 0;
           int formulaMinX = INT_MAX;
           int formulaMaxX = INT_MIN;
           for (const char* p = w; *p;) {
-            char part; bool scriptPart, subPart;
+            char part;
+            bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
             const int partFont = scriptPart ? formulaScriptFont : wordFontId;
@@ -407,15 +413,17 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
                   "phase=%s token=%s bodyFont=%d scriptFont=%d wx=%d wy=%d column=%d bodyBounds=%d,%d "
                   "formulaBounds=%d,%d advance=%d bodyCenter=%d formulaCenter=%d drawX=%d",
                   isPrewarmScan ? "scan" : "draw", w, wordFontId, formulaScriptFont, wx, wy, columnWidth,
-                  verticalBodyMinX, verticalBodyMaxX, formulaMinX, formulaMaxX, formulaWidth, bodyCenter,
-                  formulaCenter, formulaX);
+                  verticalBodyMinX, verticalBodyMaxX, formulaMinX, formulaMaxX, formulaWidth, bodyCenter, formulaCenter,
+                  formulaX);
 #endif
           for (const char* p = w; *p;) {
-            char part; bool scriptPart, subPart;
+            char part;
+            bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
             const int partFont = scriptPart ? formulaScriptFont : wordFontId;
-            const int partY = wy + (subPart ? std::max(0, renderer.getLineHeight(wordFontId) - renderer.getLineHeight(partFont)) : 0);
+            const int partY =
+                wy + (subPart ? std::max(0, renderer.getLineHeight(wordFontId) - renderer.getLineHeight(partFont)) : 0);
             renderer.drawText(partFont, formulaX, partY, text, true, glyphStyle);
             formulaX += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }
@@ -424,9 +432,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           // Use the 10pt companion font only for the optional three-digit mode;
           // one- and two-digit TateChuYoko retain their established body size.
           const int tateChuYokoFont =
-              tateChuYokoKind == VerticalTextUtils::TateChuYokoKind::TripleDigit && smallFontId != 0
-                  ? smallFontId
-                  : wordFontId;
+              tateChuYokoKind == VerticalTextUtils::TateChuYokoKind::TripleDigit && smallFontId != 0 ? smallFontId
+                                                                                                     : wordFontId;
           // Align the actual halfwidth-digits bounds with a fullwidth digit
           // in the same column. This is more reliable than the abstract cell
           // width: some fonts (notably Noto) have a cell center that differs
@@ -459,9 +466,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           decorationHeight = wordYpos[i + 1] - wordYpos[i];
         }
         if (decorationHeight <= 0) {
-          decorationHeight = isSingleVerticalGlyph
-                                 ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
-                                 : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
+          decorationHeight = isSingleVerticalGlyph ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
+                                                   : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
         }
         decorationHeight = std::max(1, decorationHeight);
         if (hasUnderline) {
@@ -481,8 +487,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 #if DEBUG_RUBY_RENDER
         LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s singleVertical=%d x=%d y=%d",
                 static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(),
-                isSingleVerticalGlyph ? 1 : 0, wx,
-                wy);
+                isSingleVerticalGlyph ? 1 : 0, wx, wy);
 #endif
       }
 
@@ -501,7 +506,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
-        const int rightBaseX = wx + (blockHasEmphasis ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4) : rubyBaseOffset + gap);
+        const int rightBaseX =
+            wx + (blockHasEmphasis
+                      ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4)
+                      : rubyBaseOffset + gap);
         // Vertical ruby always stays on the standard right side of its base
         // text. The first column may use the reader's right screen margin.
         // If the margin is too narrow, clamp at the physical screen edge; the
@@ -569,7 +577,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
                                : INT_MAX;
         const int rubyY =
-            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) + rubyOffsetY, minRubyY, maxRubyY);
+            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight
+                                         : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) +
+                           rubyOffsetY,
+                       minRubyY, maxRubyY);
         renderer.drawText(rubyFontId, rubyX, rubyY, rubyTexts[i].c_str(), true, EpdFontFamily::REGULAR);
       }
 
@@ -783,7 +794,6 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   }
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
-                                                   blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
-                                                   std::move(inlineImages), std::move(emphasis),
-                                                   tateChuYokoMaxDigits));
+                                                  blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
+                                                  std::move(inlineImages), std::move(emphasis), tateChuYokoMaxDigits));
 }

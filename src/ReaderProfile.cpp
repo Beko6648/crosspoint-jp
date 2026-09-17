@@ -143,8 +143,7 @@ bool readDirection(JsonObjectConst obj, DirectionSettings& target) {
   // user-visible offset 0, stored internally with the +16 bias.
   if (!obj["rubyOffsetX"].isNull() && !readU8(obj, "rubyOffsetX", 0, 80, target.rubyOffsetX)) return false;
   if (!obj["rubyOffsetY"].isNull() && !readU8(obj, "rubyOffsetY", 0, 80, target.rubyOffsetY)) return false;
-  if (!obj["tateChuYokoMaxDigits"].isNull() &&
-      !readU8(obj, "tateChuYokoMaxDigits", 2, 3, target.tateChuYokoMaxDigits))
+  if (!obj["tateChuYokoMaxDigits"].isNull() && !readU8(obj, "tateChuYokoMaxDigits", 2, 3, target.tateChuYokoMaxDigits))
     return false;
   strncpy(target.sdFontFamilyName, familyName, sizeof(target.sdFontFamilyName) - 1);
   target.sdFontFamilyName[sizeof(target.sdFontFamilyName) - 1] = '\0';
@@ -154,17 +153,20 @@ bool readDirection(JsonObjectConst obj, DirectionSettings& target) {
 bool parse(const String& json, ProfileData& target) {
   JsonDocument doc;
   if (deserializeJson(doc, json)) return false;
-  if ((doc["formatVersion"] | 0) != kFormatVersion || strcmp(doc["kind"] | "", "yomuka-reader-profile") != 0) return false;
+  if ((doc["formatVersion"] | 0) != kFormatVersion || strcmp(doc["kind"] | "", "yomuka-reader-profile") != 0)
+    return false;
   const JsonObjectConst reader = doc["reader"].as<JsonObjectConst>();
   const JsonObjectConst status = reader["statusBar"].as<JsonObjectConst>();
-  if (reader.isNull() || status.isNull() || !readDirection(reader["horizontal"].as<JsonObjectConst>(), target.horizontal) ||
+  if (reader.isNull() || status.isNull() ||
+      !readDirection(reader["horizontal"].as<JsonObjectConst>(), target.horizontal) ||
       !readDirection(reader["vertical"].as<JsonObjectConst>(), target.vertical) ||
       !readU8(reader, "writingMode", 0, CrossPointSettings::WRITING_MODE_COUNT - 1, target.writingMode) ||
       !readU8(reader, "orientation", 0, CrossPointSettings::ORIENTATION_COUNT - 1, target.orientation) ||
       !readU8(reader, "embeddedStyle", 0, CrossPointSettings::BOOK_STYLE_COUNT - 1, target.embeddedStyle) ||
       !readU8(reader, "imageRendering", 0, CrossPointSettings::IMAGE_RENDERING_COUNT - 1, target.imageRendering) ||
       !readU8(reader, "invertImages", 0, 1, target.invertImages) ||
-      !readU8(reader, "refreshFrequency", 0, CrossPointSettings::REFRESH_FREQUENCY_COUNT - 1, target.refreshFrequency) ||
+      !readU8(reader, "refreshFrequency", 0, CrossPointSettings::REFRESH_FREQUENCY_COUNT - 1,
+              target.refreshFrequency) ||
       !readU8(reader, "longPressChapterSkip", 0, 1, target.longPressChapterSkip) ||
       !readU8(status, "chapterPageCount", 0, 1, target.statusBarChapterPageCount) ||
       !readU8(status, "bookProgressPercentage", 0, 1, target.statusBarBookProgressPercentage) ||
@@ -185,8 +187,8 @@ bool parse(const String& json, ProfileData& target) {
   } else if (!status["xtcProgressBar"].isNull()) {
     uint8_t legacyProgressBar = 0;
     if (!readU8(status, "xtcProgressBar", 0, 1, legacyProgressBar)) return false;
-    target.xtcStatusBarMode = legacyProgressBar ? CrossPointSettings::XTC_STATUS_BAR_BOTTOM
-                                                 : CrossPointSettings::XTC_STATUS_BAR_HIDE;
+    target.xtcStatusBarMode =
+        legacyProgressBar ? CrossPointSettings::XTC_STATUS_BAR_BOTTOM : CrossPointSettings::XTC_STATUS_BAR_HIDE;
   }
   const char* externalFontFilename = reader["externalFontFilename"] | "";
   if (strlen(externalFontFilename) >= sizeof(target.externalFontFilename)) return false;
@@ -257,8 +259,18 @@ bool apply(const ProfileData& data, bool* externalFontFallback = nullptr) {
 ProfileData defaults() {
   ProfileData data{};
   data.horizontal = DirectionSettings{};
-  data.vertical = {CrossPointSettings::NOTOSANS, "", CrossPointSettings::MEDIUM,
-                   CrossPointSettings::LINE_SPACING_DEFAULT, 15, CrossPointSettings::JUSTIFIED, 0, 0, 10, 1, 1, 16,
+  data.vertical = {CrossPointSettings::NOTOSANS,
+                   "",
+                   CrossPointSettings::MEDIUM,
+                   CrossPointSettings::LINE_SPACING_DEFAULT,
+                   15,
+                   CrossPointSettings::JUSTIFIED,
+                   0,
+                   0,
+                   10,
+                   1,
+                   1,
+                   16,
                    16};
   data.writingMode = CrossPointSettings::WM_AUTO;
   data.orientation = CrossPointSettings::PORTRAIT;

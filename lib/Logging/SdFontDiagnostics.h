@@ -77,14 +77,13 @@ inline uint32_t nowUs() { return micros(); }
 inline void logSnapshot(const char* event, const char* family, const uint8_t pointSize, const HeapSnapshot& heap,
                         const uint32_t elapsedUs, const bool includeElapsed, const bool replayed) {
   if (includeElapsed) {
-    LOG_INF("SFD",
-            "event=%s family=%s pt=%u style=0x00 spine=-1 page=-1 free=%u largest8=%u min8=%u elapsed_us=%u%s",
+    LOG_INF("SFD", "event=%s family=%s pt=%u style=0x00 spine=-1 page=-1 free=%u largest8=%u min8=%u elapsed_us=%u%s",
             event, family, pointSize, heap.free, heap.largest8, heap.minimum8, elapsedUs,
             replayed ? " replayed=1" : "");
     return;
   }
-  LOG_INF("SFD", "event=%s family=%s pt=%u style=0x00 spine=-1 page=-1 free=%u largest8=%u min8=%u%s", event,
-          family, pointSize, heap.free, heap.largest8, heap.minimum8, replayed ? " replayed=1" : "");
+  LOG_INF("SFD", "event=%s family=%s pt=%u style=0x00 spine=-1 page=-1 free=%u largest8=%u min8=%u%s", event, family,
+          pointSize, heap.free, heap.largest8, heap.minimum8, replayed ? " replayed=1" : "");
 }
 
 inline void rememberFontLoadBefore() {
@@ -94,7 +93,8 @@ inline void rememberFontLoadBefore() {
   fontLoadRecord.valid = true;
   fontLoadRecord.succeeded = false;
   fontLoadRecord.replayed = false;
-  logSnapshot("font_load_before", fontLoadRecord.family, fontLoadRecord.pointSize, fontLoadRecord.before, 0, false, false);
+  logSnapshot("font_load_before", fontLoadRecord.family, fontLoadRecord.pointSize, fontLoadRecord.before, 0, false,
+              false);
 }
 
 inline void rememberFontLoadAfter(const bool succeeded, const uint32_t elapsedUs) {
@@ -107,7 +107,8 @@ inline void rememberFontLoadAfter(const bool succeeded, const uint32_t elapsedUs
 
 inline void replayFontLoad() {
   if (!fontLoadRecord.valid || fontLoadRecord.replayed) return;
-  logSnapshot("font_load_before", fontLoadRecord.family, fontLoadRecord.pointSize, fontLoadRecord.before, 0, false, true);
+  logSnapshot("font_load_before", fontLoadRecord.family, fontLoadRecord.pointSize, fontLoadRecord.before, 0, false,
+              true);
   logSnapshot(fontLoadRecord.succeeded ? "font_load_after" : "font_load_failed", fontLoadRecord.family,
               fontLoadRecord.pointSize, fontLoadRecord.after, fontLoadRecord.elapsedUs, true, true);
   fontLoadRecord.replayed = true;
@@ -117,14 +118,12 @@ inline void logMemory(const char* event, const uint8_t styleMask = 0, const uint
                       const bool includeElapsed = false) {
   const HeapSnapshot heap = captureHeap();
   if (includeElapsed) {
-    LOG_INF("SFD",
-            "event=%s family=%s pt=%u style=0x%02X spine=%d page=%d free=%u largest8=%u min8=%u elapsed_us=%u",
+    LOG_INF("SFD", "event=%s family=%s pt=%u style=0x%02X spine=%d page=%d free=%u largest8=%u min8=%u elapsed_us=%u",
             event, context.family, context.pointSize, styleMask, context.spine, context.page, heap.free, heap.largest8,
             heap.minimum8, elapsedUs);
     return;
   }
-  LOG_INF("SFD",
-          "event=%s family=%s pt=%u style=0x%02X spine=%d page=%d free=%u largest8=%u min8=%u", event,
+  LOG_INF("SFD", "event=%s family=%s pt=%u style=0x%02X spine=%d page=%d free=%u largest8=%u min8=%u", event,
           context.family, context.pointSize, styleMask, context.spine, context.page, heap.free, heap.largest8,
           heap.minimum8);
 }

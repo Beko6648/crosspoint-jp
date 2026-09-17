@@ -1,6 +1,5 @@
 #include "Epub.h"
 
-
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
@@ -33,13 +32,14 @@ bool findAttributeValue(const std::string_view tag, const std::string_view attri
   while (true) {
     const size_t attributeStart = tag.find(attribute, searchFrom);
     if (attributeStart == std::string_view::npos) return false;
-    const bool validStart = attributeStart == 0 ||
-                            (tag[attributeStart - 1] != ':' && tag[attributeStart - 1] != '-' &&
-                             tag[attributeStart - 1] != '_' &&
-                             !(tag[attributeStart - 1] >= 'a' && tag[attributeStart - 1] <= 'z') &&
-                             !(tag[attributeStart - 1] >= 'A' && tag[attributeStart - 1] <= 'Z'));
+    const bool validStart =
+        attributeStart == 0 ||
+        (tag[attributeStart - 1] != ':' && tag[attributeStart - 1] != '-' && tag[attributeStart - 1] != '_' &&
+         !(tag[attributeStart - 1] >= 'a' && tag[attributeStart - 1] <= 'z') &&
+         !(tag[attributeStart - 1] >= 'A' && tag[attributeStart - 1] <= 'Z'));
     size_t cursor = attributeStart + attribute.size();
-    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+    while (cursor < tag.size() &&
+           (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
       ++cursor;
     }
     if (!validStart || cursor >= tag.size() || tag[cursor] != '=') {
@@ -47,7 +47,8 @@ bool findAttributeValue(const std::string_view tag, const std::string_view attri
       continue;
     }
     ++cursor;
-    while (cursor < tag.size() && (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
+    while (cursor < tag.size() &&
+           (tag[cursor] == ' ' || tag[cursor] == '\t' || tag[cursor] == '\r' || tag[cursor] == '\n')) {
       ++cursor;
     }
     if (cursor >= tag.size() || (tag[cursor] != '\'' && tag[cursor] != '"')) return false;
@@ -77,8 +78,7 @@ bool findRasterCoverImageReference(const std::string_view markup, std::string& r
       const bool hasReference = isHtmlImage ? findAttributeValue(tag, "src", candidate)
                                             : (findAttributeValue(tag, "xlink:href", candidate) ||
                                                findAttributeValue(tag, "href", candidate));
-      if (hasReference &&
-          isRasterImageReference(candidate)) {
+      if (hasReference && isRasterImageReference(candidate)) {
         reference = std::move(candidate);
         return true;
       }
@@ -189,8 +189,8 @@ bool Epub::isFullCacheGenerated() const {
     return false;
   }
   uint8_t version = 0;
-  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) &&
-                     marker.available() == 0 && version == FULL_CACHE_MARKER_VERSION;
+  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) && marker.available() == 0 &&
+                     version == FULL_CACHE_MARKER_VERSION;
   marker.close();
   return valid;
 }
@@ -204,7 +204,7 @@ Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
   // cache directory first: the section lookup already distinguishes a missing
   // cache from a resumable one, and this function runs once per visible book.
   return Storage.exists((cachePath + "/sections").c_str()) ? CacheGenerationStatus::Resumable
-                                                            : CacheGenerationStatus::NotGenerated;
+                                                           : CacheGenerationStatus::NotGenerated;
 }
 
 bool Epub::getSourceFingerprint(uint64_t* fingerprint) const {
@@ -455,7 +455,6 @@ void Epub::discoverCssFilesFromZip() {
       })) {
     LOG_ERR("EBP", "Failed to enumerate ZIP file paths for CSS discovery");
   }
-
 }
 
 void Epub::parseCssFiles() const {
@@ -539,8 +538,8 @@ void Epub::parseCssFiles() const {
     // Explicitly close() file before calling Storage.remove()
     tempCssFile.close();
     Storage.remove(tmpCssPath.c_str());
-    LOG_DBG("EBP", "CSS heap after %s: rules=%zu, free=%u, maxAlloc=%u", cssPath.c_str(),
-            cssParser->ruleCount(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("EBP", "CSS heap after %s: rules=%zu, free=%u, maxAlloc=%u", cssPath.c_str(), cssParser->ruleCount(),
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   }
 
   // A low-heap-truncated rule set must not become a permanent cache. A later
@@ -595,7 +594,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
           LOG_ERR("EBP", "Could not parse content.opf from cached bookMetadata for CSS files");
           // continue anyway - book will work without CSS and we'll still load any inline style CSS
         } else {
-
           discoverCssFilesFromZip();
         }
         bookMetadataCache.reset();

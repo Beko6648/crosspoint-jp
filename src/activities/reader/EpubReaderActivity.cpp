@@ -23,8 +23,6 @@
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "activities/settings/DiagnosticsActivity.h"
-#include "activities/settings/FontSelectionActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderDetailsActivity.h"
@@ -34,20 +32,22 @@
 #include "MappedInputManager.h"
 #include "OrientationHelper.h"
 #include "ProgressFile.h"
-#include "ReadingHistoryStore.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
-#include "RecentBooksStore.h"
+#include "ReadingHistoryStore.h"
 #include "ReadingStatusHelper.h"
+#include "RecentBooksStore.h"
 #include "SdCardFontGlobals.h"
+#include "activities/settings/DiagnosticsActivity.h"
+#include "activities/settings/FontSelectionActivity.h"
 #include "activities/settings/LineSpacingSelectionActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "util/BookmarkUtil.h"
 #include "util/BookDataPath.h"
+#include "util/BookmarkUtil.h"
 #include "util/CacheGenerationControls.h"
 #include "util/ScreenshotUtil.h"
 
@@ -206,11 +206,11 @@ void EpubReaderActivity::pregenerateCache() {
     }
 
     Section sec(epub, i, renderer);
-    const bool sectionCached = sec.loadSectionFile(
-        SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
-        ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-        ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing,
-        ds.tateChuYokoMaxDigits);
+    const bool sectionCached =
+        sec.loadSectionFile(SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
+                            ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight,
+                            ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+                            isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits);
     if (sectionCached) {
       sectionCacheHits++;
     } else {
@@ -253,7 +253,6 @@ void EpubReaderActivity::pregenerateCache() {
       fcm->releaseSdFontCaches();
       fcm->releaseSdFontVerticalGlyphs();
     }
-
   }
   const bool imagesComplete = !cancelled;
 
@@ -603,8 +602,7 @@ void EpubReaderActivity::loop() {
   // MappedInputManager rotates the side controls with the device. Keep that
   // physical direction in landscape; only the CCW front controls need a
   // reading-direction correction.
-  const bool reverseFrontButtons =
-      verticalMode && orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+  const bool reverseFrontButtons = verticalMode && orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseFrontButtons);
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
@@ -736,9 +734,7 @@ void EpubReaderActivity::invalidateSectionPreservingPosition() {
   }
 }
 
-void EpubReaderActivity::clearDeferredReposition() {
-  cachedChapterTotalPageCount = 0;
-}
+void EpubReaderActivity::clearDeferredReposition() { cachedChapterTotalPageCount = 0; }
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
   switch (action) {
@@ -934,24 +930,25 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::OPEN_BOOK_READER_SETTINGS: {
       uint64_t fingerprint = 0;
       if (!epub->getSourceFingerprint(&fingerprint)) break;
-      startActivityForResult(std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
-                             [this, fingerprint](const ActivityResult& result) {
-                               if (result.isCancelled) return;
-                               BookReaderSettings::Override bookOverride;
-                               const bool hasOverride = BookReaderSettings::load(fingerprint, bookOverride) &&
-                                                        BookReaderSettings::hasAnyField(bookOverride);
-                               if (hasOverride) {
-                                 BookReaderSettings::apply(bookOverride, SETTINGS);
-                               } else if (!SETTINGS.loadFromFile()) {
-                                 LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
-                                 return;
-                               }
-                               restoreGlobalReaderSettingsOnExit = hasOverride;
-                               ensureSdFontLoaded(verticalMode);
-                               configureRubyFont(verticalMode);
-                               invalidateSectionPreservingPosition();
-                               requestUpdate();
-                             });
+      startActivityForResult(
+          std::make_unique<BookReaderSettingsActivity>(renderer, mappedInput, fingerprint, verticalMode),
+          [this, fingerprint](const ActivityResult& result) {
+            if (result.isCancelled) return;
+            BookReaderSettings::Override bookOverride;
+            const bool hasOverride =
+                BookReaderSettings::load(fingerprint, bookOverride) && BookReaderSettings::hasAnyField(bookOverride);
+            if (hasOverride) {
+              BookReaderSettings::apply(bookOverride, SETTINGS);
+            } else if (!SETTINGS.loadFromFile()) {
+              LOG_ERR("BOOKSET", "Could not restore Global settings after clearing override");
+              return;
+            }
+            restoreGlobalReaderSettingsOnExit = hasOverride;
+            ensureSdFontLoaded(verticalMode);
+            configureRubyFont(verticalMode);
+            invalidateSectionPreservingPosition();
+            requestUpdate();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DIAGNOSTICS: {
@@ -1275,9 +1272,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     SD_FONT_DIAG_LOG("page_layout_check_before", 0);
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), SETTINGS.getTableFontId(verticalMode),
                                   lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth,
-                                   viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-                                   SETTINGS.imageRendering, verticalMode, ds.charSpacing,
-                                   ds.tateChuYokoMaxDigits)) {
+                                  viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                                  SETTINGS.imageRendering, verticalMode, ds.charSpacing, ds.tateChuYokoMaxDigits)) {
       LOG_DBG("ERS", "Cache not found, building...");
       const uint32_t pageLayoutStartedAt = SD_FONT_DIAG_NOW_US();
       SD_FONT_DIAG_LOG("page_layout_before", 0);
@@ -1422,7 +1418,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     const auto start = millis();
     const uint32_t pageDrawStartedAt = SD_FONT_DIAG_NOW_US();
-    SD_FONT_DIAG_CONTEXT(ds.sdFontFamilyName, diagnosticPointSize(ds.fontSize), currentSpineIndex, section->currentPage);
+    SD_FONT_DIAG_CONTEXT(ds.sdFontFamilyName, diagnosticPointSize(ds.fontSize), currentSpineIndex,
+                         section->currentPage);
     SD_FONT_DIAG_LOG("page_draw_before", 0);
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     SD_FONT_DIAG_LOG_AFTER("page_draw_after", 0, pageDrawStartedAt);
@@ -1479,12 +1476,11 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 
   const auto& silentDs = SETTINGS.getDirectionSettings(verticalMode);
   Section nextSection(epub, nextSpineIndex, renderer);
-  if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(verticalMode),
-                                  SETTINGS.getTableFontId(verticalMode), SETTINGS.getReaderLineCompression(verticalMode),
-                                  silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth,
-                                   viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent,
-                                   SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
-                                   silentDs.charSpacing, silentDs.tateChuYokoMaxDigits)) {
+  if (nextSection.loadSectionFile(
+          SETTINGS.getReaderFontId(verticalMode), SETTINGS.getTableFontId(verticalMode),
+          SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing, silentDs.paragraphAlignment,
+          viewportWidth, viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
+          SETTINGS.imageRendering, verticalMode, silentDs.charSpacing, silentDs.tateChuYokoMaxDigits)) {
     return;
   }
 
@@ -1496,13 +1492,12 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
                                  SETTINGS.getReaderFontIdForSize(verticalMode, CrossPointSettings::MEDIUM),
                                  SETTINGS.getReaderFontIdForSize(verticalMode, CrossPointSettings::LARGE),
                                  SETTINGS.getReaderFontIdForSize(verticalMode, CrossPointSettings::EXTRA_LARGE)};
-  if (!nextSection.createSectionFile(SETTINGS.getReaderFontId(verticalMode),
-                                     SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing,
-                                     silentDs.paragraphAlignment, viewportWidth, viewportHeight,
-                                     silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
-                                     SETTINGS.imageRendering, verticalMode, silentDs.charSpacing,
-                                     silentDs.tateChuYokoMaxDigits, nullptr,
-                                     silentHeadingFontIds, SETTINGS.getTableFontId(verticalMode), cssBodyFontIds)) {
+  if (!nextSection.createSectionFile(
+          SETTINGS.getReaderFontId(verticalMode), SETTINGS.getReaderLineCompression(verticalMode),
+          silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth, viewportHeight,
+          silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+          verticalMode, silentDs.charSpacing, silentDs.tateChuYokoMaxDigits, nullptr, silentHeadingFontIds,
+          SETTINGS.getTableFontId(verticalMode), cssBodyFontIds)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }
 }
@@ -1518,8 +1513,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   data[6] = isFinished ? 1 : 0;
   uint64_t bookId = 0;
   const bool hasBookId = epub->getSourceFingerprint(&bookId);
-  const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId)
-                                             : epub->getCachePath() + "/progress.bin";
+  const std::string progressPath =
+      hasBookId ? BookDataPath::getProgressPath(bookId) : epub->getCachePath() + "/progress.bin";
   if ((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
       ProgressFile::writeAtomicPath(progressPath, data, sizeof(data))) {
     std::vector<BookListStatusEntry> statusEntries;
@@ -1662,17 +1657,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 #define LOG_RENDER_TIMING LOG_DBG
 #endif
   if (hasImages && bwStored) {
-    LOG_RENDER_TIMING("ERS",
-                      "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums gray_lsb=%lums "
-                      "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
-                      tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd,
-                      tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay, tGrayMsb - tGrayLsb,
-                      tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
+    LOG_RENDER_TIMING(
+        "ERS",
+        "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums gray_lsb=%lums "
+        "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
+        tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd, tBwRender - tPrewarm,
+        tDisplay - tBwRender, tGrayLsb - tDisplay, tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb,
+        tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
-    LOG_RENDER_TIMING("ERS",
-                      "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums total=%lums",
-                      tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd,
-                      tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
+    LOG_RENDER_TIMING(
+        "ERS", "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums total=%lums",
+        tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd, tBwRender - tPrewarm,
+        tDisplay - tBwRender, tEnd - t0);
   }
 #undef LOG_RENDER_TIMING
 }
@@ -1783,8 +1779,8 @@ void EpubReaderActivity::toggleBookmark() {
   }
   uint64_t bookId = 0;
   const bool hasBookId = epub->getSourceFingerprint(&bookId);
-  const std::string path = hasBookId ? BookDataPath::getBookmarkPath(bookId)
-                                     : BookmarkUtil::getBookmarkPath(epub->getPath());
+  const std::string path =
+      hasBookId ? BookDataPath::getBookmarkPath(bookId) : BookmarkUtil::getBookmarkPath(epub->getPath());
   if (!((!hasBookId || BookDataPath::ensureDirectory(bookId)) &&
         JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str()))) {
     LOG_ERR("BKM", "Failed to save bookmarks");

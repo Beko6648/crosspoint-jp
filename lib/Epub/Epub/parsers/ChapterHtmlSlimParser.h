@@ -121,7 +121,10 @@ class ChapterHtmlSlimParser {
     bool rubyBaseTagStyle = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
-  struct EmphasisEntry { int depth; TextEmphasis value; };
+  struct EmphasisEntry {
+    int depth;
+    TextEmphasis value;
+  };
   std::vector<EmphasisEntry> emphasisStack;
   TextEmphasis activeEmphasis() const {
     return emphasisStack.empty() ? TextEmphasis::None : emphasisStack.back().value;
@@ -199,10 +202,10 @@ class ChapterHtmlSlimParser {
                                  const std::function<void(std::unique_ptr<Page>)>& completePageFn,
                                  const uint8_t bookStyle, const std::string& contentBase,
                                  const std::string& imageBasePath, const uint8_t imageRendering = 0,
-                                  const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr,
-                                  const int* headingFontIds = nullptr, int tableFontId = 0, bool verticalMode = false,
-                                  const int* cssBodyFontIds = nullptr, const std::function<bool()>& cancelFn = nullptr,
-                                  uint8_t tateChuYokoMaxDigits = 2)
+                                 const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr,
+                                 const int* headingFontIds = nullptr, int tableFontId = 0, bool verticalMode = false,
+                                 const int* cssBodyFontIds = nullptr, const std::function<bool()>& cancelFn = nullptr,
+                                 uint8_t tateChuYokoMaxDigits = 2)
 
       : epub(epub),
         filepath(filepath),

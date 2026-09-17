@@ -889,8 +889,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 #if defined(SD_FONT_COALESCE_READS) && SD_FONT_COALESCE_READS
       if (lastMetadataEnd != UINT32_MAX && fileOff > lastMetadataEnd) {
         const uint32_t gap = fileOff - lastMetadataEnd;
-        if (gap <= COALESCE_MAX_GAP_BYTES &&
-            gap <= COALESCE_MAX_EXTRA_BYTES_PER_STYLE - readAheadBudgetUsed) {
+        if (gap <= COALESCE_MAX_GAP_BYTES && gap <= COALESCE_MAX_EXTRA_BYTES_PER_STYLE - readAheadBudgetUsed) {
           if (!readAndDiscard(file, gap)) {
             LOG_ERR("SDCF", "Prewarm: short metadata read-ahead (style %u)", styleIdx);
             file.close();
@@ -1045,8 +1044,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 #if defined(SD_FONT_COALESCE_READS) && SD_FONT_COALESCE_READS
         if (lastBitmapEnd != UINT32_MAX && fileOff > lastBitmapEnd) {
           const uint32_t gap = fileOff - lastBitmapEnd;
-          if (gap <= COALESCE_MAX_GAP_BYTES &&
-              gap <= COALESCE_MAX_EXTRA_BYTES_PER_STYLE - readAheadBudgetUsed) {
+          if (gap <= COALESCE_MAX_GAP_BYTES && gap <= COALESCE_MAX_EXTRA_BYTES_PER_STYLE - readAheadBudgetUsed) {
             if (!readAndDiscard(file, gap)) {
               LOG_ERR("SDCF", "Prewarm: short bitmap read-ahead (style %u)", styleIdx);
               file.close();
@@ -1072,8 +1070,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 #endif
         }
       }
-      uint8_t* const target = s.miniBitmapIsChunked ? s.miniBitmapChunks[chunkIndex]
-                                                      : s.miniBitmap + miniBitmapOffset;
+      uint8_t* const target = s.miniBitmapIsChunked ? s.miniBitmapChunks[chunkIndex] : s.miniBitmap + miniBitmapOffset;
       if (file.read(target, batchBytes) != static_cast<int>(batchBytes)) {
         LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
         file.close();
@@ -1684,18 +1681,17 @@ int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
 
 void SdCardFont::logStats(const char* label) {
 #if defined(RENDER_PROFILE)
-  LOG_INF("SDCF",
-          "[%s] total=%ums sd_read=%ums seeks=%u metadata_seeks=%u bitmap_seeks=%u glyphs=%u bitmap=%u bytes",
+  LOG_INF("SDCF", "[%s] total=%ums sd_read=%ums seeks=%u metadata_seeks=%u bitmap_seeks=%u glyphs=%u bitmap=%u bytes",
           label, stats_.prewarmTotalMs, stats_.sdReadTimeMs, stats_.seekCount, stats_.metadataSeekCount,
           stats_.bitmapSeekCount, stats_.uniqueGlyphs, stats_.bitmapBytes);
   LOG_INF("SDCF",
-          "[%s-io] metadata_reads=%u bitmap_reads=%u metadata_batches=%u bitmap_batches=%u metadata_batched=%u bitmap_batched=%u max_batch=%u bytes coalesced=%u read_ahead=%u bytes",
+          "[%s-io] metadata_reads=%u bitmap_reads=%u metadata_batches=%u bitmap_batches=%u metadata_batched=%u "
+          "bitmap_batched=%u max_batch=%u bytes coalesced=%u read_ahead=%u bytes",
           label, stats_.metadataReadCount, stats_.bitmapReadCount, stats_.metadataBatchCount, stats_.bitmapBatchCount,
           stats_.metadataBatchedGlyphs, stats_.bitmapBatchedGlyphs, stats_.maxBatchBytes, stats_.coalescedGapCount,
           stats_.readAheadBytes);
-  LOG_INF("SDCF", "[%s-arena] hits=%u bitmap_reuse=%u bitmap_grow=%u releases=%u", label,
-          stats_.residentHitCount, stats_.bitmapArenaReuseCount, stats_.bitmapArenaGrowCount,
-          stats_.retainedReleaseCount);
+  LOG_INF("SDCF", "[%s-arena] hits=%u bitmap_reuse=%u bitmap_grow=%u releases=%u", label, stats_.residentHitCount,
+          stats_.bitmapArenaReuseCount, stats_.bitmapArenaGrowCount, stats_.retainedReleaseCount);
 #else
   LOG_DBG("SDCF", "[%s] total=%ums sd_read=%ums seeks=%u glyphs=%u bitmap=%u bytes", label, stats_.prewarmTotalMs,
           stats_.sdReadTimeMs, stats_.seekCount, stats_.uniqueGlyphs, stats_.bitmapBytes);

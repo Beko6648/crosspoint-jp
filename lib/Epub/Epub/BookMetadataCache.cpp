@@ -43,8 +43,8 @@ bool skipCacheString(FsFile& file, const size_t fileSize) {
   return file.seek(file.position() + length);
 }
 
-bool validateBookCache(FsFile& file, BookMetadataCache::BookMetadata& metadata, size_t& lutOffset,
-                       uint16_t& spineCount, uint16_t& tocCount) {
+bool validateBookCache(FsFile& file, BookMetadataCache::BookMetadata& metadata, size_t& lutOffset, uint16_t& spineCount,
+                       uint16_t& tocCount) {
   const size_t fileSize = file.size();
   constexpr size_t MIN_FILE_SIZE = sizeof(BOOK_CACHE_VERSION) + sizeof(uint32_t) + sizeof(spineCount) +
                                    sizeof(tocCount) + sizeof(uint32_t) * 5 + sizeof(bool);
@@ -60,8 +60,7 @@ bool validateBookCache(FsFile& file, BookMetadataCache::BookMetadata& metadata, 
   }
   lutOffset = storedLutOffset;
 
-  if (!readMetadataString(file, metadata.title, lutOffset) ||
-      !readMetadataString(file, metadata.author, lutOffset) ||
+  if (!readMetadataString(file, metadata.title, lutOffset) || !readMetadataString(file, metadata.author, lutOffset) ||
       !readMetadataString(file, metadata.language, lutOffset) ||
       !readMetadataString(file, metadata.coverItemHref, lutOffset) ||
       !readMetadataString(file, metadata.textReferenceHref, lutOffset) ||
@@ -105,9 +104,9 @@ bool validateBookCache(FsFile& file, BookMetadataCache::BookMetadata& metadata, 
       } else {
         uint8_t level = 0;
         int16_t spineIndex = -1;
-        if (!skipCacheString(file, fileSize) || !skipCacheString(file, fileSize) ||
-            !skipCacheString(file, fileSize) || !readPodChecked(file, level) || !readPodChecked(file, spineIndex) ||
-            spineIndex < -1 || (spineIndex >= 0 && static_cast<uint16_t>(spineIndex) >= spineCount)) {
+        if (!skipCacheString(file, fileSize) || !skipCacheString(file, fileSize) || !skipCacheString(file, fileSize) ||
+            !readPodChecked(file, level) || !readPodChecked(file, spineIndex) || spineIndex < -1 ||
+            (spineIndex >= 0 && static_cast<uint16_t>(spineIndex) >= spineCount)) {
           return false;
         }
       }

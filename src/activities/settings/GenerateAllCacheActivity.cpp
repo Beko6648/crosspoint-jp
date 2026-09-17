@@ -85,7 +85,7 @@ int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xO
 }
 
 int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
-                                          const int yOffset, int& pagesScanned) {
+                                            const int yOffset, int& pagesScanned) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
@@ -299,8 +299,7 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
   }
 
   if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true,
-                              EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CACHE_INTERRUPTED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -383,8 +382,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const int progress = (bookIdx * 100) / totalCount;
     if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
-      progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
-                       std::to_string(totalCount);
+      progressDetail =
+          std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" + std::to_string(totalCount);
       const uint32_t displayStartedAt = millis();
       GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
@@ -474,19 +473,19 @@ void GenerateAllCacheActivity::generateAllCaches() {
       const int overallProgress = (bookIdx * 100 + bookProgress) / totalCount;
       if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
         progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
-                         std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " +
-                         std::to_string(i + 1) + "/" + std::to_string(spineCount);
+                         std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " + std::to_string(i + 1) + "/" +
+                         std::to_string(spineCount);
         const uint32_t displayStartedAt = millis();
         GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
         progressDisplayMs += millis() - displayStartedAt;
         lastDisplayedProgress = overallProgress;
       }
       Section sec(epub, i, renderer);
-      const bool sectionCached = sec.loadSectionFile(
-          SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
-          ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-          ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing,
-          ds.tateChuYokoMaxDigits);
+      const bool sectionCached =
+          sec.loadSectionFile(SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical),
+                              lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth,
+                              viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                              SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits);
       if (sectionCached) {
         sectionCacheHits++;
         // Read cached pages only when the directory preflight found a missing or
@@ -500,8 +499,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPixelPageScan) {
           const uint32_t pixelStartedAt = millis();
-          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop,
-                                                                       cachedPixelPagesScanned);
+          generatedPixelCaches +=
+              pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned);
           pixelCacheMs += millis() - pixelStartedAt;
         }
       } else {
@@ -510,18 +509,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::MEDIUM),
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::LARGE),
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::EXTRA_LARGE)};
-        if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
-                                   ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
-                                    ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
-                                    SETTINGS.getTableFontId(isVertical),
-                                   cssBodyFontIds, nullptr,
-                                   [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
-                                     const uint32_t pixelStartedAt = millis();
-                                     generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
-                                     pixelCacheMs += millis() - pixelStartedAt;
-                                   },
-                                   [&controls, this] { return controls.shouldCancel(renderer); })) {
+        if (!sec.createSectionFile(
+                SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
+                viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
+                SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
+                [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                  const uint32_t pixelStartedAt = millis();
+                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                  pixelCacheMs += millis() - pixelStartedAt;
+                },
+                [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
           const auto failureReason = sec.getLastCreateFailureReason();
@@ -554,7 +552,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     }
 
     LOG_DBG("GENALL",
-            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d cached pages scanned)",
+            "Book timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d images, %d "
+            "cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
             generatedPixelCaches, cachedPixelPagesScanned);
     if (cancelled || storageFailure) break;
@@ -571,8 +570,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     summarizeCacheStatuses(epubFiles);
   }
 
-  LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
-          millis() - generationStartedAt, progressDisplayMs);
+  LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
+          progressDisplayMs);
 #if defined(CACHE_STORAGE_FAULT_INJECTION)
   if (storageFailure) {
     LOG_INF("SDFI", "event=safe_stop reason=storage_io");

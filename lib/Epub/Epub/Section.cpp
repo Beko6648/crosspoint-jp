@@ -218,15 +218,15 @@ constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 32 * 1024;  // 32KB
 // A stored ZIP entry does not use the inflate dictionary. Its file stream and
 // the section parser operate in bounded chunks, so they remain safe with a
 // smaller contiguous allocation on fragmented ESP32-C3 heaps.
-constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;  // 16KB
+constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;   // 16KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(int) + sizeof(float) + sizeof(uint8_t) +
                                  sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
-                                  sizeof(uint8_t) +  // charSpacing
-                                  sizeof(uint8_t) +  // tateChuYokoMaxDigits
-                                  sizeof(uint32_t) + sizeof(uint32_t);
+                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
+                                 sizeof(uint8_t) +  // charSpacing
+                                 sizeof(uint8_t) +  // tateChuYokoMaxDigits
+                                 sizeof(uint32_t) + sizeof(uint32_t);
 
 struct SectionHeader {
   uint8_t version = 0;
@@ -282,13 +282,13 @@ size_t requiredHeapForSectionBuild(const uint32_t htmlSize) {
 
 bool readSectionHeader(FsFile& file, SectionHeader& header) {
   return readPodChecked(file, header.version) && readPodChecked(file, header.fontId) &&
-         readPodChecked(file, header.tableFontId) &&
-         readPodChecked(file, header.lineCompression) && readPodChecked(file, header.extraParagraphSpacing) &&
-         readPodChecked(file, header.paragraphAlignment) && readPodChecked(file, header.viewportWidth) &&
-         readPodChecked(file, header.viewportHeight) && readPodChecked(file, header.hyphenationEnabled) &&
-         readPodChecked(file, header.firstLineIndent) && readPodChecked(file, header.bookStyle) &&
-         readPodChecked(file, header.imageRendering) && readPodChecked(file, header.verticalMode) &&
-         readPodChecked(file, header.charSpacing) && readPodChecked(file, header.tateChuYokoMaxDigits);
+         readPodChecked(file, header.tableFontId) && readPodChecked(file, header.lineCompression) &&
+         readPodChecked(file, header.extraParagraphSpacing) && readPodChecked(file, header.paragraphAlignment) &&
+         readPodChecked(file, header.viewportWidth) && readPodChecked(file, header.viewportHeight) &&
+         readPodChecked(file, header.hyphenationEnabled) && readPodChecked(file, header.firstLineIndent) &&
+         readPodChecked(file, header.bookStyle) && readPodChecked(file, header.imageRendering) &&
+         readPodChecked(file, header.verticalMode) && readPodChecked(file, header.charSpacing) &&
+         readPodChecked(file, header.tateChuYokoMaxDigits);
 }
 
 bool skipBoundedString(FsFile& file, const size_t fileSize) {
@@ -363,9 +363,7 @@ namespace {
 bool cacheStorageFaultInjectionActive = false;
 }
 
-void Section::setCacheStorageFaultInjectionActive(const bool active) {
-  cacheStorageFaultInjectionActive = active;
-}
+void Section::setCacheStorageFaultInjectionActive(const bool active) { cacheStorageFaultInjectionActive = active; }
 #endif
 
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
@@ -497,13 +495,13 @@ void Section::writeSectionFileHeader(const int fontId, const int tableFontId, co
     LOG_DBG("SCT", "File not open for writing header");
     return;
   }
-  static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(tableFontId) + sizeof(lineCompression) +
-                                   sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) +
-                                   sizeof(verticalMode) + sizeof(charSpacing) + sizeof(tateChuYokoMaxDigits) +
-                                   sizeof(uint32_t) + sizeof(uint32_t),
-                "Header size mismatch");
+  static_assert(
+      HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(tableFontId) + sizeof(lineCompression) +
+                         sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
+                         sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
+                         sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) + sizeof(verticalMode) +
+                         sizeof(charSpacing) + sizeof(tateChuYokoMaxDigits) + sizeof(uint32_t) + sizeof(uint32_t),
+      "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
   serialization::writePod(file, tableFontId);
@@ -601,8 +599,7 @@ bool Section::loadSectionFile(const int fontId, const int tableFontId, const flo
               static_cast<unsigned>(charSpacing), static_cast<unsigned>(header.charSpacing));
     if (tateChuYokoMaxDigits != header.tateChuYokoMaxDigits)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=tateChuYokoMaxDigits current=%u cached=%u", spineIndex,
-              static_cast<unsigned>(tateChuYokoMaxDigits),
-              static_cast<unsigned>(header.tateChuYokoMaxDigits));
+              static_cast<unsigned>(tateChuYokoMaxDigits), static_cast<unsigned>(header.tateChuYokoMaxDigits));
 #endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
@@ -677,7 +674,7 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
 }
 
 bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
-                                         uint32_t& fileSize) {
+                                        uint32_t& fileSize) {
   // Retry logic for SD card timing issues
   bool success = false;
   bool openedTempFile = false;
@@ -718,8 +715,7 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
     // A corrupt ZIP entry can fail after the destination was opened. Keep
     // that separate from the observed SD failure where all three destination
     // opens failed, so malformed books are not mislabeled as card errors.
-    lastCreateFailureReason =
-        openedTempFile ? CreateFailureReason::Parse : CreateFailureReason::StorageIo;
+    lastCreateFailureReason = openedTempFile ? CreateFailureReason::Parse : CreateFailureReason::StorageIo;
   }
 
   return success;
@@ -829,8 +825,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
-                                const bool verticalMode, const uint8_t charSpacing,
-                                const uint8_t tateChuYokoMaxDigits,
+                                const bool verticalMode, const uint8_t charSpacing, const uint8_t tateChuYokoMaxDigits,
                                 const std::function<void()>& popupFn, const int* headingFontIds, const int tableFontId,
                                 const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
@@ -913,9 +908,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     lastCreateFailureReason = CreateFailureReason::StorageIo;
     return false;
   }
-  writeSectionFileHeader(fontId, tableFontId, lineCompression, extraParagraphSpacing, paragraphAlignment,
-                         viewportWidth, viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle,
-                         imageRendering, verticalMode, charSpacing, tateChuYokoMaxDigits);
+  writeSectionFileHeader(fontId, tableFontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering, verticalMode,
+                         charSpacing, tateChuYokoMaxDigits);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
