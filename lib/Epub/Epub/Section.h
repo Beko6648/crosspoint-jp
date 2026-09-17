@@ -54,6 +54,11 @@ class Section {
         renderer(renderer),
         filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
   ~Section() = default;
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+  // Test-build hook. GenerateAllCacheActivity enables this only while its
+  // synchronous batch operation is running.
+  static void setCacheStorageFaultInjectionActive(bool active);
+#endif
   bool loadSectionFile(int fontId, int tableFontId, float lineCompression, uint8_t extraParagraphSpacing,
                        uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
                         bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering,

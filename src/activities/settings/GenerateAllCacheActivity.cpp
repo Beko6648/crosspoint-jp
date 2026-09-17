@@ -338,6 +338,16 @@ void GenerateAllCacheActivity::generateAllCaches() {
     return;
   }
 
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+  struct CacheStorageFaultInjectionScope {
+    CacheStorageFaultInjectionScope() {
+      Section::setCacheStorageFaultInjectionActive(true);
+      LOG_INF("SDFI", "event=armed point=temp_html_open spine=%d", CACHE_STORAGE_FAULT_SPINE);
+    }
+    ~CacheStorageFaultInjectionScope() { Section::setCacheStorageFaultInjectionActive(false); }
+  } cacheStorageFaultInjectionScope;
+#endif
+
   // Show progress popup
   const uint32_t initialDisplayStartedAt = millis();
   std::string progressDetail = std::string(tr(STR_CACHE_BOOK)) + " 0/" + std::to_string(totalCount);
@@ -563,6 +573,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
           millis() - generationStartedAt, progressDisplayMs);
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+  if (storageFailure) {
+    LOG_INF("SDFI", "event=safe_stop reason=storage_io");
+  }
+#endif
   state = storageFailure ? FAILED : (cancelled ? INTERRUPTED : SUCCESS);
   requestUpdate();
 }

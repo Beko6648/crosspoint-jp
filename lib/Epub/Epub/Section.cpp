@@ -358,6 +358,16 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
 }
 }  // namespace
 
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+namespace {
+bool cacheStorageFaultInjectionActive = false;
+}
+
+void Section::setCacheStorageFaultInjectionActive(const bool active) {
+  cacheStorageFaultInjectionActive = active;
+}
+#endif
+
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
 namespace {
 constexpr uint16_t kCacheDiagnosticsPageStart =
@@ -682,6 +692,13 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
     }
 
     FsFile tmpHtml;
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+    if (cacheStorageFaultInjectionActive && spineIndex == CACHE_STORAGE_FAULT_SPINE) {
+      LOG_ERR("SDFI", "event=forced_failure point=temp_html_open spine=%d attempt=%d/3 path=%s", spineIndex,
+              attempt + 1, tmpHtmlPath.c_str());
+      continue;
+    }
+#endif
     if (!Storage.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
       continue;
     }
