@@ -2293,6 +2293,23 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         int drawX = x + (columnWidth * dxEighths) / 8;
         int drawY = yPos + ascender / 3 + (columnWidth * dyEighths) / 8;
 
+        // BIZ UD gives the opening curly quotes a full CJK advance and places
+        // their horizontal glyph near the far edge of that advance.  After a
+        // 90-degree rotation the large left bearing becomes a downward offset,
+        // so the generic optical offset pushes the mark into the following
+        // vertical cell.  Anchor the rotated bitmap box near the tail of its
+        // own cell.  Noto's accepted placement remains on the existing path.
+        if ((displayCp == 0x2018 || displayCp == 0x201C) && sdFont != nullptr &&
+            std::strstr(sdFont->getFilePath(), "BIZUD") != nullptr) {
+          int inkMinX = 0;
+          int inkMaxX = 0;
+          getTextVisibleBoundsX(effectiveFontId, charBuf, &inkMinX, &inkMaxX, style);
+          // Leave a small gap before the cell boundary.  The extra four pixels
+          // keep the BIZ UD marks optically above the following character.
+          const int tailInset = displayCp == 0x2018 ? 5 : 6;
+          drawY = yPos + verticalAdvance - tailInset - (inkMinX + inkMaxX) / 2;
+        }
+
         // drawTextSideways uses a horizontal glyph's left bearing as its
         // vertical origin. That differs substantially between BIZUD and Noto
         // for halfwidth brackets and the halfwidth prolonged sound mark.
