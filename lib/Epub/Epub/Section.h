@@ -29,10 +29,10 @@ class Section {
   bool cacheGenerationDiagnosticsActive = false;
 #endif
 
- void writeSectionFileHeader(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
-                              uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,
-                              bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering, bool verticalMode,
-                              uint8_t charSpacing);
+ void writeSectionFileHeader(int fontId, int tableFontId, float lineCompression, uint8_t extraParagraphSpacing,
+                             uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
+                             bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle,
+                             uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
   CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize, const std::string& htmlPath);
   bool streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
@@ -53,9 +53,10 @@ class Section {
         renderer(renderer),
         filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
   ~Section() = default;
-  bool loadSectionFile(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
-                       uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
-                       uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
+  bool loadSectionFile(int fontId, int tableFontId, float lineCompression, uint8_t extraParagraphSpacing,
+                       uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
+                       bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering,
+                       bool verticalMode, uint8_t charSpacing);
   bool clearCache() const;
   bool createSectionFile(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,

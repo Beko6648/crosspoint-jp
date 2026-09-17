@@ -14,6 +14,11 @@ static constexpr const char* INLINE_IMAGE_MARKER = "\xef\xbf\xbc";
 
 #include <algorithm>
 #include <climits>
+
+#ifndef DEBUG_VERTICAL_FORMULA
+#define DEBUG_VERTICAL_FORMULA 0
+#endif
+
 static std::vector<std::string> splitUtf8Chars(const std::string& text) {
   std::vector<std::string> chars;
 
@@ -157,12 +162,12 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   // The bitmap center of a CJK body glyph can differ from half the advance
   // width. Sideways ASCII and symbols must use this same visual center.
   int verticalBodyCenterOffset = 0;
+  int verticalBodyMinX = 0;
+  int verticalBodyMaxX = 0;
   if (isVertical) {
-    int bodyMinX = 0;
-    int bodyMaxX = 0;
-    renderer.getTextVisibleBoundsX(effectiveFontId, "\xe4\xb8\x80", &bodyMinX, &bodyMaxX,
+    renderer.getTextVisibleBoundsX(effectiveFontId, "\xe4\xb8\x80", &verticalBodyMinX, &verticalBodyMaxX,
                                    EpdFontFamily::REGULAR);  // U+4E00
-    verticalBodyCenterOffset = (bodyMinX + bodyMaxX) / 2 - columnWidth / 2;
+    verticalBodyCenterOffset = (verticalBodyMinX + verticalBodyMaxX) / 2 - columnWidth / 2;
   }
 
   // Keep annotations in one vertical column from drawing over each other.
@@ -372,13 +377,39 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             ascii = *p++; return ascii != '\0';
           };
           int formulaWidth = 0;
+          int formulaMinX = INT_MAX;
+          int formulaMaxX = INT_MIN;
           for (const char* p = w; *p;) {
             char part; bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
-            formulaWidth += renderer.getTextAdvanceX(scriptPart ? formulaScriptFont : wordFontId, text, glyphStyle);
+            const int partFont = scriptPart ? formulaScriptFont : wordFontId;
+            int partMinX = 0;
+            int partMaxX = 0;
+            renderer.getTextVisibleBoundsX(partFont, text, &partMinX, &partMaxX, glyphStyle);
+#if DEBUG_VERTICAL_FORMULA
+            LOG_INF("VFORM", "phase=%s token=%s part=%c font=%d pen=%d advance=%d bounds=%d,%d",
+                    isPrewarmScan ? "scan" : "draw", w, part, partFont, formulaWidth,
+                    renderer.getTextAdvanceX(partFont, text, glyphStyle), partMinX, partMaxX);
+#endif
+            formulaMinX = std::min(formulaMinX, formulaWidth + partMinX);
+            formulaMaxX = std::max(formulaMaxX, formulaWidth + partMaxX);
+            formulaWidth += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }
-          int formulaX = wx + (columnWidth - formulaWidth) / 2;
+          // Mixed body/script fonts have different side bearings. Center the
+          // formula's visible ink on the same CJK body center as this column;
+          // centering only its advances shifts Noto formulas to the right.
+          const int bodyCenter = columnWidth / 2 + verticalBodyCenterOffset;
+          const int formulaCenter = formulaMinX <= formulaMaxX ? (formulaMinX + formulaMaxX) / 2 : formulaWidth / 2;
+          int formulaX = wx + bodyCenter - formulaCenter;
+#if DEBUG_VERTICAL_FORMULA
+          LOG_INF("VFORM",
+                  "phase=%s token=%s bodyFont=%d scriptFont=%d wx=%d wy=%d column=%d bodyBounds=%d,%d "
+                  "formulaBounds=%d,%d advance=%d bodyCenter=%d formulaCenter=%d drawX=%d",
+                  isPrewarmScan ? "scan" : "draw", w, wordFontId, formulaScriptFont, wx, wy, columnWidth,
+                  verticalBodyMinX, verticalBodyMaxX, formulaMinX, formulaMaxX, formulaWidth, bodyCenter,
+                  formulaCenter, formulaX);
+#endif
           for (const char* p = w; *p;) {
             char part; bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;

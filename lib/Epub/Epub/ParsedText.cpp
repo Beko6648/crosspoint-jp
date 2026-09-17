@@ -248,6 +248,16 @@ bool ParsedText::appendVerticalFormulaText(const char* text) {
     if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9'))) return false;
   }
   auto& prior = words.back();
+  // Continue only the formula token that was created by
+  // appendVerticalFormulaDigit(). A vertical punctuation cell may have been
+  // emitted between </sup>/<sub> and this ASCII run; appending to that cell
+  // would make its multibyte UTF-8 bytes part of the horizontal formula.
+  const bool hasScriptMarker = prior.find("\xC2\xB2") != std::string::npos ||
+                               prior.find("\xC2\xB3") != std::string::npos ||
+                               prior.find("\xC2\xB9") != std::string::npos ||
+                               prior.find("\xE2\x81") != std::string::npos ||
+                               prior.find("\xE2\x82") != std::string::npos;
+  if (!hasScriptMarker) return false;
   const size_t length = strlen(text);
   if (prior.empty() || prior.size() + length > 12 || prior.capacity() < prior.size() + length) return false;
   prior.append(text, length);

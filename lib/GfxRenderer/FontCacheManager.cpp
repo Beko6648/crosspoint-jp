@@ -14,11 +14,17 @@ FontCacheManager::FontCacheManager(const std::map<int, EpdFontFamily>& fontMap,
 void FontCacheManager::setFontDecompressor(FontDecompressor* d) { fontDecompressor_ = d; }
 
 // Deduplicate SdCardFont pointers: multiple fontIds may point to the same SdCardFont
-// (virtual fontIds for scaled sizes). With dual-base, at most 2 unique pointers exist.
+// (virtual fontIds for scaled sizes). The exact-small quality build has a third
+// unique pointer in addition to the body and heading bases.
 // FNV-hashed fontIds may interleave in std::map iteration, so lastSeen is unreliable.
 template <typename Fn>
 static void forEachUniqueSdCardFont(const std::map<int, SdCardFont*>& sdCardFonts, Fn fn) {
+#if defined(SD_FONT_EXACT_SMALL_BASE)
+  SdCardFont* seen[3] = {nullptr, nullptr, nullptr};
+#else
   SdCardFont* seen[2] = {nullptr, nullptr};
+#endif
+  constexpr int seenCapacity = sizeof(seen) / sizeof(seen[0]);
   int seenCount = 0;
   for (auto& [id, font] : sdCardFonts) {
     bool already = false;
@@ -30,7 +36,7 @@ static void forEachUniqueSdCardFont(const std::map<int, SdCardFont*>& sdCardFont
     }
     if (!already) {
       fn(font);
-      if (seenCount < 2) seen[seenCount++] = font;
+      if (seenCount < seenCapacity) seen[seenCount++] = font;
     }
   }
 }

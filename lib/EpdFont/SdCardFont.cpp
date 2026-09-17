@@ -1713,6 +1713,13 @@ EpdFont* SdCardFont::getEpdFont(uint8_t style) {
 
 bool SdCardFont::hasStyle(uint8_t style) const { return style < MAX_STYLES && styles_[style].present; }
 
+bool SdCardFont::hasCodepoint(uint32_t codepoint, uint8_t style) const {
+  if (!loaded_) return false;
+  const uint8_t resolvedStyle = resolveStyle(style);
+  const auto& s = styles_[resolvedStyle];
+  return s.fullIntervals && findGlobalGlyphIndex(s, codepoint) >= 0;
+}
+
 uint8_t SdCardFont::resolveStyle(uint8_t style) const {
   static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
       {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC},

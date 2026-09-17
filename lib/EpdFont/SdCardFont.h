@@ -84,6 +84,10 @@ class SdCardFont {
   // Returns true if the given style is present in this font file.
   bool hasStyle(uint8_t style) const;
 
+  // Returns true when the loaded coverage table contains the codepoint.
+  // This checks metadata only and never loads glyph metrics or bitmaps.
+  bool hasCodepoint(uint32_t codepoint, uint8_t style = 0) const;
+
   // Resolve requested style bits to the closest present style.
   uint8_t resolveStyle(uint8_t style) const;
 

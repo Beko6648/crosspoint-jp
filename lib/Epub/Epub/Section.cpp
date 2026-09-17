@@ -189,7 +189,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 119: Short vertical formulas are kept as one horizontal-in-vertical cell.
 // 120: <pre> preserves literal spaces, tabs and line boundaries.
 // 121: Heading blocks suppress reader paragraph spacing after their CSS margin.
-constexpr uint8_t SECTION_FILE_VERSION = 121;
+// 122: Cache headers include the table/small-font ID.
+// 123: Every cache-generation path configures that small font before script layout.
+// 124: Vertical formula tokens no longer absorb intervening punctuation cells.
+// 125: The adjacent ASCII suffix is flushed into a formula before punctuation ends it.
+constexpr uint8_t SECTION_FILE_VERSION = 125;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -214,14 +218,16 @@ constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 32 * 1024;  // 32KB
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;  // 16KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
-constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) +
-                                 sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
-                                 sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) + sizeof(uint8_t) +  // charSpacing
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(int) + sizeof(float) + sizeof(uint8_t) +
+                                 sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) +
+                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
+                                 sizeof(uint8_t) +  // charSpacing
                                  sizeof(uint32_t) + sizeof(uint32_t);
 
 struct SectionHeader {
   uint8_t version = 0;
   int fontId = 0;
+  int tableFontId = 0;
   float lineCompression = 0.0f;
   uint8_t extraParagraphSpacing = 0;
   uint8_t paragraphAlignment = 0;
@@ -271,6 +277,7 @@ size_t requiredHeapForSectionBuild(const uint32_t htmlSize) {
 
 bool readSectionHeader(FsFile& file, SectionHeader& header) {
   return readPodChecked(file, header.version) && readPodChecked(file, header.fontId) &&
+         readPodChecked(file, header.tableFontId) &&
          readPodChecked(file, header.lineCompression) && readPodChecked(file, header.extraParagraphSpacing) &&
          readPodChecked(file, header.paragraphAlignment) && readPodChecked(file, header.viewportWidth) &&
          readPodChecked(file, header.viewportHeight) && readPodChecked(file, header.hyphenationEnabled) &&
@@ -465,16 +472,16 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   return position;
 }
 
-void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
-                                     const uint8_t paragraphAlignment, const uint16_t viewportWidth,
-                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
-                                     const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
-                                     const bool verticalMode, const uint8_t charSpacing) {
+void Section::writeSectionFileHeader(const int fontId, const int tableFontId, const float lineCompression,
+                                     const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
+                                     const uint16_t viewportWidth, const uint16_t viewportHeight,
+                                     const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
+                                     const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing) {
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return;
   }
-  static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
+  static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(tableFontId) + sizeof(lineCompression) +
                                    sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
                                    sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
                                    sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) +
@@ -482,6 +489,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
+  serialization::writePod(file, tableFontId);
   serialization::writePod(file, lineCompression);
   serialization::writePod(file, extraParagraphSpacing);
   serialization::writePod(file, paragraphAlignment);
@@ -498,11 +506,11 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
 }
 
-bool Section::loadSectionFile(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
-                              const uint8_t paragraphAlignment, const uint16_t viewportWidth,
-                              const uint16_t viewportHeight, const bool hyphenationEnabled, const bool firstLineIndent,
-                              const uint8_t bookStyle, const uint8_t imageRendering, const bool verticalMode,
-                              const uint8_t charSpacing) {
+bool Section::loadSectionFile(const int fontId, const int tableFontId, const float lineCompression,
+                              const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
+                              const uint16_t viewportWidth, const uint16_t viewportHeight,
+                              const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
+                              const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -526,7 +534,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
   }
 
   const bool parametersMatch =
-      fontId == header.fontId && lineCompression == header.lineCompression &&
+      fontId == header.fontId && tableFontId == header.tableFontId && lineCompression == header.lineCompression &&
       extraParagraphSpacing == header.extraParagraphSpacing && paragraphAlignment == header.paragraphAlignment &&
       viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
       hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
@@ -536,6 +544,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
     if (fontId != header.fontId)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId, header.fontId);
+    if (tableFontId != header.tableFontId)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=tableFontId current=%d cached=%d", spineIndex, tableFontId,
+              header.tableFontId);
     if (lineCompression != header.lineCompression)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=lineCompression current=%.3f cached=%.3f", spineIndex,
               static_cast<double>(lineCompression), static_cast<double>(header.lineCompression));
@@ -871,9 +882,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     lastCreateFailureReason = CreateFailureReason::StorageIo;
     return false;
   }
-  writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-                         viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering, verticalMode,
-                         charSpacing);
+  writeSectionFileHeader(fontId, tableFontId, lineCompression, extraParagraphSpacing, paragraphAlignment,
+                         viewportWidth, viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle,
+                         imageRendering, verticalMode, charSpacing);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 

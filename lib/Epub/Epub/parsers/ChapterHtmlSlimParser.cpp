@@ -1550,6 +1550,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->pendingHorizontalSpace = true;
       }
       self->nextWordContinues = false;
+      self->verticalFormulaContinuation = false;
       continue;
     }
 
@@ -1632,6 +1633,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
       }
+      // Formula continuation is valid for the immediately adjacent ASCII run,
+      // so flush that run first (H<sub>2</sub>O). The punctuation/CJK cell then
+      // ends the formula before the next ASCII word starts (x²、10³).
+      self->verticalFormulaContinuation = false;
       self->flushPendingVerticalWhitespace();
 
       self->ensureTextBlockCapacityForWord();

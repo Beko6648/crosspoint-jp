@@ -151,6 +151,7 @@ void EpubReaderActivity::pregenerateCache() {
   const auto& ds = SETTINGS.getDirectionSettings(isVertical);
   ensureSdFontLoaded(isVertical);
   configureRubyFont(isVertical);
+  configureSmallFont(isVertical);
 
   int orientedMarginTop = 0, orientedMarginRight = 0, orientedMarginBottom = 0, orientedMarginLeft = 0;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -206,9 +207,9 @@ void EpubReaderActivity::pregenerateCache() {
 
     Section sec(epub, i, renderer);
     const bool sectionCached = sec.loadSectionFile(
-        SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-        viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-        SETTINGS.imageRendering, isVertical, ds.charSpacing);
+        SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
+        ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
+        ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing);
     if (sectionCached) {
       sectionCacheHits++;
     } else {
@@ -1258,7 +1259,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     // Script text uses the already-supported smaller companion font. Unlike
     // ruby, this remains active when ruby display is disabled.
-    TextBlock::smallFontId = SETTINGS.getTableFontId(verticalMode);
+    configureSmallFont(verticalMode);
     LOG_INF("SCRIPT", "TextBlock::smallFontId=%d", TextBlock::smallFontId);
 
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
@@ -1271,10 +1272,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
             lineCompression, viewportWidth, viewportHeight, verticalMode);
 
     SD_FONT_DIAG_LOG("page_layout_check_before", 0);
-    if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing,
-                                  ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                  ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
-                                  ds.charSpacing)) {
+    if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), SETTINGS.getTableFontId(verticalMode),
+                                  lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth,
+                                  viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                                  SETTINGS.imageRendering, verticalMode, ds.charSpacing)) {
       LOG_DBG("ERS", "Cache not found, building...");
       const uint32_t pageLayoutStartedAt = SD_FONT_DIAG_NOW_US();
       SD_FONT_DIAG_LOG("page_layout_before", 0);
@@ -1477,10 +1478,11 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   const auto& silentDs = SETTINGS.getDirectionSettings(verticalMode);
   Section nextSection(epub, nextSpineIndex, renderer);
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(verticalMode),
-                                  SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing,
-                                  silentDs.paragraphAlignment, viewportWidth, viewportHeight,
-                                  silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
-                                  SETTINGS.imageRendering, verticalMode, silentDs.charSpacing)) {
+                                  SETTINGS.getTableFontId(verticalMode), SETTINGS.getReaderLineCompression(verticalMode),
+                                  silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth,
+                                  viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent,
+                                  SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
+                                  silentDs.charSpacing)) {
     return;
   }
 

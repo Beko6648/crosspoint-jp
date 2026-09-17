@@ -64,7 +64,11 @@ class FontCacheManager {
     std::string text;
     uint32_t styleCounts[4] = {};
   };
+#if defined(SD_FONT_EXACT_SMALL_BASE)
+  static constexpr int MAX_SCAN_FONTS = 3;
+#else
   static constexpr int MAX_SCAN_FONTS = 2;
+#endif
   ScanPerFont scanPerFont_[MAX_SCAN_FONTS];
   int scanPerFontCount_ = 0;
 

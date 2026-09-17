@@ -203,6 +203,11 @@ void configureRubyFont(const bool isVertical) {
   LOG_DBG("RUBY", "Configured ruby font: vertical=%d fontId=%d", isVertical ? 1 : 0, TextBlock::rubyFontId);
 }
 
+void configureSmallFont(const bool isVertical) {
+  TextBlock::smallFontId = SETTINGS.getTableFontId(isVertical);
+  LOG_DBG("SCRIPT", "Configured small font: vertical=%d fontId=%d", isVertical ? 1 : 0, TextBlock::smallFontId);
+}
+
 static bool bootRecoveryMode = false;
 static uint8_t bootRecoveryButton = HalGPIO::BTN_UP;
 

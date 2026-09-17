@@ -438,6 +438,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const auto& ds = SETTINGS.getDirectionSettings(isVertical);
     ensureSdFontLoaded(isVertical);
     configureRubyFont(isVertical);
+    configureSmallFont(isVertical);
 
     // Calculate viewport dimensions with direction-specific margins
     const int bmTop = baseMarginTop + ds.screenMargin;
@@ -472,9 +473,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
       }
       Section sec(epub, i, renderer);
       const bool sectionCached = sec.loadSectionFile(
-          SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-          SETTINGS.imageRendering, isVertical, ds.charSpacing);
+          SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
+          ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
+          ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing);
       if (sectionCached) {
         sectionCacheHits++;
         // Read cached pages only when the directory preflight found a missing or
