@@ -21,6 +21,7 @@ enum DirectionField : uint16_t {
   DirectionRubyEnabled = 1 << 8,
   DirectionRubyOffsetX = 1 << 9,
   DirectionRubyOffsetY = 1 << 10,
+  DirectionTateChuYokoDigits = 1 << 11,
 };
 
 enum ReaderField : uint16_t {

@@ -21,7 +21,7 @@ DirectionSettingsActivity::DirectionSettingsActivity(GfxRenderer& renderer, Mapp
 
 void DirectionSettingsActivity::buildItems() {
   items.clear();
-  items.reserve(12);
+  items.reserve(13);
 
   // Font Family
   items.push_back({StrId::STR_FONT_FAMILY, Item::Type::FONT_FAMILY, nullptr, {}, {}});
@@ -41,6 +41,8 @@ void DirectionSettingsActivity::buildItems() {
   if (isVertical) {
     items.push_back(
         {StrId::STR_CHAR_SPACING, Item::Type::PRESET, &DirectionSettings::charSpacing, {}, {}, {0, 8, 15, 30, 50}});
+    items.push_back({StrId::STR_TATE_CHU_YOKO_DIGITS, Item::Type::PRESET,
+                     &DirectionSettings::tateChuYokoMaxDigits, {}, {}, {2, 3}});
   }
 
   if (!isVertical) {
@@ -91,6 +93,8 @@ const char* DirectionSettingsActivity::currentItemDescription() const {
       return tr(STR_READER_SETTING_DESC_LINE_SPACING);
     case StrId::STR_CHAR_SPACING:
       return tr(STR_READER_SETTING_DESC_CHAR_SPACING);
+    case StrId::STR_TATE_CHU_YOKO_DIGITS:
+      return tr(STR_READER_SETTING_DESC_TATE_CHU_YOKO_DIGITS);
     case StrId::STR_PARA_ALIGNMENT:
       return I18N.get(isVertical ? StrId::STR_READER_SETTING_DESC_VERTICAL_ALIGNMENT
                                   : StrId::STR_READER_SETTING_DESC_ALIGNMENT);
@@ -273,6 +277,9 @@ void DirectionSettingsActivity::render(RenderLock&&) {
           }
           case Item::Type::PRESET: {
             const uint8_t value = ds().*(item.valuePtr);
+            if (item.nameId == StrId::STR_TATE_CHU_YOKO_DIGITS) {
+              return value >= 3 ? tr(STR_UP_TO_3_DIGITS) : tr(STR_UP_TO_2_DIGITS);
+            }
             int closest = 0;
             for (int index = 1; index < static_cast<int>(item.presetValues.size()); ++index) {
               if (std::abs(static_cast<int>(item.presetValues[index]) - value) <

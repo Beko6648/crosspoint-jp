@@ -13,8 +13,8 @@ namespace VerticalTextUtils {
 // Character behavior in vertical text layout
 enum class VerticalBehavior : uint8_t {
   Upright,      // CJK ideographs, kana - draw normally, advance downward
-  Sideways,     // Latin letters, 3+ digit numbers - rotate 90 CW
-  TateChuYoko,  // 1-2 digit numbers - horizontal-in-vertical
+  Sideways,     // Latin letters and longer numbers - rotate 90 CW
+  TateChuYoko,  // short numbers - horizontal-in-vertical
   Formula,      // short ASCII formula with a Unicode super/subscript digit
 };
 
@@ -111,10 +111,11 @@ enum class TateChuYokoKind : uint8_t {
   None,
   SingleDigit,
   DoubleDigit,
+  TripleDigit,
   PunctuationPair,
 };
 
-inline TateChuYokoKind classifyTateChuYoko(const char* text) {
+inline TateChuYokoKind classifyTateChuYoko(const char* text, const uint8_t maxDigits = 2) {
   if (text == nullptr || *text == '\0') return TateChuYokoKind::None;
 
   int digitCount = 0;
@@ -127,6 +128,7 @@ inline TateChuYokoKind classifyTateChuYoko(const char* text) {
 
   if (digitCount == 1) return TateChuYokoKind::SingleDigit;
   if (digitCount == 2) return TateChuYokoKind::DoubleDigit;
+  if (digitCount == 3 && maxDigits >= 3) return TateChuYokoKind::TripleDigit;
   return TateChuYokoKind::None;
 }
 

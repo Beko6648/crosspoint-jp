@@ -20,6 +20,9 @@ struct DirectionSettings {
   // Stored with a bias of 16: X/Y support -16..+64px.
   uint8_t rubyOffsetX = 16;
   uint8_t rubyOffsetY = 16;
+  // Maximum ASCII digit count combined into one vertical TateChuYoko cell.
+  // Keep 2 as the default for compatibility with existing Japanese layout.
+  uint8_t tateChuYokoMaxDigits = 2;
 };
 
 class CrossPointSettings {

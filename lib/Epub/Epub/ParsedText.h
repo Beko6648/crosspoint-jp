@@ -43,6 +43,7 @@ class ParsedText {
   BlockStyle blockStyle;
   bool firstLineIndent;
   bool hyphenationEnabled;
+  uint8_t tateChuYokoMaxDigits;
   bool layoutFailed_ = false;
   bool admitLayout(size_t bytes, const char* stage);
   void consumePrefix(size_t count);
@@ -67,8 +68,11 @@ class ParsedText {
 
  public:
   explicit ParsedText(const bool hyphenationEnabled = false, const BlockStyle& blockStyle = BlockStyle(),
-                      const bool firstLineIndent = false)
-      : blockStyle(blockStyle), firstLineIndent(firstLineIndent), hyphenationEnabled(hyphenationEnabled) {}
+                      const bool firstLineIndent = false, const uint8_t tateChuYokoMaxDigits = 2)
+      : blockStyle(blockStyle),
+        firstLineIndent(firstLineIndent),
+        hyphenationEnabled(hyphenationEnabled),
+        tateChuYokoMaxDigits(tateChuYokoMaxDigits >= 3 ? 3 : 2) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,

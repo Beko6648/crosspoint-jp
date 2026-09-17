@@ -209,7 +209,8 @@ void EpubReaderActivity::pregenerateCache() {
     const bool sectionCached = sec.loadSectionFile(
         SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
         ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-        ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing);
+        ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing,
+        ds.tateChuYokoMaxDigits);
     if (sectionCached) {
       sectionCacheHits++;
     } else {
@@ -222,7 +223,7 @@ void EpubReaderActivity::pregenerateCache() {
       const bool sectionCreated = sec.createSectionFile(
           SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-          SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
+          SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
           SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
           [this, &generatedPixelCaches, &pixelCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
             const uint32_t pixelStartedAt = millis();
@@ -1274,8 +1275,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     SD_FONT_DIAG_LOG("page_layout_check_before", 0);
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(verticalMode), SETTINGS.getTableFontId(verticalMode),
                                   lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth,
-                                  viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-                                  SETTINGS.imageRendering, verticalMode, ds.charSpacing)) {
+                                   viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                                   SETTINGS.imageRendering, verticalMode, ds.charSpacing,
+                                   ds.tateChuYokoMaxDigits)) {
       LOG_DBG("ERS", "Cache not found, building...");
       const uint32_t pageLayoutStartedAt = SD_FONT_DIAG_NOW_US();
       SD_FONT_DIAG_LOG("page_layout_before", 0);
@@ -1306,8 +1308,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       bool sectionCreated = section->createSectionFile(
           SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-          SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds, SETTINGS.getTableFontId(verticalMode),
-          cssBodyFontIds);
+          SETTINGS.imageRendering, verticalMode, ds.charSpacing, ds.tateChuYokoMaxDigits, popupFn, headingFontIds,
+          SETTINGS.getTableFontId(verticalMode), cssBodyFontIds);
       SD_FONT_DIAG_LOG_AFTER(sectionCreated ? "page_layout_after" : "page_layout_failed", 0, pageLayoutStartedAt);
       // Wi-Fi teardown after a Web UI transfer completes asynchronously. If it
       // left the largest heap block below the ZIP-stream requirement, yield
@@ -1324,7 +1326,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         sectionCreated = section->createSectionFile(
             SETTINGS.getReaderFontId(verticalMode), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
             viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-            SETTINGS.imageRendering, verticalMode, ds.charSpacing, popupFn, headingFontIds,
+            SETTINGS.imageRendering, verticalMode, ds.charSpacing, ds.tateChuYokoMaxDigits, popupFn, headingFontIds,
             SETTINGS.getTableFontId(verticalMode), cssBodyFontIds);
       }
 
@@ -1480,9 +1482,9 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(verticalMode),
                                   SETTINGS.getTableFontId(verticalMode), SETTINGS.getReaderLineCompression(verticalMode),
                                   silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth,
-                                  viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent,
-                                  SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
-                                  silentDs.charSpacing)) {
+                                   viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent,
+                                   SETTINGS.embeddedStyle, SETTINGS.imageRendering, verticalMode,
+                                   silentDs.charSpacing, silentDs.tateChuYokoMaxDigits)) {
     return;
   }
 
@@ -1498,7 +1500,8 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
                                      SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing,
                                      silentDs.paragraphAlignment, viewportWidth, viewportHeight,
                                      silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
-                                     SETTINGS.imageRendering, verticalMode, silentDs.charSpacing, nullptr,
+                                     SETTINGS.imageRendering, verticalMode, silentDs.charSpacing,
+                                     silentDs.tateChuYokoMaxDigits, nullptr,
                                      silentHeadingFontIds, SETTINGS.getTableFontId(verticalMode), cssBodyFontIds)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }

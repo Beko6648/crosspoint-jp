@@ -15,6 +15,7 @@ class BookReaderSettingsActivity final : public Activity {
     Spacing,
     Margin,
     Ruby,
+    TateChuYokoDigits,
     WritingMode,
     BookStyle,
     SaveAll,
@@ -32,6 +33,8 @@ class BookReaderSettingsActivity final : public Activity {
 
   void selectCurrent();
   bool isOverridden(Item item) const;
+  int itemCount() const;
+  Item itemAtIndex(int index) const;
   static StrId itemLabel(Item item);
 
  public:

@@ -475,7 +475,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
       const bool sectionCached = sec.loadSectionFile(
           SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical), lineCompression,
           ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-          ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing);
+          ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical, ds.charSpacing,
+          ds.tateChuYokoMaxDigits);
       if (sectionCached) {
         sectionCacheHits++;
         // Read cached pages only when the directory preflight found a missing or
@@ -501,8 +502,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
                                        SETTINGS.getReaderFontIdForSize(isVertical, CrossPointSettings::EXTRA_LARGE)};
         if (!sec.createSectionFile(SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing,
                                    ds.paragraphAlignment, viewportWidth, viewportHeight, ds.hyphenationEnabled,
-                                   ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
-                                   ds.charSpacing, nullptr, headingFontIds, SETTINGS.getTableFontId(isVertical),
+                                    ds.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering, isVertical,
+                                    ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
+                                    SETTINGS.getTableFontId(isVertical),
                                    cssBodyFontIds, nullptr,
                                    [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
                                      const uint32_t pixelStartedAt = millis();

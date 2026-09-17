@@ -346,10 +346,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         // mark from its base kana).
         renderer.drawTextVertical(wordFontId, uprightX, wy + scriptOffset, w, true, glyphStyle);
       } else {
-        const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w);
+        const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w, tateChuYokoMaxDigits);
         // Formula tokens contain one of the Unicode super/subscript digits.
-        // Detect them from stored text so section-cache serialization remains
-        // unchanged; their layout behavior was already fixed before caching.
+        // Detect them from stored text so no per-word behavior array is needed
+        // in the serialized page block.
         const bool isFormula = words[i].find("\xC2\xB2") != std::string::npos ||
                                words[i].find("\xC2\xB3") != std::string::npos ||
                                words[i].find("\xC2\xB9") != std::string::npos ||
@@ -420,19 +420,26 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             formulaX += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }
         } else if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
+          // Three full-size digits do not fit a normal Japanese body cell.
+          // Use the 10pt companion font only for the optional three-digit mode;
+          // one- and two-digit TateChuYoko retain their established body size.
+          const int tateChuYokoFont =
+              tateChuYokoKind == VerticalTextUtils::TateChuYokoKind::TripleDigit && smallFontId != 0
+                  ? smallFontId
+                  : wordFontId;
           // Align the actual halfwidth-digits bounds with a fullwidth digit
           // in the same column. This is more reliable than the abstract cell
           // width: some fonts (notably Noto) have a cell center that differs
           // from the visible fullwidth-numeral center.
           int textMinX = 0;
           int textMaxX = 0;
-          renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, glyphStyle);
+          renderer.getTextVisibleBoundsX(tateChuYokoFont, w, &textMinX, &textMaxX, glyphStyle);
           int fullwidthDigitMinX = 0;
           int fullwidthDigitMaxX = 0;
           renderer.getTextVisibleBoundsX(effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX,
                                          glyphStyle);  // U+FF10
           const int centerOffset = (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
-          renderer.drawText(wordFontId, wx + centerOffset, wy + scriptOffset, w, true, glyphStyle);
+          renderer.drawText(tateChuYokoFont, wx + centerOffset, wy + scriptOffset, w, true, glyphStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           const int vertShift = renderer.getFontAscenderSize(wordFontId) / 3;
@@ -658,6 +665,7 @@ bool TextBlock::serialize(FsFile& file) const {
 
   // Vertical layout data
   serialization::writePod(file, isVertical);
+  serialization::writePod(file, tateChuYokoMaxDigits);
   if (isVertical) {
     for (auto y : wordYpos) serialization::writePod(file, y);
   }
@@ -732,6 +740,8 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   // Vertical layout data
   bool vertical = false;
   serialization::readPod(file, vertical);
+  uint8_t tateChuYokoMaxDigits = 2;
+  if (file.read(&tateChuYokoMaxDigits, 1) != 1 || tateChuYokoMaxDigits < 2 || tateChuYokoMaxDigits > 3) return nullptr;
   std::vector<int16_t> wordYpos;
   if (vertical) {
     wordYpos.resize(wc);
@@ -772,6 +782,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   }
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
-                                                  blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
-                                                  std::move(inlineImages), std::move(emphasis)));
+                                                   blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
+                                                   std::move(inlineImages), std::move(emphasis),
+                                                   tateChuYokoMaxDigits));
 }

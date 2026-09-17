@@ -31,8 +31,9 @@ class Section {
 
  void writeSectionFileHeader(int fontId, int tableFontId, float lineCompression, uint8_t extraParagraphSpacing,
                              uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
-                             bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle,
-                             uint8_t imageRendering, bool verticalMode, uint8_t charSpacing);
+                              bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle,
+                              uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
+                              uint8_t tateChuYokoMaxDigits);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
   CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize, const std::string& htmlPath);
   bool streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
@@ -55,13 +56,14 @@ class Section {
   ~Section() = default;
   bool loadSectionFile(int fontId, int tableFontId, float lineCompression, uint8_t extraParagraphSpacing,
                        uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
-                       bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering,
-                       bool verticalMode, uint8_t charSpacing);
+                        bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering,
+                        bool verticalMode, uint8_t charSpacing, uint8_t tateChuYokoMaxDigits);
   bool clearCache() const;
   bool createSectionFile(int fontId, float lineCompression, uint8_t extraParagraphSpacing, uint8_t paragraphAlignment,
                          uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled, bool firstLineIndent,
-                         uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
-                         const std::function<void()>& popupFn = nullptr, const int* headingFontIds = nullptr,
+                          uint8_t bookStyle, uint8_t imageRendering, bool verticalMode, uint8_t charSpacing,
+                          uint8_t tateChuYokoMaxDigits,
+                          const std::function<void()>& popupFn = nullptr, const int* headingFontIds = nullptr,
                          int tableFontId = 0, const int* cssBodyFontIds = nullptr,
                          const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn = nullptr,
                          const std::function<void(const Page&)>& pageReadyFn = nullptr,

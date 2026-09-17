@@ -137,7 +137,8 @@ void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) 
       if (!eligible || i >= wordYpos.size()) continue;
       const bool upright = VerticalTextUtils::isUprightInVertical(
           [&]() { auto* q = reinterpret_cast<const unsigned char*>(words[i].c_str()); return utf8NextCodepoint(&q); }());
-      const bool tcy = VerticalTextUtils::classifyTateChuYoko(words[i].c_str()) != VerticalTextUtils::TateChuYokoKind::None;
+      const bool tcy = VerticalTextUtils::classifyTateChuYoko(words[i].c_str(), tateChuYokoMaxDigits) !=
+                       VerticalTextUtils::TateChuYokoKind::None;
       if (upright || tcy) {
         const int advance = renderer.getLineHeight(fontId);
         draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + advance / 2);

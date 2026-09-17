@@ -193,7 +193,9 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 123: Every cache-generation path configures that small font before script layout.
 // 124: Vertical formula tokens no longer absorb intervening punctuation cells.
 // 125: The adjacent ASCII suffix is flushed into a formula before punctuation ends it.
-constexpr uint8_t SECTION_FILE_VERSION = 125;
+// 126: Cache the selected two- or three-digit TateChuYoko layout and the
+// per-block rendering limit used after a page is restored.
+constexpr uint8_t SECTION_FILE_VERSION = 126;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -220,9 +222,10 @@ constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(int) + sizeof(float) + sizeof(uint8_t) +
                                  sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
-                                 sizeof(uint8_t) +  // charSpacing
-                                 sizeof(uint32_t) + sizeof(uint32_t);
+                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
+                                  sizeof(uint8_t) +  // charSpacing
+                                  sizeof(uint8_t) +  // tateChuYokoMaxDigits
+                                  sizeof(uint32_t) + sizeof(uint32_t);
 
 struct SectionHeader {
   uint8_t version = 0;
@@ -239,6 +242,7 @@ struct SectionHeader {
   uint8_t imageRendering = 0;
   bool verticalMode = false;
   uint8_t charSpacing = 0;
+  uint8_t tateChuYokoMaxDigits = 2;
 };
 
 template <typename T>
@@ -283,7 +287,7 @@ bool readSectionHeader(FsFile& file, SectionHeader& header) {
          readPodChecked(file, header.viewportHeight) && readPodChecked(file, header.hyphenationEnabled) &&
          readPodChecked(file, header.firstLineIndent) && readPodChecked(file, header.bookStyle) &&
          readPodChecked(file, header.imageRendering) && readPodChecked(file, header.verticalMode) &&
-         readPodChecked(file, header.charSpacing);
+         readPodChecked(file, header.charSpacing) && readPodChecked(file, header.tateChuYokoMaxDigits);
 }
 
 bool skipBoundedString(FsFile& file, const size_t fileSize) {
@@ -476,7 +480,8 @@ void Section::writeSectionFileHeader(const int fontId, const int tableFontId, co
                                      const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
                                      const uint16_t viewportWidth, const uint16_t viewportHeight,
                                      const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
-                                     const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing) {
+                                     const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing,
+                                     const uint8_t tateChuYokoMaxDigits) {
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return;
@@ -485,7 +490,8 @@ void Section::writeSectionFileHeader(const int fontId, const int tableFontId, co
                                    sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
                                    sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
                                    sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) +
-                                   sizeof(verticalMode) + sizeof(charSpacing) + sizeof(uint32_t) + sizeof(uint32_t),
+                                   sizeof(verticalMode) + sizeof(charSpacing) + sizeof(tateChuYokoMaxDigits) +
+                                   sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
@@ -501,6 +507,7 @@ void Section::writeSectionFileHeader(const int fontId, const int tableFontId, co
   serialization::writePod(file, imageRendering);
   serialization::writePod(file, verticalMode);
   serialization::writePod(file, charSpacing);
+  serialization::writePod(file, tateChuYokoMaxDigits);
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0, patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
@@ -510,7 +517,8 @@ bool Section::loadSectionFile(const int fontId, const int tableFontId, const flo
                               const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
                               const uint16_t viewportWidth, const uint16_t viewportHeight,
                               const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
-                              const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing) {
+                              const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing,
+                              const uint8_t tateChuYokoMaxDigits) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -539,7 +547,7 @@ bool Section::loadSectionFile(const int fontId, const int tableFontId, const flo
       viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
       hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
       bookStyle == header.bookStyle && imageRendering == header.imageRendering && verticalMode == header.verticalMode &&
-      charSpacing == header.charSpacing;
+      charSpacing == header.charSpacing && tateChuYokoMaxDigits == header.tateChuYokoMaxDigits;
   if (!parametersMatch) {
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
     if (fontId != header.fontId)
@@ -580,6 +588,10 @@ bool Section::loadSectionFile(const int fontId, const int tableFontId, const flo
     if (charSpacing != header.charSpacing)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=charSpacing current=%u cached=%u", spineIndex,
               static_cast<unsigned>(charSpacing), static_cast<unsigned>(header.charSpacing));
+    if (tateChuYokoMaxDigits != header.tateChuYokoMaxDigits)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=tateChuYokoMaxDigits current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(tateChuYokoMaxDigits),
+              static_cast<unsigned>(header.tateChuYokoMaxDigits));
 #endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
@@ -800,6 +812,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
                                 const bool verticalMode, const uint8_t charSpacing,
+                                const uint8_t tateChuYokoMaxDigits,
                                 const std::function<void()>& popupFn, const int* headingFontIds, const int tableFontId,
                                 const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
@@ -884,7 +897,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
   writeSectionFileHeader(fontId, tableFontId, lineCompression, extraParagraphSpacing, paragraphAlignment,
                          viewportWidth, viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle,
-                         imageRendering, verticalMode, charSpacing);
+                         imageRendering, verticalMode, charSpacing, tateChuYokoMaxDigits);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
@@ -949,7 +962,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
           }
         },
         bookStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser, headingFontIds, tableFontId,
-        verticalMode, cssBodyFontIds, cancelFn);
+        verticalMode, cssBodyFontIds, cancelFn, tateChuYokoMaxDigits);
     Hyphenator::setPreferredLanguage(epub->getLanguage());
     success = visitor.parseAndBuildPages();
     if (success) anchors = visitor.getAnchors();

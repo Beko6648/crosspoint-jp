@@ -30,6 +30,7 @@ class TextBlock final : public Block {
   BlockStyle blockStyle;
   std::vector<int16_t> wordYpos;  // vertical layout: y position within column
   bool isVertical = false;        // true when this block was laid out vertically
+  uint8_t tateChuYokoMaxDigits = 2;
   std::vector<std::string> rubyTexts;
   std::vector<TextEmphasis> emphasis;
   std::vector<InlineImage> inlineImages;  // sparse: words 内の画像マーカーの数だけ（出現順）
@@ -37,15 +38,16 @@ class TextBlock final : public Block {
  public:
   explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
                      std::vector<EpdFontFamily::Style> word_styles, const BlockStyle& blockStyle = BlockStyle(),
-                     std::vector<int16_t> word_ypos = {}, bool vertical = false,
-                     std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {},
-                     std::vector<TextEmphasis> emphasis = {})
+                      std::vector<int16_t> word_ypos = {}, bool vertical = false,
+                      std::vector<std::string> ruby_texts = {}, std::vector<InlineImage> inline_images = {},
+                      std::vector<TextEmphasis> emphasis = {}, uint8_t tate_chu_yoko_max_digits = 2)
       : words(std::move(words)),
         wordXpos(std::move(word_xpos)),
         wordStyles(std::move(word_styles)),
         blockStyle(blockStyle),
         wordYpos(std::move(word_ypos)),
         isVertical(vertical),
+        tateChuYokoMaxDigits(tate_chu_yoko_max_digits >= 3 ? 3 : 2),
         rubyTexts(std::move(ruby_texts)),
         emphasis(std::move(emphasis)),
         inlineImages(std::move(inline_images)) {

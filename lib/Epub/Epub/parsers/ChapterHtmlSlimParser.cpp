@@ -409,7 +409,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   verticalFormulaContinuation = false;
   if (verticalMode) {
     // Classify short numbers and paired !/? consistently with rendering.
-    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer);
+    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer, tateChuYokoMaxDigits);
     auto vb = VerticalTextUtils::VerticalBehavior::Sideways;  // default for Latin text
     if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
@@ -552,7 +552,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
     pendingAnchorId.clear();
   }
-  currentTextBlock.reset(new ParsedText(hyphenationEnabled, blockStyle, firstLineIndent));
+  currentTextBlock.reset(new ParsedText(hyphenationEnabled, blockStyle, firstLineIndent, tateChuYokoMaxDigits));
   wordsExtractedInBlock = 0;
 }
 

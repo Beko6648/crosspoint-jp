@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include <VerticalOrientationData.h>
+#include <VerticalTextUtils.h>
 
 using VerticalTextUtils::UaxVerticalOrientation;
 
@@ -20,4 +20,10 @@ int main() {
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x3001) == UaxVerticalOrientation::TransformedUpright);  // 、
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x30FC) == UaxVerticalOrientation::TransformedRotated);  // ー
   assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);              // ｰ
+
+  using VerticalTextUtils::TateChuYokoKind;
+  assert(VerticalTextUtils::classifyTateChuYoko("12") == TateChuYokoKind::DoubleDigit);
+  assert(VerticalTextUtils::classifyTateChuYoko("123") == TateChuYokoKind::None);
+  assert(VerticalTextUtils::classifyTateChuYoko("123", 3) == TateChuYokoKind::TripleDigit);
+  assert(VerticalTextUtils::classifyTateChuYoko("1234", 3) == TateChuYokoKind::None);
 }

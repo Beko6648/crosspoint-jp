@@ -324,6 +324,7 @@ std::shared_ptr<TextBlock> ParsedText::prepareBlock(size_t start, size_t end, bo
   // copying payload. No input is moved, including on callback rejection.
   std::shared_ptr<TextBlock> block(raw);
   block->isVertical = vertical;
+  block->tateChuYokoMaxDigits = tateChuYokoMaxDigits;
   block->words.resize(count);
   block->rubyTexts.resize(count);
   block->wordStyles.assign(wordStyles.begin() + start, wordStyles.begin() + end);
@@ -414,7 +415,13 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId && renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
-      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
+      const auto behavior = (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i]
+                                                               : VerticalTextUtils::VerticalBehavior::Upright;
+      const bool tripleDigitTateChuYoko =
+          behavior == VerticalTextUtils::VerticalBehavior::TateChuYoko &&
+          VerticalTextUtils::classifyTateChuYoko(words[i].c_str(), 3) ==
+              VerticalTextUtils::TateChuYokoKind::TripleDigit;
+      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0 && !tripleDigitTateChuYoko) continue;
       if (scriptText.size() + words[i].size() > MAX_SD_FONT_PREWARM_TEXT_BYTES) break;
       scriptText += words[i];
     }
@@ -505,7 +512,13 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   if (TextBlock::smallFontId != 0 && TextBlock::smallFontId != fontId && renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
-      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
+      const auto behavior = (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i]
+                                                               : VerticalTextUtils::VerticalBehavior::Upright;
+      const bool tripleDigitTateChuYoko =
+          behavior == VerticalTextUtils::VerticalBehavior::TateChuYoko &&
+          VerticalTextUtils::classifyTateChuYoko(words[i].c_str(), 3) ==
+              VerticalTextUtils::TateChuYokoKind::TripleDigit;
+      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0 && !tripleDigitTateChuYoko) continue;
       if (scriptText.size() + words[i].size() > MAX_SD_FONT_PREWARM_TEXT_BYTES) break;
       scriptText += words[i];
     }

@@ -78,6 +78,7 @@ void writeDirection(JsonObject obj, const DirectionSettings& settings) {
   obj["rubyEnabled"] = settings.rubyEnabled;
   obj["rubyOffsetX"] = settings.rubyOffsetX;
   obj["rubyOffsetY"] = settings.rubyOffsetY;
+  obj["tateChuYokoMaxDigits"] = settings.tateChuYokoMaxDigits;
 }
 
 String serialize(const ProfileData& data) {
@@ -142,6 +143,9 @@ bool readDirection(JsonObjectConst obj, DirectionSettings& target) {
   // user-visible offset 0, stored internally with the +16 bias.
   if (!obj["rubyOffsetX"].isNull() && !readU8(obj, "rubyOffsetX", 0, 80, target.rubyOffsetX)) return false;
   if (!obj["rubyOffsetY"].isNull() && !readU8(obj, "rubyOffsetY", 0, 80, target.rubyOffsetY)) return false;
+  if (!obj["tateChuYokoMaxDigits"].isNull() &&
+      !readU8(obj, "tateChuYokoMaxDigits", 2, 3, target.tateChuYokoMaxDigits))
+    return false;
   strncpy(target.sdFontFamilyName, familyName, sizeof(target.sdFontFamilyName) - 1);
   target.sdFontFamilyName[sizeof(target.sdFontFamilyName) - 1] = '\0';
   return true;
