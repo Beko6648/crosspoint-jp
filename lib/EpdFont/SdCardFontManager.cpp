@@ -98,11 +98,10 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
   }
 
   // Tables and ruby normally use virtual 10pt/8pt IDs backed by the primary
-  // body font.  Nearest-neighbour downscaling can drop one-pixel strokes,
-  // especially when a 14pt or larger Mincho face is reduced to 10pt.  The
-  // opt-in quality build keeps the existing two-base production behaviour by
-  // default, but can load the family's native 10pt file as a third base.  Ruby
-  // then scales from 10pt to 8pt instead of from the larger body face.
+  // body font. Nearest-neighbour downscaling can drop one-pixel strokes,
+  // especially when a 14pt or larger Mincho face is reduced to 10pt. When
+  // enabled, load the family's native 10pt file as a third base. Ruby then
+  // scales from 10pt to 8pt instead of from the larger body face.
   SdCardFont* smallFont = nullptr;
   uint8_t smallPt = 0;
 #if defined(SD_FONT_EXACT_SMALL_BASE)

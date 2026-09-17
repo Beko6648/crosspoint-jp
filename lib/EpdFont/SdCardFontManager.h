@@ -21,8 +21,8 @@ class SdCardFontManager {
   // Secondary base: closest to headingBasePt (heading size), loaded only when
   // headingBasePt != 0 && headingBasePt != preferredBasePt && a different .cpfont exists.
   // SD_FONT_EXACT_SMALL_BASE additionally loads an exact 10pt base for tables
-  // and as the nearest source for 8pt ruby. This is opt-in until its X3/X4 RAM
-  // and display impact have been measured.
+  // and as the nearest source for 8pt ruby. It is enabled for the supported
+  // X3/X4 builds after display and RAM validation on both devices.
   // Virtual font IDs for each target size use the closer base, eliminating upscaling.
   // Returns true if at least one font was loaded.
   bool loadFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t preferredBasePt = 14,
