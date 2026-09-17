@@ -195,7 +195,8 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 125: The adjacent ASCII suffix is flushed into a formula before punctuation ends it.
 // 126: Cache the selected two- or three-digit TateChuYoko layout and the
 // per-block rendering limit used after a page is restored.
-constexpr uint8_t SECTION_FILE_VERSION = 126;
+// 127: Split Japanese curly quotes into vertical cells for optical placement.
+constexpr uint8_t SECTION_FILE_VERSION = 127;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

@@ -716,6 +716,9 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     const bool isUprightEnclosedAlphanumeric =
         vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isEnclosedAlphanumeric(wordCp);
 
+    const bool isJapaneseVerticalQuote =
+        vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isJapaneseVerticalQuote(wordCp);
+
     const bool isInlineImage = words[i] == INLINE_IMAGE_MARKER && imgIdx < inlineImages.size();
 
     uint16_t baseHeight;
@@ -734,9 +737,11 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       // advance so it does not leave a full-cell gap before the next kana.
       baseHeight = wordCp == 0xFF70 ? renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]), words[i].c_str(), glyphStyle(wordStyles[i]))
                                     : static_cast<uint16_t>(cjkCharAdvance);
-    } else if (isUprightEnclosedAlphanumeric) {
+    } else if (isUprightEnclosedAlphanumeric || isJapaneseVerticalQuote) {
       // Circled digits are visually narrow in many fonts, but Japanese
-      // vertical composition gives every one a normal character cell.
+      // vertical composition gives every one a normal character cell. Curly
+      // quotation marks likewise need a full cell despite narrow Latin-font
+      // advance metrics.
       baseHeight = static_cast<uint16_t>(cjkCharAdvance);
     } else
       switch (vb) {

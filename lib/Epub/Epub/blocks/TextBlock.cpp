@@ -321,10 +321,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       // drawTextVertical() の句読点経路で回転・配置する。
       const bool forceSidewaysSymbol = isSingleCodepoint && firstCp == 0xFF1D;  // ＝ FULLWIDTH EQUALS SIGN
 
-      const bool isSingleCjk =
-          isSingleCodepoint && !forceSidewaysSymbol && VerticalTextUtils::isUprightInVertical(firstCp);
+      const bool isSingleVerticalGlyph =
+          isSingleCodepoint && !forceSidewaysSymbol && VerticalTextUtils::isVerticalGlyphCell(firstCp);
 
-      if (isSingleCjk) {
+      if (isSingleVerticalGlyph) {
         int uprightX = wx;
         if (VerticalTextUtils::isHalfwidthKatakana(firstCp) ||
             VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
@@ -459,7 +459,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           decorationHeight = wordYpos[i + 1] - wordYpos[i];
         }
         if (decorationHeight <= 0) {
-          decorationHeight = isSingleCjk
+          decorationHeight = isSingleVerticalGlyph
                                  ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
                                  : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
         }
@@ -479,8 +479,9 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
 #if DEBUG_RUBY_RENDER
-        LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s isSingleCjk=%d x=%d y=%d",
-                static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(), isSingleCjk ? 1 : 0, wx,
+        LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s singleVertical=%d x=%d y=%d",
+                static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(),
+                isSingleVerticalGlyph ? 1 : 0, wx,
                 wy);
 #endif
       }

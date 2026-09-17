@@ -61,6 +61,26 @@ static constexpr PunctuationOffset VERTICAL_PUNCTUATION[] = {
     {0x300B, 0, 0, true},  // 》 right double angle bracket
     {0x3014, 0, 0, true},  // 〔 left tortoise shell bracket
     {0x3015, 0, 0, true},  // 〕 right tortoise shell bracket
+    {0x3016, 0, 0, true},  // 〖 left white lenticular bracket
+    {0x3017, 0, 0, true},  // 〗 right white lenticular bracket
+    {0x3018, 0, 0, true},  // 〘 left white tortoise shell bracket
+    {0x3019, 0, 0, true},  // 〙 right white tortoise shell bracket
+    {0x301A, 0, 0, true},  // 〚 left white square bracket
+    {0x301B, 0, 0, true},  // 〛 right white square bracket
+    {0x301D, 0, 0, true},  // 〝 reversed double prime quotation mark
+    {0x301E, 0, 0, true},  // 〞 double prime quotation mark
+    {0x301F, 0, 0, true},  // 〟 low double prime quotation mark
+    {0xFF3B, 0, 0, true},  // ［ fullwidth left square bracket
+    {0xFF3D, 0, 0, true},  // ］ fullwidth right square bracket
+    {0xFF5B, 0, 0, true},  // ｛ fullwidth left curly bracket
+    {0xFF5D, 0, 0, true},  // ｝ fullwidth right curly bracket
+    // Curly quotation marks are UAX #50 R characters. Japanese EPUBs also
+    // use them as paired quotation marks, where the opening mark belongs on
+    // the right of the vertical cell and the closing mark on the left.
+    {0x2018, 2, 4, true},   // ‘ opening single quotation mark
+    {0x2019, -2, 0, true},  // ’ closing single quotation mark
+    {0x201C, 2, 3, true},   // “ opening double quotation mark
+    {0x201D, -2, 0, true},  // ” closing double quotation mark
     // Long marks - rotate to vertical orientation
     {0x30FC, 0, 0, true},  // ー katakana long vowel mark
     {0xFF70, 0, 0, true},  // ｰ halfwidth katakana-hiragana prolonged sound mark
@@ -154,6 +174,20 @@ inline bool isUprightInVertical(uint32_t cp) {
 // still reserve a single Japanese cell when Yomuka falls back to rotation.
 inline bool isTransformedRotatedInVertical(const uint32_t cp) {
   return getUaxVerticalOrientation(cp) == UaxVerticalOrientation::TransformedRotated;
+}
+
+// Curly quotes are R in UAX #50 because they normally rotate with Latin text.
+// Japanese books also use them as opening/closing quotation marks, so keep a
+// standalone mark in one vertical cell and apply Japanese optical placement.
+inline constexpr bool isJapaneseVerticalQuote(const uint32_t cp) {
+  return cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D;
+}
+
+// A codepoint that must be isolated as one Japanese vertical cell. Keeping
+// this decision shared by parsing and drawing prevents Tr punctuation from
+// being parsed as a cell and later rendered as a generic sideways run.
+inline bool isVerticalGlyphCell(const uint32_t cp) {
+  return isUprightInVertical(cp) || isTransformedRotatedInVertical(cp) || isJapaneseVerticalQuote(cp);
 }
 
 // Should this codepoint use the OpenType 'vert' substitute glyph?

@@ -2277,7 +2277,10 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         charBuf[3] = static_cast<char>(0x80 | (displayCp & 0x3F));
       }
       const auto* punctuation = VerticalTextUtils::getVerticalPunctuationOffset(displayCp);
-      if (punctuation && punctuation->rotate) {
+      const bool rotateFallback = (punctuation && punctuation->rotate) ||
+                                  VerticalTextUtils::isTransformedRotatedInVertical(displayCp) ||
+                                  VerticalTextUtils::isJapaneseVerticalQuote(displayCp);
+      if (rotateFallback) {
         // The vertical body cell follows the measured CJK em, not the font's
         // line height. They differ substantially for some SD fonts (notably
         // Zen Maru Gothic), which otherwise shifts rotated halfwidth ｰ to the
@@ -2285,8 +2288,10 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
         const int measuredColumnWidth =
             getTextAdvanceX(effectiveFontId, "\xE4\xB8\x80", static_cast<EpdFontFamily::Style>(style & EpdFontFamily::BOLD_ITALIC));
         const int columnWidth = measuredColumnWidth > 0 ? measuredColumnWidth : getLineHeight(effectiveFontId);
-        int drawX = x + (columnWidth * punctuation->dxEighths) / 8;
-        int drawY = yPos + ascender / 3 + (columnWidth * punctuation->dyEighths) / 8;
+        const int dxEighths = punctuation ? punctuation->dxEighths : 0;
+        const int dyEighths = punctuation ? punctuation->dyEighths : 0;
+        int drawX = x + (columnWidth * dxEighths) / 8;
+        int drawY = yPos + ascender / 3 + (columnWidth * dyEighths) / 8;
 
         // drawTextSideways uses a horizontal glyph's left bearing as its
         // vertical origin. That differs substantially between BIZUD and Noto
