@@ -135,8 +135,21 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manager_(&manager) {
   manager_->scanMode_ = ScanMode::Scanning;
-  manager_->clearCache();
   manager_->resetStats();
+#if defined(SD_FONT_ARENA_REUSE) && SD_FONT_ARENA_REUSE
+  // Page scopes retain SD-font arenas and loaded glyph data while heap
+  // headroom permits. Explicit clear/release callers keep their full-teardown
+  // behavior for layout, Wi-Fi, sleep, and other heap-critical activities.
+  if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+  forEachUniqueSdCardFont(manager_->sdCardFonts_, [](SdCardFont* f) { f->resetPageCache(); });
+#elif defined(SD_FONT_REUSE_DIAGNOSTICS) && SD_FONT_REUSE_DIAGNOSTICS
+  // Keep the preceding page's SD cache until the next prewarm so the
+  // diagnostic build can measure exact glyph/bitmap overlap. Compressed-font
+  // cache behavior remains unchanged.
+  if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+#else
+  manager_->clearCache();
+#endif
 
   // Reset per-SdCardFont scan data
   for (int i = 0; i < MAX_SCAN_FONTS; i++) {
@@ -200,7 +213,14 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
     endScanAndPrewarm();  // no-op if already called (scanMode_ is already None)
+#if defined(SD_FONT_ARENA_REUSE) && SD_FONT_ARENA_REUSE
+    if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+    forEachUniqueSdCardFont(manager_->sdCardFonts_, [](SdCardFont* f) { f->resetPageCache(); });
+#elif defined(SD_FONT_REUSE_DIAGNOSTICS) && SD_FONT_REUSE_DIAGNOSTICS
+    if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+#else
     manager_->clearCache();
+#endif
   }
 }
 

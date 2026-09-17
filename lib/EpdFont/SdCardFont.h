@@ -57,6 +57,12 @@ class SdCardFont {
   // unloaded so routine cache clears cannot degrade vertical punctuation.
   void clearCache();
 
+  // Reset transient page state while retaining reusable SD-font allocations
+  // and their loaded data when heap headroom permits. Used only by the
+  // page-render prewarm scope; clearCache()/releaseResidentCaches() remain
+  // full teardown paths for heap-critical activities.
+  void resetPageCache();
+
   // Free kern/ligature data for all styles (reclaim memory before heavy operations).
   // Data will be lazy-loaded again on next prewarm.
   void freeKernLigatureData();
@@ -119,6 +125,23 @@ class SdCardFont {
     uint32_t seekCount = 0;
     uint32_t uniqueGlyphs = 0;
     uint32_t bitmapBytes = 0;
+#if defined(RENDER_PROFILE)
+    uint32_t metadataSeekCount = 0;
+    uint32_t bitmapSeekCount = 0;
+    uint32_t metadataReadCount = 0;
+    uint32_t bitmapReadCount = 0;
+    uint32_t metadataBatchCount = 0;
+    uint32_t bitmapBatchCount = 0;
+    uint32_t metadataBatchedGlyphs = 0;
+    uint32_t bitmapBatchedGlyphs = 0;
+    uint32_t maxBatchBytes = 0;
+    uint32_t coalescedGapCount = 0;
+    uint32_t readAheadBytes = 0;
+    uint32_t residentHitCount = 0;
+    uint32_t bitmapArenaReuseCount = 0;
+    uint32_t bitmapArenaGrowCount = 0;
+    uint32_t retainedReleaseCount = 0;
+#endif
   };
   void logStats(const char* label = "SDCF");
   void resetStats();
@@ -178,11 +201,19 @@ class SdCardFont {
     // Stub EpdFontData returned when not prewarmed
     EpdFontData stubData{};
 
-    // Mini EpdFontData built during prewarm
+    // Mini EpdFontData built during prewarm. The arena experiment keeps these
+    // allocations across page scopes and grows them only when required.
     EpdFontData miniData{};
     EpdUnicodeInterval* miniIntervals = nullptr;
     EpdGlyph* miniGlyphs = nullptr;
     uint8_t* miniBitmap = nullptr;
+    uint32_t miniIntervalCapacity = 0;
+    uint32_t miniGlyphCapacity = 0;
+    uint32_t miniBitmapCapacity = 0;
+    uint32_t miniBitmapUsed = 0;
+    uint8_t miniUnderuseRuns = 0;
+    bool miniMetadataOnly = false;
+    bool miniHysteresisPending = false;
     // A fragmented heap may not provide one contiguous bitmap allocation for
     // a text-heavy page.  Keep the same prewarmed glyph set in small chunks.
     // Chunked fallback allocates one bitmap per glyph, avoiding a large
@@ -248,6 +279,7 @@ class SdCardFont {
 
   // Per-style helpers
   void freeStyleMiniData(PerStyle& s);
+  void resetStyleMiniData(PerStyle& s);
   void freeStyleVertData(PerStyle& s);
   void freeStyleAll(PerStyle& s);
   void freeStyleKernLigatureData(PerStyle& s);

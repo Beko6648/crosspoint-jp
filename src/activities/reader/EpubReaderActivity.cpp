@@ -1577,11 +1577,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.ensureSdCardFontReady(TextBlock::rubyFontId, pageRubyText.c_str(), 1u << EpdFontFamily::REGULAR);
     }
   }
+  const auto tScanStart = millis();
   page->render(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth, viewportHeight,
                rubyOffsetX, rubyOffsetY);  // scan pass
   // Include a CJK book/chapter title in the same prewarm pass.  This keeps the
   // status bar from faulting its compressed glyphs after the page is drawn.
   renderStatusBar();
+  const auto tScanEnd = millis();
   SD_FONT_DIAG_LOG("glyph_scan_before_prewarm", 0);
   scope.endScanAndPrewarm();
   SD_FONT_DIAG_LOG("glyph_scan_after_prewarm", 0);
@@ -1656,12 +1658,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 #endif
   if (hasImages && bwStored) {
     LOG_RENDER_TIMING("ERS",
-                      "Page render: prewarm=%lums bw_render=%lums display=%lums gray_lsb=%lums "
+                      "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums gray_lsb=%lums "
                       "gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
-                      tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay,
-                      tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
+                      tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd,
+                      tBwRender - tPrewarm, tDisplay - tBwRender, tGrayLsb - tDisplay, tGrayMsb - tGrayLsb,
+                      tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
-    LOG_RENDER_TIMING("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
+    LOG_RENDER_TIMING("ERS",
+                      "Page render: prewarm=%lums prep=%lums scan=%lums cache=%lums bw_render=%lums display=%lums total=%lums",
+                      tPrewarm - t0, tScanStart - t0, tScanEnd - tScanStart, tPrewarm - tScanEnd,
                       tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
   }
 #undef LOG_RENDER_TIMING
