@@ -11,6 +11,18 @@
 3. SDカードへの書き込みが終わってから取り外し、PCで `/.crosspoint/diagnostics/` を開きます。フォルダが見えない場合は隠しファイルの表示を有効にします。
 4. 該当する `report_日時.txt` をPCにコピーします。時刻が未設定なら `report_boot_数字.txt` という名前になります。
 
+診断画面には、Yomukaの版、端末、SDカード、メモリ、キャッシュなどの概要が表示されます。値は端末の状態により異なります。
+
+<img src="images/diagnostics/diagnostics-overview-x3.png" alt="X3の診断画面。Yomuka v0.7.6.0、端末、SDカード、ヒープ、キャッシュの概要を表示" width="360">
+
+**保存** を選ぶと、レポートの保存完了と保存先が表示されます。
+
+<img src="images/diagnostics/diagnostics-report-saved-x3.png" alt="X3の診断画面でレポートを保存し、保存先を表示した画面" width="360">
+
+端末のファイル一覧から確認する場合は、`/.crosspoint/diagnostics/` を開くと保存したレポートが表示されます。
+
+<img src="images/diagnostics/diagnostics-report-folder-x3.png" alt="X3のdiagnosticsフォルダにreport_日時.txtが保存されている画面" width="360">
+
 診断レポートには、版、端末・表示コントローラ・入力方式、RTC／PSRAM、SDカード容量、空きヒープと最大連続確保量、読書キャッシュの合計、選択中の読書設定、端末内に保持している直近ログを保存します。
 
 EPUB読書中に **決定 → ツール → 診断** から保存した場合は、これに加えて、開いている本の形式・サイズ、キャッシュの生成状態、内容指紋、章番号、ページ番号、章内ページ数を保存します。本体設定から開いた診断では、これらの「読書中の本」項目は記録されません。

@@ -34,6 +34,7 @@ EPUBのCSS・固定レイアウト・段組み・特殊な位置指定を完全�
 
 ## はじめる
 
+- [Yomuka Web Flasher](https://ponto1216-ai.github.io/crosspoint-jp/)（PCから初めて導入する場合）
 - [はじめて使う](docs/getting-started-ja.md)
 - [ファームウェアの導入と更新](docs/firmware-update-ja.md)
 - [日本語フォントの導入](docs/cjk-fonts.md)
@@ -44,7 +45,7 @@ EPUBのCSS・固定レイアウト・段組み・特殊な位置指定を完全�
 
 ## リリースと不具合報告
 
-変更内容と更新時の注意は[Releases](https://github.com/ponto1216-ai/crosspoint-jp/releases)に掲載しています。不具合は[報告ガイド](docs/reporting-bugs-ja.md)を参照し、[GitHub Issues](https://github.com/ponto1216-ai/crosspoint-jp/issues)へお知らせください。
+変更内容と更新時の注意は[Releases](https://github.com/ponto1216-ai/crosspoint-jp/releases)、現在の制限と切り分け方は[困ったとき](docs/troubleshooting-ja.md)に掲載しています。不具合は[報告ガイド](docs/reporting-bugs-ja.md)を参照し、[GitHub Issues](https://github.com/ponto1216-ai/crosspoint-jp/issues)へお知らせください。
 
 ## 開発と今後の予定
 
