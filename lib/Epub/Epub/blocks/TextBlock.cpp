@@ -142,7 +142,6 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   }
 */
 
-  const bool blockHasEmphasis = hasEmphasis();
   renderEmphasis(renderer, effectiveFontId, x, y);
 
   // Compute column width once for Sideways/TateChuYoko centering
@@ -506,9 +505,14 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         const int gap = isBizudLikeFont ? 2 : 1;
         const int rubyBaseOffset = isBizudLikeFont ? columnWidth : columnWidth * 70 / 100;
 
+        // BIZ UD already has balanced side bearings. Noto-like ruby glyphs
+        // looked about 6 px too far from their emphasis mark on X3, so move
+        // only that combined annotation inward while retaining mark clearance.
+        const int emphasisRubyGap = isBizudLikeFont ? 4 : -2;
         const int rightBaseX =
-            wx + (blockHasEmphasis
-                      ? std::max(rubyBaseOffset + gap, columnWidth + emphasisSize(renderer, effectiveFontId) + 4)
+            wx + (rubyBaseHasEmphasis(i)
+                      ? std::max(rubyBaseOffset + gap,
+                                 columnWidth + emphasisSize(renderer, effectiveFontId) + emphasisRubyGap)
                       : rubyBaseOffset + gap);
         // Vertical ruby always stays on the standard right side of its base
         // text. The first column may use the reader's right screen margin.
@@ -577,7 +581,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             viewportHeight > 0 ? std::max(minRubyY, viewportTop + viewportHeight - rubyLineHeight - rubyViewportSafety)
                                : INT_MAX;
         const int rubyY =
-            std::clamp((blockHasEmphasis ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight
+            std::clamp((rubyBaseHasEmphasis(i) ? y - emphasisSize(renderer, effectiveFontId) - 4 - rubyLineHeight
                                          : y + bodyLineHeight - rubyBaseOffset - rubyLineHeight - gap) +
                            rubyOffsetY,
                        minRubyY, maxRubyY);

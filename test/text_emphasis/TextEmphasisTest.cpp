@@ -5,18 +5,67 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include "Epub/blocks/ImageBlock.h"
 
-// Link only the production emphasis renderer; unrelated baseline ruby layout is not under test here.
-int TextBlock::rubyFontId=0;
-bool TextBlock::hasRuby() const { for(const auto& s:rubyTexts) if(!s.empty()) return true; return false; }
-int TextBlock::getVerticalRubyRightOverflow(const GfxRenderer&,int,int) { return 0; }
-int TextBlock::getHorizontalRubyTopInset(const GfxRenderer&,int) { return 0; }
+// Inline images are outside these text-only fixtures.
+ImageBlock::ImageBlock(const std::string& path,int16_t w,int16_t h):imagePath(path),width(w),height(h) {}
+void ImageBlock::render(GfxRenderer&,int,int) { assert(false); }
 
 TextBlock block(std::string text,TextEmphasis mark,bool vertical=false) {
  return TextBlock({text},{0},{EpdFontFamily::REGULAR},{},{0},vertical,{}, {},{mark});
 }
 int ink(const GfxRenderer& r) { return std::count(r.pixels.begin(),r.pixels.end(),0); }
+void rubySpanRegression() {
+ using E=TextEmphasis;
+ TextBlock::rubyFontId=2;
+ for(bool vertical:{false,true}) for(bool bizud:{false,true}) {
+   const auto make=[&](std::vector<TextEmphasis> marks,bool ruby=true) {
+     return TextBlock({"日","本","語"},vertical?std::vector<int16_t>{0,0,0}:std::vector<int16_t>{0,25,50},
+                      {EpdFontFamily::REGULAR,EpdFontFamily::REGULAR,EpdFontFamily::REGULAR},{},{0,25,50},vertical,
+                      ruby?std::vector<std::string>{"にほん",std::string(1,TextBlock::RUBY_CONTINUATION_MARKER),""}:
+                           std::vector<std::string>{},{},marks);
+   };
+   auto plain=make({});
+   auto separate=make({E::None,E::None,E::FilledDot});
+   auto overlap=make({E::None,E::FilledDot,E::None});
+   auto first=make({E::FilledDot});
+   auto marksOnly=make({E::FilledDot},false);
+   assert(!plain.rubyBaseHasEmphasis(0)&&!separate.rubyBaseHasEmphasis(0));
+   assert(overlap.rubyBaseHasEmphasis(0)&&first.rubyBaseHasEmphasis(0));
+   assert(!overlap.rubyBaseHasEmphasis(1)&&!overlap.rubyBaseHasEmphasis(99));
+   const auto render=[&](const TextBlock& b,int x=100,int y=70,int ox=0,int oy=0) {
+     GfxRenderer r; if(bizud) { r.bodyHeight=29;r.rubyHeight=17; }
+     b.render(r,1,x,y,900,1000,0,0,ox,oy);
+     return r;
+   };
+   const auto rubyDraw=[](const GfxRenderer& r) {
+     for(const auto& d:r.draws) if(d.font==2) return d;
+     assert(false);return GfxRenderer::Draw{};
+   };
+   auto p=render(plain), s=render(separate), o=render(overlap), m=render(marksOnly);
+   auto pd=rubyDraw(p), sd=rubyDraw(s), od=rubyDraw(o);
+   assert(pd.x==sd.x&&pd.y==sd.y);
+   assert(vertical?od.x>pd.x:od.y<pd.y);
+   if(vertical) assert(od.x==100+(bizud?38:28));
+   for(const auto& d:m.draws) assert(d.font!=2);
+   assert(ink(m)>0);
+   assert(separate.annotationRightOverflow(p,1,p.bodyHeight)==
+          std::max(plain.annotationRightOverflow(p,1,p.bodyHeight),marksOnly.annotationRightOverflow(p,1,p.bodyHeight)));
+   assert(separate.annotationTopInset(p,1)==std::max(plain.annotationTopInset(p,1),marksOnly.annotationTopInset(p,1)));
+   assert(overlap.annotationRightOverflow(p,1,p.bodyHeight)>separate.annotationRightOverflow(p,1,p.bodyHeight));
+   assert(overlap.annotationTopInset(p,1)>separate.annotationTopInset(p,1));
+   auto shifted=rubyDraw(render(separate,100,70,3,4));
+   assert(shifted.x==sd.x+3&&shifted.y==sd.y+4);
+   auto edge=rubyDraw(render(separate,895,0));
+   assert(edge.x<=900-p.rubyHeight&&edge.y>=2);
+   if(!vertical) assert(pd.x==100+(25+p.bodyHeight-3*p.bodyHeight)/2); // Whole two-token base centering.
+ }
+ TextBlock punctuation({"。"},{0},{EpdFontFamily::REGULAR},{},{},false,{"まる"},{},{E::FilledDot});
+ assert(!punctuation.rubyBaseHasEmphasis(0));
+ TextBlock::rubyFontId=0;
+}
 int main(int argc,char** argv) {
+ rubySpanRegression();
  using E=TextEmphasis;
  E e=E::None;
  assert(textEmphasis::parse("open sesame",e)&&e==E::OpenSesame);

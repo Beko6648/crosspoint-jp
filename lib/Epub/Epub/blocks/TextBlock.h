@@ -33,6 +33,8 @@ class TextBlock final : public Block {
   uint8_t tateChuYokoMaxDigits = 2;
   std::vector<std::string> rubyTexts;
   std::vector<TextEmphasis> emphasis;
+  bool tokenHasEmphasis(size_t index) const;
+  bool hasEmphasizedRuby() const;
   std::vector<InlineImage> inlineImages;  // sparse: words 内の画像マーカーの数だけ（出現順）
 
  public:
@@ -70,6 +72,7 @@ class TextBlock final : public Block {
   bool getIsVertical() const { return isVertical; }
   bool hasRuby() const;
   bool hasEmphasis() const;
+  bool rubyBaseHasEmphasis(size_t start) const;
   int annotationRightOverflow(const GfxRenderer& renderer, int fontId, int columnWidth) const;
   int annotationTopInset(const GfxRenderer& renderer, int fontId) const;
   static int emphasisSize(const GfxRenderer& renderer, int fontId);

@@ -196,7 +196,7 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 126: Cache the selected two- or three-digit TateChuYoko layout and the
 // per-block rendering limit used after a page is restored.
 // 127: Split Japanese curly quotes into vertical cells for optical placement.
-constexpr uint8_t SECTION_FILE_VERSION = 127;
+constexpr uint8_t SECTION_FILE_VERSION = 128;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
