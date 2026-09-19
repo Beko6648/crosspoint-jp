@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "DirectionSettingsActivity.h"
 #include "DiagnosticsActivity.h"
+#include "TiltDiagnosticsActivity.h"
 #include "ReaderProfilesActivity.h"
 #include "ReaderTestViewActivity.h"
 #include "FontDownloadActivity.h"
@@ -81,6 +82,8 @@ const char* SettingsActivity::currentSettingDescription() const {
       return tr(STR_SETTINGS_DESC_VERTICAL_SETTINGS);
     case SettingAction::Diagnostics:
       return tr(STR_SETTINGS_DESC_DIAGNOSTICS);
+    case SettingAction::TiltDiagnostics:
+      return tr(STR_SETTINGS_DESC_TILT_DIAGNOSTICS);
     case SettingAction::ReaderProfiles:
       return tr(STR_SETTINGS_DESC_READER_PROFILES);
     case SettingAction::SettingsBackup:
@@ -132,6 +135,9 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
+  if (halTiltSensor.isAvailable()) {
+    systemSettings.push_back(SettingInfo::Action(StrId::STR_TILT_DIAGNOSTICS, SettingAction::TiltDiagnostics));
+  }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SETTINGS_BACKUP, SettingAction::SettingsBackup));
   // Direction-specific settings submenus at the top
   readerSettings.insert(readerSettings.begin(),
@@ -456,6 +462,9 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
         break;
       case SettingAction::Diagnostics:
         startActivityForResult(std::make_unique<DiagnosticsActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::TiltDiagnostics:
+        startActivityForResult(std::make_unique<TiltDiagnosticsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::ReaderProfiles:
         startActivityForResult(std::make_unique<ReaderProfilesActivity>(renderer, mappedInput), resultHandler);

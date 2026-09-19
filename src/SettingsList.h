@@ -187,9 +187,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   if (halTiltSensor.isAvailable()) {
     for (auto it = v.begin(); it != v.end(); ++it) {
       if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
-        v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                                           {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
-                                           "tiltPageTurn", StrId::STR_CAT_CONTROLS));
+        const auto insertIndex = static_cast<size_t>(std::distance(v.begin(), it)) + 1;
+        v.insert(v.begin() + insertIndex,
+                 SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
+                                   {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED}, "tiltPageTurn",
+                                   StrId::STR_CAT_CONTROLS));
         break;
       }
     }

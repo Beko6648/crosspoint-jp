@@ -331,8 +331,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateFrontButtonMapping(s);
-  // Tilt page turn (X3 only, not in SettingsList)
-  s.tiltPageTurn = clamp(doc["tiltPageTurn"] | (uint8_t)0, 2, 0);
+  // Tilt page turn (X3 only). The selector has three valid values (0, 1, 2).
+  s.tiltPageTurn = clamp(doc["tiltPageTurn"] | (uint8_t)S::TILT_OFF, S::TILT_PAGE_TURN_COUNT, S::TILT_OFF);
 
   // Load direction-specific settings (nested objects)
   auto loadDirection = [needsResave](JsonObject obj, DirectionSettings& ds) -> bool {

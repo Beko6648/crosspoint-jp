@@ -1,236 +1,241 @@
 #include "HalTiltSensor.h"
 
+#include <HalGPIO.h>
 #include <Logging.h>
+#include <Wire.h>
 
-HalTiltSensor halTiltSensor;  // Singleton instance
+HalTiltSensor halTiltSensor;
 
-bool HalTiltSensor::writeReg(uint8_t reg, uint8_t val) const {
-  Wire.beginTransmission(_i2cAddr);
-  Wire.write(reg);
-  Wire.write(val);
-  return Wire.endTransmission() == 0;
-}
-
-bool HalTiltSensor::readReg(uint8_t reg, uint8_t* val) const {
-  Wire.beginTransmission(_i2cAddr);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) {
-    return false;
+uint8_t HalTiltSensor::detectAddress() const {
+  constexpr uint8_t addresses[] = {0x6B, 0x6A};
+  for (const uint8_t address : addresses) {
+    Wire.beginTransmission(address);
+    Wire.write(static_cast<uint8_t>(0x00));
+    if (Wire.endTransmission(false) != 0) continue;
+    if (Wire.requestFrom(address, static_cast<uint8_t>(1)) == 1 && Wire.read() == 0x05) return address;
   }
-  Wire.requestFrom(_i2cAddr, (uint8_t)1);
-  if (Wire.available() < 1) {
-    return false;
-  }
-  *val = Wire.read();
-  return true;
-}
-
-bool HalTiltSensor::readGyro(float& gx, float& gy, float& gz) const {
-  Wire.beginTransmission(_i2cAddr);
-  Wire.write(REG_GX_L);  // Start reading at Gyro X Low
-  if (Wire.endTransmission(false) != 0) {
-    return false;
-  }
-
-  Wire.requestFrom(_i2cAddr, (uint8_t)6);
-  if (Wire.available() < 6) {
-    return false;
-  }
-
-  auto readInt16 = [&]() -> int16_t {
-    const uint8_t lo = Wire.read();
-    const uint8_t hi = Wire.read();
-    return static_cast<int16_t>((hi << 8) | lo);
-  };
-
-  // If Full Scale is ±512 dps, the scale factor is 32768 / 512 = 64 LSB/dps
-  constexpr float SCALE = 1.0f / 64.0f;
-  gx = readInt16() * SCALE;
-  gy = readInt16() * SCALE;
-  gz = readInt16() * SCALE;
-  return true;
+  return 0;
 }
 
 void HalTiltSensor::begin() {
-  if (!gpio.deviceIsX3()) {
-    _available = false;
+  if (!gpio.deviceIsX3()) return;
+  _available = _imu.begin();
+  if (!_available) {
+    LOG_ERR("GYR", "FreeInk IMU initialization failed");
     return;
   }
-
-  // Try primary address, then alternate
-  uint8_t whoami = 0;
-  _i2cAddr = I2C_ADDR_QMI8658;
-  if (!readReg(QMI8658_WHO_AM_I_REG, &whoami) || whoami != QMI8658_WHO_AM_I_VALUE) {
-    _i2cAddr = I2C_ADDR_QMI8658_ALT;
-    if (!readReg(QMI8658_WHO_AM_I_REG, &whoami) || whoami != QMI8658_WHO_AM_I_VALUE) {
-      LOG_ERR("GYR", "QMI8658 IMU not found");
-      _available = false;
-      return;
-    }
-  }
-
-  LOG_INF("GYR", "QMI8658 IMU found at 0x%02X", _i2cAddr);
-
-  if (!writeReg(REG_CTRL7, CTRL7_DISABLE_ALL) || !writeReg(REG_CTRL3, CTRL3_FS_512DPS | CTRL3_ODR_28HZ) ||
-      !writeReg(REG_CTRL1, CTRL1_BASE | CTRL1_SENSOR_DISABLE)) {
-    LOG_ERR("GYR", "QMI8658 register configuration failed");
-    _available = false;
-    return;
-  }
-
-  _available = true;
+  _i2cAddr = detectAddress();
   _initMs = millis();
-  _lastPollMs = millis();
-  LOG_INF("GYR", "QMI8658 gyro initialized and put to sleep");
+  _lastPollMs = _initMs;
+  _isAwake = true;
+  LOG_INF("GYR", "FreeInk QMI8658 initialized at 0x%02X", _i2cAddr);
+  deepSleep();
 }
 
 bool HalTiltSensor::wake() {
-  if (!_available) {
-    return false;
-  }
-
-  // Wait for init to complete before waking
-  if ((millis() - _initMs) < SLEEP_STABILIZE_MS) {
-    return false;
-  }
-
-  if (writeReg(REG_CTRL1, CTRL1_BASE) && writeReg(REG_CTRL7, CTRL7_GYRO_ENABLE)) {
-    _lastPollMs = millis();
-    _lastTiltMs = millis();
-    _wakeMs = millis();
-    LOG_INF("GYR", "QMI8658 woke up");
-    return true;
-  } else {
+  if (!_available) return false;
+  if (_isAwake) return true;
+  if ((millis() - _initMs) < SLEEP_STABILIZE_MS) return false;
+  if (!_imu.wake()) {
     LOG_ERR("GYR", "Failed to wake QMI8658");
     return false;
   }
+  _isAwake = true;
+  _lastPollMs = _lastTiltMs = _wakeMs = millis();
+  LOG_INF("GYR", "QMI8658 woke up");
+  return true;
 }
 
 bool HalTiltSensor::deepSleep() {
-  if (!_available) {
-    return false;
-  }
-
-  if ((millis() - _wakeMs) < SLEEP_STABILIZE_MS) {
-    return false;
-  }
-
-  if (writeReg(REG_CTRL7, CTRL7_DISABLE_ALL) && writeReg(REG_CTRL1, CTRL1_BASE | CTRL1_SENSOR_DISABLE)) {
-    // Clear any residual state so it doesn't immediately trigger upon waking
-    clearPendingEvents();
-    _inTilt = false;
-    LOG_INF("GYR", "QMI8658 entered sleep mode");
-    return true;
-  } else {
+  if (!_available) return false;
+  if (!_isAwake) return true;
+  if ((millis() - _wakeMs) < SLEEP_STABILIZE_MS && _wakeMs != 0) return false;
+  if (!_imu.sleep()) {
     LOG_ERR("GYR", "Failed to put QMI8658 to sleep");
     return false;
+  }
+  _isAwake = false;
+  clearPendingEvents();
+  _inTilt = false;
+  LOG_INF("GYR", "QMI8658 entered sleep mode");
+  return true;
+}
+
+bool HalTiltSensor::readSample() {
+  if (!_isAwake || (millis() - _lastPollMs) < POLL_INTERVAL_MS) return false;
+  _lastPollMs = millis();
+  if (!_imu.read(_sample)) {
+    ++_readErrorCount;
+    return false;
+  }
+  _hasSample = true;
+  return true;
+}
+
+float HalTiltSensor::mappedAxis(const uint8_t mode, const uint8_t orientation, const Imu::Sample& sample) const {
+  switch (orientation) {
+    case CrossPointOrientation::PORTRAIT:
+      return mode == CrossPointTiltPageTurn::TILT_INVERTED ? -sample.gx : sample.gx;
+    case CrossPointOrientation::INVERTED:
+      return mode == CrossPointTiltPageTurn::TILT_INVERTED ? sample.gx : -sample.gx;
+    case CrossPointOrientation::LANDSCAPE_CW:
+      return mode == CrossPointTiltPageTurn::TILT_INVERTED ? sample.gy : -sample.gy;
+    case CrossPointOrientation::LANDSCAPE_CCW:
+      return mode == CrossPointTiltPageTurn::TILT_INVERTED ? -sample.gy : sample.gy;
+    default:
+      return sample.gx;
   }
 }
 
 void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const bool inReader) {
-  if (!_available) {
+  if (!_available || _diagnosticsActive) return;
+  if (mode != CrossPointTiltPageTurn::TILT_OFF && !_isAwake) {
+    wake();
     return;
   }
-
-  // State machine: wake up or sleep based on the enabled flag
-  if ((mode != CrossPointTiltPageTurn::TILT_OFF) && !_isAwake) {
-    _isAwake = wake();
-    return;
-  } else if ((mode == CrossPointTiltPageTurn::TILT_OFF) && _isAwake) {
-    _isAwake = !deepSleep();
+  if (mode == CrossPointTiltPageTurn::TILT_OFF && _isAwake) {
+    deepSleep();
     return;
   }
-
-  // If disabled, skip the rest of the polling logic and avoid unnecessary I2C traffic in non-reader activities
-  if ((mode == CrossPointTiltPageTurn::TILT_OFF) || !inReader) {
-    return;
-  }
-
+  if (mode == CrossPointTiltPageTurn::TILT_OFF || !inReader) return;
   const unsigned long now = millis();
-  // Stabilization: discard readings during gyro startup transient
-  if ((now - _wakeMs) < WAKE_STABILIZE_MS) {
-    return;
-  }
-
-  if ((now - _lastPollMs) < POLL_INTERVAL_MS) {
-    return;
-  }
-  _lastPollMs = now;
-
-  float gx, gy, gz;
-  if (!readGyro(gx, gy, gz)) {
-    return;
-  }
-
-  // Map the gyro axis to left/right tilt based on reader orientation.
-  // On the X3 PCB: X axis = left/right in portrait, Y axis = left/right in landscape.
-  float tiltAxis;
-  switch (orientation) {
-    case CrossPointOrientation::PORTRAIT:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gx : gx;
-      break;
-    case CrossPointOrientation::INVERTED:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gx : -gx;
-      break;
-    case CrossPointOrientation::LANDSCAPE_CW:
-      // The reader's display transform for the right-side-up landscape setting
-      // uses the panel's counter-clockwise orientation.
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gy : gy;
-      break;
-    case CrossPointOrientation::LANDSCAPE_CCW:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gy : -gy;
-      break;
-    default:
-      tiltAxis = gx;
-      break;
-  }
-
+  if ((now - _wakeMs) < WAKE_STABILIZE_MS || !readSample()) return;
+  const float axis = mappedAxis(mode, orientation, _sample);
   if (_inTilt) {
-    // Wait for device to return to neutral before allowing next trigger
-    if (fabsf(tiltAxis) < NEUTRAL_RATE_DPS) {
-      _inTilt = false;
+    if (fabsf(axis) < NEUTRAL_RATE_DPS) _inTilt = false;
+    return;
+  }
+  if ((now - _lastTiltMs) < COOLDOWN_MS) return;
+  const bool forward = axis > RATE_THRESHOLD_DPS;
+  const bool backward = axis < -RATE_THRESHOLD_DPS;
+  if (forward || backward) {
+    _tiltForwardEvent = forward;
+    _tiltBackEvent = backward;
+    _hadActivity = true;
+    _inTilt = true;
+    _lastTiltMs = now;
+    LOG_INF("GYR", "%s Trigger=(%.1f) dps", forward ? "Forward" : "Backward", axis);
+  }
+}
+
+void HalTiltSensor::recordDiagnostic(const float axis, const unsigned long now) {
+  if (axis > _rightPeakDps) _rightPeakDps = axis;
+  if (-axis > _leftPeakDps) _leftPeakDps = -axis;
+  if (fabsf(axis) >= fabsf(_diagnosticDisplayAxisDps) ||
+      ((_diagnosticDisplayAxisDps > 0) != (axis > 0) && fabsf(axis) >= NEUTRAL_RATE_DPS)) {
+    _diagnosticDisplayAxisDps = axis;
+  }
+  const float magnitude = fabsf(axis);
+  // Use the quiet interval while the first E-Ink screen is being drawn as the
+  // stationary baseline. Deceleration after a gesture is not idle noise.
+  if ((now - _diagnosticStartMs) <= 1500 && magnitude < NEUTRAL_RATE_DPS && magnitude > _idleNoiseDps) {
+    _idleNoiseDps = magnitude;
+  }
+  // Direction detection answers whether the sensor itself responds. Reaching
+  // the much higher upstream page-turn threshold is evaluated separately from
+  // the recorded peaks in the diagnostics UI.
+  if (!_diagnosticInMotion) {
+    if (axis >= NEUTRAL_RATE_DPS) {
+      ++_rightCrossings;
+      _diagnosticInMotion = true;
+      _diagnosticQuietSinceMs = 0;
+    } else if (axis <= -NEUTRAL_RATE_DPS) {
+      ++_leftCrossings;
+      _diagnosticInMotion = true;
+      _diagnosticQuietSinceMs = 0;
+    }
+  } else if (magnitude < NEUTRAL_RATE_DPS) {
+    if (_diagnosticQuietSinceMs == 0) _diagnosticQuietSinceMs = now;
+    if ((now - _diagnosticQuietSinceMs) >= DIAGNOSTIC_REARM_MS) {
+      _diagnosticInMotion = false;
+      _diagnosticQuietSinceMs = 0;
     }
   } else {
-    // Check for new tilt gesture (with cooldown)
-    if ((now - _lastTiltMs) >= COOLDOWN_MS) {
-      if (tiltAxis > RATE_THRESHOLD_DPS) {
-        _tiltForwardEvent = true;
-        _hadActivity = true;
-        _inTilt = true;
-        _lastTiltMs = now;
-        LOG_INF("GYR", "Forward Trigger=(%.1f) dps", tiltAxis);
-      } else if (tiltAxis < -RATE_THRESHOLD_DPS) {
-        _tiltBackEvent = true;
-        _hadActivity = true;
-        _inTilt = true;
-        _lastTiltMs = now;
-        LOG_INF("GYR", "Backward Trigger=(%.1f) dps", tiltAxis);
-      }
-    }
+    _diagnosticQuietSinceMs = 0;
   }
+}
+
+bool HalTiltSensor::beginDiagnostics(const uint8_t orientation) {
+  if (!_available) return false;
+  _diagnosticsActive = true;
+  resetDiagnostics();
+  if (!wake()) {
+    _diagnosticsActive = false;
+    return false;
+  }
+  _diagnosticStartMs = millis();
+  updateDiagnostics(orientation);
+  return true;
+}
+
+void HalTiltSensor::updateDiagnostics(const uint8_t orientation) {
+  if (!_diagnosticsActive || !_isAwake || (millis() - _wakeMs) < WAKE_STABILIZE_MS || !readSample()) return;
+  const unsigned long now = millis();
+  // mappedAxis() uses the reader's forward/backward convention. On X3 that
+  // convention is opposite to the physical left/right labels shown here.
+  const float axis = -mappedAxis(CrossPointTiltPageTurn::TILT_NORMAL, orientation, _sample);
+  recordDiagnostic(axis, now);
+}
+
+void HalTiltSensor::endDiagnostics() {
+  _diagnosticsActive = false;
+  deepSleep();
+}
+
+void HalTiltSensor::resetDiagnostics() {
+  _hasSample = false;
+  _rightPeakDps = _leftPeakDps = _idleNoiseDps = 0;
+  _rightCrossings = _leftCrossings = 0;
+  _diagnosticStartMs = millis();
+  _diagnosticDisplayAxisDps = 0;
+  _diagnosticInMotion = false;
+  _diagnosticQuietSinceMs = 0;
+}
+
+HalTiltSensor::Diagnostics HalTiltSensor::getDiagnostics(const uint8_t orientation) const {
+  Diagnostics d;
+  d.available = _available;
+  d.awake = _isAwake;
+  d.hasSample = _hasSample;
+  d.i2cAddress = _i2cAddr;
+  d.sample = _sample;
+  d.currentAxisDps = -mappedAxis(CrossPointTiltPageTurn::TILT_NORMAL, orientation, _sample);
+  d.displayAxisDps = _diagnosticDisplayAxisDps;
+  d.axisName[1] = (orientation == CrossPointOrientation::LANDSCAPE_CW ||
+                   orientation == CrossPointOrientation::LANDSCAPE_CCW)
+                      ? 'Y'
+                      : 'X';
+  d.triggerThresholdDps = RATE_THRESHOLD_DPS;
+  d.neutralThresholdDps = NEUTRAL_RATE_DPS;
+  d.rightPeakDps = _rightPeakDps;
+  d.leftPeakDps = _leftPeakDps;
+  d.idleNoiseDps = _idleNoiseDps;
+  d.readErrorCount = _readErrorCount;
+  d.rightCrossings = _rightCrossings;
+  d.leftCrossings = _leftCrossings;
+  return d;
 }
 
 bool HalTiltSensor::wasTiltedForward() {
-  const bool val = _tiltForwardEvent;
+  const bool value = _tiltForwardEvent;
   _tiltForwardEvent = false;
-  return val;
+  return value;
 }
 
 bool HalTiltSensor::wasTiltedBack() {
-  const bool val = _tiltBackEvent;
+  const bool value = _tiltBackEvent;
   _tiltBackEvent = false;
-  return val;
+  return value;
 }
 
 bool HalTiltSensor::hadActivity() {
-  const bool val = _hadActivity;
+  const bool value = _hadActivity;
   _hadActivity = false;
-  return val;
+  return value;
 }
 
 void HalTiltSensor::clearPendingEvents() {
   _tiltForwardEvent = false;
   _tiltBackEvent = false;
   _hadActivity = false;
-  // Intentionally preserve _inTilt so a held tilt doesn't retrigger on next poll
 }
