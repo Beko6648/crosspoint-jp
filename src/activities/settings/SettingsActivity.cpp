@@ -35,7 +35,8 @@
 #include "fontIds.h"
 
 const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
-    StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
+    StrId::STR_SETTINGS_TAB_DISPLAY, StrId::STR_SETTINGS_TAB_READER, StrId::STR_SETTINGS_TAB_CONTROLS,
+    StrId::STR_SETTINGS_TAB_SYSTEM, StrId::STR_SETTINGS_TAB_MANAGEMENT};
 
 void SettingsActivity::enterCategory(const int categoryIndex) {
   if (categoryIndex < 0 || categoryIndex >= categoryCount) return;
@@ -102,6 +103,7 @@ void SettingsActivity::rebuildSettingsLists() {
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
+  managementSettings.clear();
 
   for (auto& setting : getSettingsList(&sdFontSystem.registry())) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
@@ -129,16 +131,17 @@ void SettingsActivity::rebuildSettingsLists() {
   // Append device-only ACTION items
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_GENERATE_ALL_CACHE, SettingAction::GenerateAllCache));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
+  systemSettings.insert(systemSettings.begin(), SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
+  systemSettings.insert(systemSettings.begin(), SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
+
+  managementSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
+  managementSettings.push_back(SettingInfo::Action(StrId::STR_DIAGNOSTICS, SettingAction::Diagnostics));
   if (halTiltSensor.isAvailable()) {
-    systemSettings.push_back(SettingInfo::Action(StrId::STR_TILT_DIAGNOSTICS, SettingAction::TiltDiagnostics));
+    managementSettings.push_back(SettingInfo::Action(StrId::STR_TILT_DIAGNOSTICS, SettingAction::TiltDiagnostics));
   }
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_SETTINGS_BACKUP, SettingAction::SettingsBackup));
+  managementSettings.push_back(SettingInfo::Action(StrId::STR_SETTINGS_BACKUP, SettingAction::SettingsBackup));
+  managementSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
+  managementSettings.push_back(SettingInfo::Action(StrId::STR_GENERATE_ALL_CACHE, SettingAction::GenerateAllCache));
   // Direction-specific settings submenus at the top
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_HORIZONTAL_SETTINGS, SettingAction::HorizontalSettings));
@@ -167,6 +170,9 @@ void SettingsActivity::rebuildSettingsLists() {
       break;
     case 3:
       currentSettings = &systemSettings;
+      break;
+    case 4:
+      currentSettings = &managementSettings;
       break;
     default:
       currentSettings = &systemSettings;
@@ -497,13 +503,15 @@ void SettingsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
-  // X3 has one side button on each edge. Leave a compact gutter so labels and
-  // values stay clear of the vertical button hints without wasting list width.
-  constexpr int x3ClassicSettingsSideInset = 23;
-  constexpr int x3LyraSettingsSideInset = 15;
+  // Keep the list clear of the edge hints without narrowing it more than
+  // necessary. X3 needs both edges; X4 only needs a small right-side offset.
+  constexpr int x3ClassicInset = 23;
+  constexpr int x3LyraInset = 15;
+  constexpr int x4RightInset = 12;
   const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
-  const int listSideInset =
-      gpio.deviceIsX3() ? (isLyraTheme ? x3LyraSettingsSideInset : x3ClassicSettingsSideInset) : 0;
+  const int x3Inset = isLyraTheme ? x3LyraInset : x3ClassicInset;
+  const int listLeftInset = gpio.deviceIsX3() ? x3Inset : 0;
+  const int listRightInset = gpio.deviceIsX3() ? x3Inset : x4RightInset;
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight},
                  tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
@@ -524,7 +532,7 @@ void SettingsActivity::render(RenderLock&&) {
   const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
   GUI.drawList(
       renderer,
-      Rect{listSideInset, listTop, pageWidth - listSideInset * 2, listBottom - listTop},
+      Rect{listLeftInset, listTop, pageWidth - listLeftInset - listRightInset, listBottom - listTop},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
@@ -575,22 +583,18 @@ void SettingsActivity::render(RenderLock&&) {
       },
       editingValue);
 
-  GUI.drawHelpText(renderer, Rect{listSideInset, listBottom + metrics.verticalSpacing, pageWidth - listSideInset * 2,
-                                  helpTextHeight},
+  GUI.drawHelpText(renderer, Rect{listLeftInset, listBottom + metrics.verticalSpacing,
+                                  pageWidth - listLeftInset - listRightInset, helpTextHeight},
                    currentSettingDescription());
 
   // Draw help text
   const char* confirmLabel = tr(STR_SELECT);
-  const char* previousLabel = tr(STR_PREVIOUS);
-  const char* nextLabel = tr(STR_NEXT);
+  const char* previousLabel = tr(STR_SETTINGS_NAV_PREVIOUS);
+  const char* nextLabel = tr(STR_SETTINGS_NAV_NEXT);
   if (editingValue) {
     confirmLabel = tr(STR_SELECT);
-    previousLabel = tr(STR_PREVIOUS);
-    nextLabel = tr(STR_NEXT);
   } else if (selectedSettingIndex == 0) {
     confirmLabel = "";
-    previousLabel = tr(STR_PREVIOUS);
-    nextLabel = tr(STR_NEXT);
   } else {
     const auto& setting = settings[selectedSettingIndex - 1];
     if (currentSettingIsEditable()) {
@@ -602,7 +606,7 @@ void SettingsActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   if (selectedSettingIndex == 0) {
-    GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
+    GUI.drawSideButtonHints(renderer, tr(STR_SETTINGS_NAV_PREVIOUS), tr(STR_SETTINGS_NAV_NEXT));
   }
 
   // Always use standard refresh for settings screen

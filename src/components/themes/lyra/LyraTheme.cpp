@@ -290,7 +290,21 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
   int currentX = rect.x + LyraMetrics::values.contentSidePadding;
 
   const int selectionExtraRight = 8;
-  const int tabSpacing = LyraMetrics::values.tabSpacing * 2;
+  const int normalTabSpacing = LyraMetrics::values.tabSpacing * 2;
+  int tabSpacing = normalTabSpacing;
+
+  // Settings uses five tabs. Fit their labels on the narrower 480 px panel
+  // while retaining the normal spacing on X3 and on shorter tab sets.
+  if (tabs.size() > 1) {
+    int totalTextWidth = 0;
+    for (const auto& tab : tabs) {
+      totalTextWidth += renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
+    }
+    const int selectionPadding = 2 * hPaddingInSelection + selectionExtraRight;
+    const int availableForGaps = rect.width - LyraMetrics::values.contentSidePadding - totalTextWidth -
+                                 static_cast<int>(tabs.size()) * selectionPadding;
+    tabSpacing = std::clamp(availableForGaps / static_cast<int>(tabs.size() - 1), 2, normalTabSpacing);
+  }
 
   if (selected) {
     renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::LightGray);
