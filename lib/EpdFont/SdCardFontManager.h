@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,9 @@ class SdCardFontManager {
   // Primary base: closest to preferredBasePt (body text size).
   // Secondary base: closest to headingBasePt (heading size), loaded only when
   // headingBasePt != 0 && headingBasePt != preferredBasePt && a different .cpfont exists.
+  // SD_FONT_EXACT_SMALL_BASE additionally loads an exact 10pt base for tables
+  // and as the nearest source for 8pt ruby. It is enabled for the supported
+  // X3/X4 builds after display and RAM validation on both devices.
   // Virtual font IDs for each target size use the closer base, eliminating upscaling.
   // Returns true if at least one font was loaded.
   bool loadFamily(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t preferredBasePt = 14,
@@ -50,6 +54,7 @@ class SdCardFontManager {
   std::string loadedFamilyName_;
   std::vector<LoadedFont> loaded_;
   std::vector<int> virtualFontIds_;  // 全仮想fontId（unload時に全削除用）
+  std::map<uint8_t, int> virtualFontIdsBySize_;
   uint8_t loadedBasePt_ = 0;         // 現在ロード中のprimaryベース.cpfontのptサイズ
   uint8_t loadedHeadingBasePt_ = 0;  // 現在ロード中のheadingベース.cpfontのptサイズ（0=未使用）
 };

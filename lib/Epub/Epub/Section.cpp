@@ -192,7 +192,14 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 119: Short vertical formulas are kept as one horizontal-in-vertical cell.
 // 120: <pre> preserves literal spaces, tabs and line boundaries.
 // 121: Heading blocks suppress reader paragraph spacing after their CSS margin.
-constexpr uint8_t SECTION_FILE_VERSION = 121;
+// 122: Cache headers include the table/small-font ID.
+// 123: Every cache-generation path configures that small font before script layout.
+// 124: Vertical formula tokens no longer absorb intervening punctuation cells.
+// 125: The adjacent ASCII suffix is flushed into a formula before punctuation ends it.
+// 126: Cache the selected two- or three-digit TateChuYoko layout and the
+// per-block rendering limit used after a page is restored.
+// 127: Split Japanese curly quotes into vertical cells for optical placement.
+constexpr uint8_t SECTION_FILE_VERSION = 127;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -217,14 +224,17 @@ constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_STREAM = 32 * 1024;  // 32KB
 constexpr size_t MIN_MAX_ALLOC_FOR_SECTION_BUILD = 16 * 1024;   // 16KB
 constexpr size_t MIN_FREE_HEAP_FOR_SECTION_STREAM = 30 * 1024;  // 30KB
 constexpr size_t LUT_VALIDATION_BATCH_SIZE = 64;
-constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) +
-                                 sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) +
-                                 sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) + sizeof(uint8_t) +  // charSpacing
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(int) + sizeof(float) + sizeof(uint8_t) +
+                                 sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) +
+                                 sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(bool) +
+                                 sizeof(uint8_t) +  // charSpacing
+                                 sizeof(uint8_t) +  // tateChuYokoMaxDigits
                                  sizeof(uint32_t) + sizeof(uint32_t);
 
 struct SectionHeader {
   uint8_t version = 0;
   int fontId = 0;
+  int tableFontId = 0;
   float lineCompression = 0.0f;
   uint8_t extraParagraphSpacing = 0;
   uint8_t paragraphAlignment = 0;
@@ -236,6 +246,7 @@ struct SectionHeader {
   uint8_t imageRendering = 0;
   bool verticalMode = false;
   uint8_t charSpacing = 0;
+  uint8_t tateChuYokoMaxDigits = 2;
 };
 
 template <typename T>
@@ -274,12 +285,13 @@ size_t requiredHeapForSectionBuild(const uint32_t htmlSize) {
 
 bool readSectionHeader(FsFile& file, SectionHeader& header) {
   return readPodChecked(file, header.version) && readPodChecked(file, header.fontId) &&
-         readPodChecked(file, header.lineCompression) && readPodChecked(file, header.extraParagraphSpacing) &&
-         readPodChecked(file, header.paragraphAlignment) && readPodChecked(file, header.viewportWidth) &&
-         readPodChecked(file, header.viewportHeight) && readPodChecked(file, header.hyphenationEnabled) &&
-         readPodChecked(file, header.firstLineIndent) && readPodChecked(file, header.bookStyle) &&
-         readPodChecked(file, header.imageRendering) && readPodChecked(file, header.verticalMode) &&
-         readPodChecked(file, header.charSpacing);
+         readPodChecked(file, header.tableFontId) && readPodChecked(file, header.lineCompression) &&
+         readPodChecked(file, header.extraParagraphSpacing) && readPodChecked(file, header.paragraphAlignment) &&
+         readPodChecked(file, header.viewportWidth) && readPodChecked(file, header.viewportHeight) &&
+         readPodChecked(file, header.hyphenationEnabled) && readPodChecked(file, header.firstLineIndent) &&
+         readPodChecked(file, header.bookStyle) && readPodChecked(file, header.imageRendering) &&
+         readPodChecked(file, header.verticalMode) && readPodChecked(file, header.charSpacing) &&
+         readPodChecked(file, header.tateChuYokoMaxDigits);
 }
 
 bool skipBoundedString(FsFile& file, const size_t fileSize) {
@@ -348,6 +360,14 @@ bool validateSectionCache(FsFile& file, SectionHeader& header, uint16_t& pageCou
   return file.position() == fileSize || fail("trailing data");
 }
 }  // namespace
+
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+namespace {
+bool cacheStorageFaultInjectionActive = false;
+}
+
+void Section::setCacheStorageFaultInjectionActive(const bool active) { cacheStorageFaultInjectionActive = active; }
+#endif
 
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
 namespace {
@@ -435,6 +455,7 @@ PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIn
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return 0;
   }
 
@@ -446,6 +467,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 #endif
   if (!page->serialize(file)) {
     LOG_ERR("SCT", "Failed to serialize page %d", pageCount);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return 0;
   }
   LOG_DBG("SCT", "Page %d processed", pageCount);
@@ -466,23 +488,26 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   return position;
 }
 
-void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
-                                     const uint8_t paragraphAlignment, const uint16_t viewportWidth,
-                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
-                                     const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
-                                     const bool verticalMode, const uint8_t charSpacing) {
+void Section::writeSectionFileHeader(const int fontId, const int tableFontId, const float lineCompression,
+                                     const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
+                                     const uint16_t viewportWidth, const uint16_t viewportHeight,
+                                     const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
+                                     const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing,
+                                     const uint8_t tateChuYokoMaxDigits) {
   if (!file) {
     LOG_DBG("SCT", "File not open for writing header");
     return;
   }
-  static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
-                                   sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) +
-                                   sizeof(verticalMode) + sizeof(charSpacing) + sizeof(uint32_t) + sizeof(uint32_t),
-                "Header size mismatch");
+  static_assert(
+      HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(tableFontId) + sizeof(lineCompression) +
+                         sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
+                         sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
+                         sizeof(firstLineIndent) + sizeof(bookStyle) + sizeof(imageRendering) + sizeof(verticalMode) +
+                         sizeof(charSpacing) + sizeof(tateChuYokoMaxDigits) + sizeof(uint32_t) + sizeof(uint32_t),
+      "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
+  serialization::writePod(file, tableFontId);
   serialization::writePod(file, lineCompression);
   serialization::writePod(file, extraParagraphSpacing);
   serialization::writePod(file, paragraphAlignment);
@@ -494,16 +519,18 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, imageRendering);
   serialization::writePod(file, verticalMode);
   serialization::writePod(file, charSpacing);
+  serialization::writePod(file, tateChuYokoMaxDigits);
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0, patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
 }
 
-bool Section::loadSectionFile(const int fontId, const float lineCompression, const uint8_t extraParagraphSpacing,
-                              const uint8_t paragraphAlignment, const uint16_t viewportWidth,
-                              const uint16_t viewportHeight, const bool hyphenationEnabled, const bool firstLineIndent,
-                              const uint8_t bookStyle, const uint8_t imageRendering, const bool verticalMode,
-                              const uint8_t charSpacing) {
+bool Section::loadSectionFile(const int fontId, const int tableFontId, const float lineCompression,
+                              const uint8_t extraParagraphSpacing, const uint8_t paragraphAlignment,
+                              const uint16_t viewportWidth, const uint16_t viewportHeight,
+                              const bool hyphenationEnabled, const bool firstLineIndent, const uint8_t bookStyle,
+                              const uint8_t imageRendering, const bool verticalMode, const uint8_t charSpacing,
+                              const uint8_t tateChuYokoMaxDigits) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -527,16 +554,19 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
   }
 
   const bool parametersMatch =
-      fontId == header.fontId && lineCompression == header.lineCompression &&
+      fontId == header.fontId && tableFontId == header.tableFontId && lineCompression == header.lineCompression &&
       extraParagraphSpacing == header.extraParagraphSpacing && paragraphAlignment == header.paragraphAlignment &&
       viewportWidth == header.viewportWidth && viewportHeight == header.viewportHeight &&
       hyphenationEnabled == header.hyphenationEnabled && firstLineIndent == header.firstLineIndent &&
       bookStyle == header.bookStyle && imageRendering == header.imageRendering && verticalMode == header.verticalMode &&
-      charSpacing == header.charSpacing;
+      charSpacing == header.charSpacing && tateChuYokoMaxDigits == header.tateChuYokoMaxDigits;
   if (!parametersMatch) {
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
     if (fontId != header.fontId)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=fontId current=%d cached=%d", spineIndex, fontId, header.fontId);
+    if (tableFontId != header.tableFontId)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=tableFontId current=%d cached=%d", spineIndex, tableFontId,
+              header.tableFontId);
     if (lineCompression != header.lineCompression)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=lineCompression current=%.3f cached=%.3f", spineIndex,
               static_cast<double>(lineCompression), static_cast<double>(header.lineCompression));
@@ -570,6 +600,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     if (charSpacing != header.charSpacing)
       LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=charSpacing current=%u cached=%u", spineIndex,
               static_cast<unsigned>(charSpacing), static_cast<unsigned>(header.charSpacing));
+    if (tateChuYokoMaxDigits != header.tateChuYokoMaxDigits)
+      LOG_DBG("CDIAG", "PARAM_MISMATCH spine=%d field=tateChuYokoMaxDigits current=%u cached=%u", spineIndex,
+              static_cast<unsigned>(tateChuYokoMaxDigits), static_cast<unsigned>(header.tateChuYokoMaxDigits));
 #endif
     file.close();
     LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
@@ -647,6 +680,7 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
                                         uint32_t& fileSize) {
   // Retry logic for SD card timing issues
   bool success = false;
+  bool openedTempFile = false;
   for (int attempt = 0; attempt < 3 && !success; attempt++) {
     if (attempt > 0) {
       LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);
@@ -658,9 +692,17 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
     }
 
     FsFile tmpHtml;
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+    if (cacheStorageFaultInjectionActive && spineIndex == CACHE_STORAGE_FAULT_SPINE) {
+      LOG_ERR("SDFI", "event=forced_failure point=temp_html_open spine=%d attempt=%d/3 path=%s", spineIndex,
+              attempt + 1, tmpHtmlPath.c_str());
+      continue;
+    }
+#endif
     if (!Storage.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
       continue;
     }
+    openedTempFile = true;
 
     success = epub->readItemContentsToStream(localPath, tmpHtml, 1024);
     fileSize = tmpHtml.size();
@@ -670,6 +712,13 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
       Storage.remove(tmpHtmlPath.c_str());
       LOG_DBG("SCT", "Removed incomplete temp file after failed attempt");
     }
+  }
+
+  if (!success) {
+    // A corrupt ZIP entry can fail after the destination was opened. Keep
+    // that separate from the observed SD failure where all three destination
+    // opens failed, so malformed books are not mislabeled as card errors.
+    lastCreateFailureReason = openedTempFile ? CreateFailureReason::Parse : CreateFailureReason::StorageIo;
   }
 
   return success;
@@ -779,14 +828,21 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
                                 const bool firstLineIndent, const uint8_t bookStyle, const uint8_t imageRendering,
-                                const bool verticalMode, const uint8_t charSpacing,
+                                const bool verticalMode, const uint8_t charSpacing, const uint8_t tateChuYokoMaxDigits,
                                 const std::function<void()>& popupFn, const int* headingFontIds, const int tableFontId,
                                 const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
                                 const std::function<bool()>& cancelFn) {
+  lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
-  const auto localPath = epub->getSpineItem(spineIndex).href;
+  BookMetadataCache::SpineEntry spineItem;
+  if (!epub->tryGetSpineItem(spineIndex, spineItem)) {
+    LOG_ERR("SCT", "Failed to read spine metadata for section %d", spineIndex);
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
+    return false;
+  }
+  const auto& localPath = spineItem.href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
@@ -801,7 +857,11 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Create cache directory if it doesn't exist
   {
     const auto sectionsDir = epub->getCachePath() + "/sections";
-    Storage.mkdir(sectionsDir.c_str());
+    if (!Storage.exists(sectionsDir.c_str()) && !Storage.mkdir(sectionsDir.c_str())) {
+      LOG_ERR("SCT", "Failed to create section cache directory");
+      lastCreateFailureReason = CreateFailureReason::StorageIo;
+      return false;
+    }
   }
 
   // The previous section may leave an SD-font advance table resident. Release
@@ -826,6 +886,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // required buffer. Stored WebUI-generated entries do not need the 32KB
   // inflate dictionary.
   if (!hasEnoughHeapForSectionStream()) {
+    lastCreateFailureReason = CreateFailureReason::InsufficientMemory;
     return false;
   }
 
@@ -847,11 +908,12 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
 
   if (!Storage.openFileForWrite("SCT", tmpSectionPath, file)) {
+    lastCreateFailureReason = CreateFailureReason::StorageIo;
     return false;
   }
-  writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+  writeSectionFileHeader(fontId, tableFontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                          viewportHeight, hyphenationEnabled, firstLineIndent, bookStyle, imageRendering, verticalMode,
-                         charSpacing);
+                         charSpacing, tateChuYokoMaxDigits);
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
@@ -882,6 +944,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     if (cssParser) {
       cssParser->clear();
     }
+    lastCreateFailureReason = CreateFailureReason::InsufficientMemory;
     return false;
   }
   LOG_DBG("SCT", "Section build heap check passed (free=%u, maxAlloc=%u, need free>=%zu maxAlloc>=%zu, html=%lu)",
@@ -915,7 +978,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
           }
         },
         bookStyle, contentBase, imageBasePath, imageRendering, popupFn, cssParser, headingFontIds, tableFontId,
-        verticalMode, cssBodyFontIds, cancelFn);
+        verticalMode, cssBodyFontIds, cancelFn, tateChuYokoMaxDigits);
     Hyphenator::setPreferredLanguage(epub->getLanguage());
     success = visitor.parseAndBuildPages();
     if (success) anchors = visitor.getAnchors();
@@ -931,10 +994,16 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     if (cssParser) {
       cssParser->clear();
     }
+    if (lastCreateFailureReason == CreateFailureReason::None) {
+      lastCreateFailureReason = cancelFn && cancelFn() ? CreateFailureReason::Cancelled : CreateFailureReason::Parse;
+    }
     return false;
   }
 
   if (!finalizeSectionFile(lut, anchors, tmpSectionPath, cssParser, createSectionStart, parseBuildStart)) {
+    if (lastCreateFailureReason == CreateFailureReason::None) {
+      lastCreateFailureReason = CreateFailureReason::StorageIo;
+    }
     return false;
   }
 

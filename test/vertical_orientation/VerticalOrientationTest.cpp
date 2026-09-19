@@ -1,4 +1,4 @@
-#include <VerticalOrientationData.h>
+#include <VerticalTextUtils.h>
 
 #include <cassert>
 
@@ -20,4 +20,24 @@ int main() {
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x3001) == UaxVerticalOrientation::TransformedUpright);  // 、
   assert(VerticalTextUtils::getUaxVerticalOrientation(0x30FC) == UaxVerticalOrientation::TransformedRotated);  // ー
   assert(VerticalTextUtils::getUaxVerticalOrientation(0xFF70) == UaxVerticalOrientation::Rotated);             // ｰ
+
+  // Tr punctuation and Japanese curly quotes must follow the same single-cell
+  // path through parsing, layout, and rendering.
+  assert(VerticalTextUtils::isVerticalGlyphCell(0x300C));  // 「 (Tr)
+  assert(VerticalTextUtils::isVerticalGlyphCell(0x300D));  // 」 (Tr)
+  assert(VerticalTextUtils::isVerticalGlyphCell(0x301D));  // 〝 (Tr)
+  assert(VerticalTextUtils::isVerticalGlyphCell(0x201C));  // “ (R, Japanese quote exception)
+  assert(VerticalTextUtils::isVerticalGlyphCell(0x201D));  // ” (R, Japanese quote exception)
+  assert(!VerticalTextUtils::isVerticalGlyphCell('A'));    // ordinary R text remains sideways
+
+  const auto* openingQuote = VerticalTextUtils::getVerticalPunctuationOffset(0x201C);
+  const auto* closingQuote = VerticalTextUtils::getVerticalPunctuationOffset(0x201D);
+  assert(openingQuote != nullptr && openingQuote->rotate && openingQuote->dxEighths > 0 && openingQuote->dyEighths > 0);
+  assert(closingQuote != nullptr && closingQuote->rotate && closingQuote->dxEighths < 0);
+
+  using VerticalTextUtils::TateChuYokoKind;
+  assert(VerticalTextUtils::classifyTateChuYoko("12") == TateChuYokoKind::DoubleDigit);
+  assert(VerticalTextUtils::classifyTateChuYoko("123") == TateChuYokoKind::None);
+  assert(VerticalTextUtils::classifyTateChuYoko("123", 3) == TateChuYokoKind::TripleDigit);
+  assert(VerticalTextUtils::classifyTateChuYoko("1234", 3) == TateChuYokoKind::None);
 }

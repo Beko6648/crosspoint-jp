@@ -106,6 +106,7 @@ class BookMetadataCache {
 
   // Reading phase (read mode)
   bool load();
+  bool tryGetSpineEntry(int index, SpineEntry& entry);
   SpineEntry getSpineEntry(int index);
   TocEntry getTocEntry(int index);
   int getSpineCount() const { return spineCount; }

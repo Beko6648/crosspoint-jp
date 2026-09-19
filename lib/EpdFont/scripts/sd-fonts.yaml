@@ -17,6 +17,8 @@ default_license: OFL-1.1
   #   force_autohint: (optional) Force FreeType auto-hinter instead of native hinting
 #   include_controls: (optional) Keep layout controls as zero-size placeholders
 #                     when codepoints_from_styles is used
+#   interval_gap_tolerance: (optional) Merge filtered codepoint runs across gaps
+#                           up to this size (default: 4)
 #   styles:      Map of style name -> font source
 #                  path: relative to lib/EpdFont (for committed fonts)
 #                  url:  download URL (for fonts not in the repo)
@@ -275,6 +277,9 @@ families:
     # Use only glyphs actually present in the configured Regular and Bold
     # sources. This avoids large runs of empty CJK placeholders.
     codepoints_from_styles: true
+    # Trade a modest number of empty glyph placeholders on SD for a much
+    # smaller interval table kept in the ESP32-C3 heap at runtime.
+    interval_gap_tolerance: 16
     # Empty EPUB paragraphs use U+200B (and C0 controls) during layout.
     # Keep them non-visible rather than rendering a replacement glyph.
     include_controls: true

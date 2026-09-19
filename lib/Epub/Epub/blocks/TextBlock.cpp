@@ -14,6 +14,11 @@ static constexpr const char* INLINE_IMAGE_MARKER = "\xef\xbf\xbc";
 
 #include <algorithm>
 #include <climits>
+
+#ifndef DEBUG_VERTICAL_FORMULA
+#define DEBUG_VERTICAL_FORMULA 0
+#endif
+
 static std::vector<std::string> splitUtf8Chars(const std::string& text) {
   std::vector<std::string> chars;
 
@@ -157,12 +162,12 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
   // The bitmap center of a CJK body glyph can differ from half the advance
   // width. Sideways ASCII and symbols must use this same visual center.
   int verticalBodyCenterOffset = 0;
+  int verticalBodyMinX = 0;
+  int verticalBodyMaxX = 0;
   if (isVertical) {
-    int bodyMinX = 0;
-    int bodyMaxX = 0;
-    renderer.getTextVisibleBoundsX(effectiveFontId, "\xe4\xb8\x80", &bodyMinX, &bodyMaxX,
+    renderer.getTextVisibleBoundsX(effectiveFontId, "\xe4\xb8\x80", &verticalBodyMinX, &verticalBodyMaxX,
                                    EpdFontFamily::REGULAR);  // U+4E00
-    verticalBodyCenterOffset = (bodyMinX + bodyMaxX) / 2 - columnWidth / 2;
+    verticalBodyCenterOffset = (verticalBodyMinX + verticalBodyMaxX) / 2 - columnWidth / 2;
   }
 
   // Keep annotations in one vertical column from drawing over each other.
@@ -316,10 +321,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       // drawTextVertical() の句読点経路で回転・配置する。
       const bool forceSidewaysSymbol = isSingleCodepoint && firstCp == 0xFF1D;  // ＝ FULLWIDTH EQUALS SIGN
 
-      const bool isSingleCjk =
-          isSingleCodepoint && !forceSidewaysSymbol && VerticalTextUtils::isUprightInVertical(firstCp);
+      const bool isSingleVerticalGlyph =
+          isSingleCodepoint && !forceSidewaysSymbol && VerticalTextUtils::isVerticalGlyphCell(firstCp);
 
-      if (isSingleCjk) {
+      if (isSingleVerticalGlyph) {
         int uprightX = wx;
         if (VerticalTextUtils::isHalfwidthKatakana(firstCp) || VerticalTextUtils::isEnclosedAlphanumeric(firstCp)) {
           // Narrow upright glyphs can carry uneven side bearings. Align their
@@ -340,10 +345,10 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         // mark from its base kana).
         renderer.drawTextVertical(wordFontId, uprightX, wy + scriptOffset, w, true, glyphStyle);
       } else {
-        const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w);
+        const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(w, tateChuYokoMaxDigits);
         // Formula tokens contain one of the Unicode super/subscript digits.
-        // Detect them from stored text so section-cache serialization remains
-        // unchanged; their layout behavior was already fixed before caching.
+        // Detect them from stored text so no per-word behavior array is needed
+        // in the serialized page block.
         const bool isFormula =
             words[i].find("\xC2\xB2") != std::string::npos || words[i].find("\xC2\xB3") != std::string::npos ||
             words[i].find("\xC2\xB9") != std::string::npos || words[i].find("\xE2\x81") != std::string::npos ||
@@ -377,14 +382,40 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             return ascii != '\0';
           };
           int formulaWidth = 0;
+          int formulaMinX = INT_MAX;
+          int formulaMaxX = INT_MIN;
           for (const char* p = w; *p;) {
             char part;
             bool scriptPart, subPart;
             if (!nextFormulaPart(p, part, scriptPart, subPart)) break;
             char text[] = {part, '\0'};
-            formulaWidth += renderer.getTextAdvanceX(scriptPart ? formulaScriptFont : wordFontId, text, glyphStyle);
+            const int partFont = scriptPart ? formulaScriptFont : wordFontId;
+            int partMinX = 0;
+            int partMaxX = 0;
+            renderer.getTextVisibleBoundsX(partFont, text, &partMinX, &partMaxX, glyphStyle);
+#if DEBUG_VERTICAL_FORMULA
+            LOG_INF("VFORM", "phase=%s token=%s part=%c font=%d pen=%d advance=%d bounds=%d,%d",
+                    isPrewarmScan ? "scan" : "draw", w, part, partFont, formulaWidth,
+                    renderer.getTextAdvanceX(partFont, text, glyphStyle), partMinX, partMaxX);
+#endif
+            formulaMinX = std::min(formulaMinX, formulaWidth + partMinX);
+            formulaMaxX = std::max(formulaMaxX, formulaWidth + partMaxX);
+            formulaWidth += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }
-          int formulaX = wx + (columnWidth - formulaWidth) / 2;
+          // Mixed body/script fonts have different side bearings. Center the
+          // formula's visible ink on the same CJK body center as this column;
+          // centering only its advances shifts Noto formulas to the right.
+          const int bodyCenter = columnWidth / 2 + verticalBodyCenterOffset;
+          const int formulaCenter = formulaMinX <= formulaMaxX ? (formulaMinX + formulaMaxX) / 2 : formulaWidth / 2;
+          int formulaX = wx + bodyCenter - formulaCenter;
+#if DEBUG_VERTICAL_FORMULA
+          LOG_INF("VFORM",
+                  "phase=%s token=%s bodyFont=%d scriptFont=%d wx=%d wy=%d column=%d bodyBounds=%d,%d "
+                  "formulaBounds=%d,%d advance=%d bodyCenter=%d formulaCenter=%d drawX=%d",
+                  isPrewarmScan ? "scan" : "draw", w, wordFontId, formulaScriptFont, wx, wy, columnWidth,
+                  verticalBodyMinX, verticalBodyMaxX, formulaMinX, formulaMaxX, formulaWidth, bodyCenter, formulaCenter,
+                  formulaX);
+#endif
           for (const char* p = w; *p;) {
             char part;
             bool scriptPart, subPart;
@@ -397,19 +428,25 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
             formulaX += renderer.getTextAdvanceX(partFont, text, glyphStyle);
           }
         } else if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
+          // Three full-size digits do not fit a normal Japanese body cell.
+          // Use the 10pt companion font only for the optional three-digit mode;
+          // one- and two-digit TateChuYoko retain their established body size.
+          const int tateChuYokoFont =
+              tateChuYokoKind == VerticalTextUtils::TateChuYokoKind::TripleDigit && smallFontId != 0 ? smallFontId
+                                                                                                     : wordFontId;
           // Align the actual halfwidth-digits bounds with a fullwidth digit
           // in the same column. This is more reliable than the abstract cell
           // width: some fonts (notably Noto) have a cell center that differs
           // from the visible fullwidth-numeral center.
           int textMinX = 0;
           int textMaxX = 0;
-          renderer.getTextVisibleBoundsX(effectiveFontId, w, &textMinX, &textMaxX, glyphStyle);
+          renderer.getTextVisibleBoundsX(tateChuYokoFont, w, &textMinX, &textMaxX, glyphStyle);
           int fullwidthDigitMinX = 0;
           int fullwidthDigitMaxX = 0;
           renderer.getTextVisibleBoundsX(effectiveFontId, "\xEF\xBC\x90", &fullwidthDigitMinX, &fullwidthDigitMaxX,
                                          glyphStyle);  // U+FF10
           const int centerOffset = (fullwidthDigitMinX + fullwidthDigitMaxX - textMinX - textMaxX) / 2;
-          renderer.drawText(wordFontId, wx + centerOffset, wy + scriptOffset, w, true, glyphStyle);
+          renderer.drawText(tateChuYokoFont, wx + centerOffset, wy + scriptOffset, w, true, glyphStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           const int vertShift = renderer.getFontAscenderSize(wordFontId) / 3;
@@ -429,8 +466,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
           decorationHeight = wordYpos[i + 1] - wordYpos[i];
         }
         if (decorationHeight <= 0) {
-          decorationHeight = isSingleCjk ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
-                                         : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
+          decorationHeight = isSingleVerticalGlyph ? renderer.getTextAdvanceYVertical(effectiveFontId, w, glyphStyle)
+                                                   : renderer.getTextAdvanceX(effectiveFontId, w, glyphStyle);
         }
         decorationHeight = std::max(1, decorationHeight);
         if (hasUnderline) {
@@ -448,9 +485,9 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && !isRubyContinuation(rubyTexts[i])) {
 #if DEBUG_RUBY_RENDER
-        LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s isSingleCjk=%d x=%d y=%d",
-                static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(), isSingleCjk ? 1 : 0, wx,
-                wy);
+        LOG_INF("TXB", "[RUBY_RENDER_CHECK] i=%u rubyFontId=%d word=%s ruby=%s singleVertical=%d x=%d y=%d",
+                static_cast<unsigned>(i), rubyFontId, words[i].c_str(), rubyTexts[i].c_str(),
+                isSingleVerticalGlyph ? 1 : 0, wx, wy);
 #endif
       }
 
@@ -640,6 +677,7 @@ bool TextBlock::serialize(FsFile& file) const {
 
   // Vertical layout data
   serialization::writePod(file, isVertical);
+  serialization::writePod(file, tateChuYokoMaxDigits);
   if (isVertical) {
     for (auto y : wordYpos) serialization::writePod(file, y);
   }
@@ -714,6 +752,8 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   // Vertical layout data
   bool vertical = false;
   serialization::readPod(file, vertical);
+  uint8_t tateChuYokoMaxDigits = 2;
+  if (file.read(&tateChuYokoMaxDigits, 1) != 1 || tateChuYokoMaxDigits < 2 || tateChuYokoMaxDigits > 3) return nullptr;
   std::vector<int16_t> wordYpos;
   if (vertical) {
     wordYpos.resize(wc);
@@ -755,5 +795,5 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
 
   return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
                                                   blockStyle, std::move(wordYpos), vertical, std::move(rubyTexts),
-                                                  std::move(inlineImages), std::move(emphasis)));
+                                                  std::move(inlineImages), std::move(emphasis), tateChuYokoMaxDigits));
 }

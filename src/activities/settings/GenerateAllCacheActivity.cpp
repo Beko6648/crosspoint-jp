@@ -297,6 +297,15 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+
+  if (state == FAILED) {
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CACHE_INTERRUPTED));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
@@ -328,6 +337,16 @@ void GenerateAllCacheActivity::generateAllCaches() {
     return;
   }
 
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+  struct CacheStorageFaultInjectionScope {
+    CacheStorageFaultInjectionScope() {
+      Section::setCacheStorageFaultInjectionActive(true);
+      LOG_INF("SDFI", "event=armed point=temp_html_open spine=%d", CACHE_STORAGE_FAULT_SPINE);
+    }
+    ~CacheStorageFaultInjectionScope() { Section::setCacheStorageFaultInjectionActive(false); }
+  } cacheStorageFaultInjectionScope;
+#endif
+
   // Show progress popup
   const uint32_t initialDisplayStartedAt = millis();
   std::string progressDetail = std::string(tr(STR_CACHE_BOOK)) + " 0/" + std::to_string(totalCount);
@@ -335,6 +354,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
   bool cancelled = false;
+  bool storageFailure = false;
 
   // Calculate viewport dimensions (screenMargin depends on writing direction, resolved per-book below)
   // Use a placeholder margin here; it will be recalculated per book after resolving isVertical.
@@ -362,8 +382,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
 
     const int progress = (bookIdx * 100) / totalCount;
     if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
-      progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
-                       std::to_string(totalCount);
+      progressDetail =
+          std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" + std::to_string(totalCount);
       const uint32_t displayStartedAt = millis();
       GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
@@ -427,6 +447,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const auto& ds = SETTINGS.getDirectionSettings(isVertical);
     ensureSdFontLoaded(isVertical);
     configureRubyFont(isVertical);
+    configureSmallFont(isVertical);
 
     // Calculate viewport dimensions with direction-specific margins
     const int bmTop = baseMarginTop + ds.screenMargin;
@@ -452,18 +473,19 @@ void GenerateAllCacheActivity::generateAllCaches() {
       const int overallProgress = (bookIdx * 100 + bookProgress) / totalCount;
       if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
         progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
-                         std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " +
-                         std::to_string(i + 1) + "/" + std::to_string(spineCount);
+                         std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " + std::to_string(i + 1) + "/" +
+                         std::to_string(spineCount);
         const uint32_t displayStartedAt = millis();
         GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
         progressDisplayMs += millis() - displayStartedAt;
         lastDisplayedProgress = overallProgress;
       }
       Section sec(epub, i, renderer);
-      const bool sectionCached = sec.loadSectionFile(
-          SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
-          viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-          SETTINGS.imageRendering, isVertical, ds.charSpacing);
+      const bool sectionCached =
+          sec.loadSectionFile(SETTINGS.getReaderFontId(isVertical), SETTINGS.getTableFontId(isVertical),
+                              lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment, viewportWidth,
+                              viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
+                              SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits);
       if (sectionCached) {
         sectionCacheHits++;
         // Read cached pages only when the directory preflight found a missing or
@@ -490,7 +512,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         if (!sec.createSectionFile(
                 SETTINGS.getReaderFontId(isVertical), lineCompression, ds.extraParagraphSpacing, ds.paragraphAlignment,
                 viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
-                SETTINGS.imageRendering, isVertical, ds.charSpacing, nullptr, headingFontIds,
+                SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
                 SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
                 [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
                   const uint32_t pixelStartedAt = millis();
@@ -500,6 +522,17 @@ void GenerateAllCacheActivity::generateAllCaches() {
                 [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
+          const auto failureReason = sec.getLastCreateFailureReason();
+          if (failureReason == Section::CreateFailureReason::Cancelled || controls.shouldCancel(renderer)) {
+            cancelled = true;
+            break;
+          }
+          if (failureReason == Section::CreateFailureReason::StorageIo) {
+            LOG_ERR("GENALL", "Stopping cache generation after SD I/O failure at section %d of %s", i,
+                    epubPath.c_str());
+            storageFailure = true;
+            break;
+          }
           continue;
         }
         sectionBuildMs += millis() - sectionStartedAt;
@@ -507,10 +540,13 @@ void GenerateAllCacheActivity::generateAllCaches() {
       }
     }
 
-    if (cancelled) break;
+    if (cancelled || storageFailure) break;
 
     if (allSectionsReady) {
-      if (!epub->markFullCacheGenerated()) LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
+      if (!epub->markFullCacheGenerated()) {
+        LOG_ERR("GENALL", "Could not publish completion marker: %s", epubPath.c_str());
+        storageFailure = true;
+      }
     } else {
       LOG_DBG("GENALL", "Cache incomplete for %s; a later run will resume it", epubPath.c_str());
     }
@@ -520,20 +556,28 @@ void GenerateAllCacheActivity::generateAllCaches() {
             "cached pages scanned)",
             millis() - bookStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
             generatedPixelCaches, cachedPixelPagesScanned);
+    if (cancelled || storageFailure) break;
   }
 
-  if (!cancelled) {
+  if (!cancelled && !storageFailure) {
     const uint32_t finalDisplayStartedAt = millis();
     progressDetail = std::string(tr(STR_CACHE_COMPLETE));
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
 
-  summarizeCacheStatuses(epubFiles);
+  if (!storageFailure) {
+    summarizeCacheStatuses(epubFiles);
+  }
 
-  LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)",
-          millis() - generationStartedAt, progressDisplayMs);
-  state = cancelled ? INTERRUPTED : SUCCESS;
+  LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
+          progressDisplayMs);
+#if defined(CACHE_STORAGE_FAULT_INJECTION)
+  if (storageFailure) {
+    LOG_INF("SDFI", "event=safe_stop reason=storage_io");
+  }
+#endif
+  state = storageFailure ? FAILED : (cancelled ? INTERRUPTED : SUCCESS);
   requestUpdate();
 }
 
@@ -554,7 +598,7 @@ void GenerateAllCacheActivity::loop() {
     return;
   }
 
-  if (state == SUCCESS || state == INTERRUPTED) {
+  if (state == SUCCESS || state == INTERRUPTED || state == FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       goBack();
     }

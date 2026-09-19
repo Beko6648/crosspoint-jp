@@ -90,6 +90,7 @@ class ChapterHtmlSlimParser {
   std::string imageBasePath;
   int imageCounter = 0;
   bool verticalMode = false;
+  uint8_t tateChuYokoMaxDigits = 2;
 
   // SVG wrappers frequently carry the sizing rule while their nested <image>
   // holds the raster reference. Keep that rule until the wrapper closes.
@@ -203,7 +204,8 @@ class ChapterHtmlSlimParser {
                                  const std::string& imageBasePath, const uint8_t imageRendering = 0,
                                  const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr,
                                  const int* headingFontIds = nullptr, int tableFontId = 0, bool verticalMode = false,
-                                 const int* cssBodyFontIds = nullptr, const std::function<bool()>& cancelFn = nullptr)
+                                 const int* cssBodyFontIds = nullptr, const std::function<bool()>& cancelFn = nullptr,
+                                 uint8_t tateChuYokoMaxDigits = 2)
 
       : epub(epub),
         filepath(filepath),
@@ -229,7 +231,8 @@ class ChapterHtmlSlimParser {
         imageRendering(imageRendering),
         contentBase(contentBase),
         imageBasePath(imageBasePath),
-        verticalMode(verticalMode) {
+        verticalMode(verticalMode),
+        tateChuYokoMaxDigits(tateChuYokoMaxDigits >= 3 ? 3 : 2) {
     if (headingFontIds) {
       for (int i = 0; i < 6; i++) this->headingFontIds[i] = headingFontIds[i];
     }

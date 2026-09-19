@@ -250,6 +250,15 @@ bool ParsedText::appendVerticalFormulaText(const char* text) {
     if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9'))) return false;
   }
   auto& prior = words.back();
+  // Continue only the formula token that was created by
+  // appendVerticalFormulaDigit(). A vertical punctuation cell may have been
+  // emitted between </sup>/<sub> and this ASCII run; appending to that cell
+  // would make its multibyte UTF-8 bytes part of the horizontal formula.
+  const bool hasScriptMarker =
+      prior.find("\xC2\xB2") != std::string::npos || prior.find("\xC2\xB3") != std::string::npos ||
+      prior.find("\xC2\xB9") != std::string::npos || prior.find("\xE2\x81") != std::string::npos ||
+      prior.find("\xE2\x82") != std::string::npos;
+  if (!hasScriptMarker) return false;
   const size_t length = strlen(text);
   if (prior.empty() || prior.size() + length > 12 || prior.capacity() < prior.size() + length) return false;
   prior.append(text, length);
@@ -316,6 +325,7 @@ std::shared_ptr<TextBlock> ParsedText::prepareBlock(size_t start, size_t end, bo
   // copying payload. No input is moved, including on callback rejection.
   std::shared_ptr<TextBlock> block(raw);
   block->isVertical = vertical;
+  block->tateChuYokoMaxDigits = tateChuYokoMaxDigits;
   block->words.resize(count);
   block->rubyTexts.resize(count);
   block->wordStyles.assign(wordStyles.begin() + start, wordStyles.begin() + end);
@@ -407,7 +417,12 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
       renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
-      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
+      const auto behavior =
+          (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
+      const bool tripleDigitTateChuYoko = behavior == VerticalTextUtils::VerticalBehavior::TateChuYoko &&
+                                          VerticalTextUtils::classifyTateChuYoko(words[i].c_str(), 3) ==
+                                              VerticalTextUtils::TateChuYokoKind::TripleDigit;
+      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0 && !tripleDigitTateChuYoko) continue;
       if (scriptText.size() + words[i].size() > MAX_SD_FONT_PREWARM_TEXT_BYTES) break;
       scriptText += words[i];
     }
@@ -499,7 +514,12 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       renderer.isSdCardFont(TextBlock::smallFontId)) {
     std::string scriptText;
     for (size_t i = 0; i < words.size() && scriptText.size() < MAX_SD_FONT_PREWARM_TEXT_BYTES; ++i) {
-      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0) continue;
+      const auto behavior =
+          (i < wordVerticalBehaviors.size()) ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
+      const bool tripleDigitTateChuYoko = behavior == VerticalTextUtils::VerticalBehavior::TateChuYoko &&
+                                          VerticalTextUtils::classifyTateChuYoko(words[i].c_str(), 3) ==
+                                              VerticalTextUtils::TateChuYokoKind::TripleDigit;
+      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) == 0 && !tripleDigitTateChuYoko) continue;
       if (scriptText.size() + words[i].size() > MAX_SD_FONT_PREWARM_TEXT_BYTES) break;
       scriptText += words[i];
     }
@@ -695,6 +715,9 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     const bool isUprightEnclosedAlphanumeric =
         vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isEnclosedAlphanumeric(wordCp);
 
+    const bool isJapaneseVerticalQuote =
+        vb == VerticalTextUtils::VerticalBehavior::Upright && VerticalTextUtils::isJapaneseVerticalQuote(wordCp);
+
     const bool isInlineImage = words[i] == INLINE_IMAGE_MARKER && imgIdx < inlineImages.size();
 
     uint16_t baseHeight;
@@ -714,9 +737,11 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       baseHeight = wordCp == 0xFF70 ? renderer.getTextAdvanceX(scriptAwareFontId(fontId, wordStyles[i]),
                                                                words[i].c_str(), glyphStyle(wordStyles[i]))
                                     : static_cast<uint16_t>(cjkCharAdvance);
-    } else if (isUprightEnclosedAlphanumeric) {
+    } else if (isUprightEnclosedAlphanumeric || isJapaneseVerticalQuote) {
       // Circled digits are visually narrow in many fonts, but Japanese
-      // vertical composition gives every one a normal character cell.
+      // vertical composition gives every one a normal character cell. Curly
+      // quotation marks likewise need a full cell despite narrow Latin-font
+      // advance metrics.
       baseHeight = static_cast<uint16_t>(cjkCharAdvance);
     } else
       switch (vb) {

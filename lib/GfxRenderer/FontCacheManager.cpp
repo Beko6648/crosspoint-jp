@@ -3,6 +3,7 @@
 #include <FontDecompressor.h>
 #include <Logging.h>
 #include <SdCardFont.h>
+#include <SdFontDiagnostics.h>
 
 #include <cstring>
 
@@ -13,11 +14,17 @@ FontCacheManager::FontCacheManager(const std::map<int, EpdFontFamily>& fontMap,
 void FontCacheManager::setFontDecompressor(FontDecompressor* d) { fontDecompressor_ = d; }
 
 // Deduplicate SdCardFont pointers: multiple fontIds may point to the same SdCardFont
-// (virtual fontIds for scaled sizes). With dual-base, at most 2 unique pointers exist.
+// (virtual fontIds for scaled sizes). The exact-small quality build has a third
+// unique pointer in addition to the body and heading bases.
 // FNV-hashed fontIds may interleave in std::map iteration, so lastSeen is unreliable.
 template <typename Fn>
 static void forEachUniqueSdCardFont(const std::map<int, SdCardFont*>& sdCardFonts, Fn fn) {
+#if defined(SD_FONT_EXACT_SMALL_BASE)
+  SdCardFont* seen[3] = {nullptr, nullptr, nullptr};
+#else
   SdCardFont* seen[2] = {nullptr, nullptr};
+#endif
+  constexpr int seenCapacity = sizeof(seen) / sizeof(seen[0]);
   int seenCount = 0;
   for (auto& [id, font] : sdCardFonts) {
     bool already = false;
@@ -29,7 +36,7 @@ static void forEachUniqueSdCardFont(const std::map<int, SdCardFont*>& sdCardFont
     }
     if (!already) {
       fn(font);
-      if (seenCount < 2) seen[seenCount++] = font;
+      if (seenCount < seenCapacity) seen[seenCount++] = font;
     }
   }
 }
@@ -134,8 +141,21 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manager_(&manager) {
   manager_->scanMode_ = ScanMode::Scanning;
-  manager_->clearCache();
   manager_->resetStats();
+#if defined(SD_FONT_ARENA_REUSE) && SD_FONT_ARENA_REUSE
+  // Page scopes retain SD-font arenas and loaded glyph data while heap
+  // headroom permits. Explicit clear/release callers keep their full-teardown
+  // behavior for layout, Wi-Fi, sleep, and other heap-critical activities.
+  if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+  forEachUniqueSdCardFont(manager_->sdCardFonts_, [](SdCardFont* f) { f->resetPageCache(); });
+#elif defined(SD_FONT_REUSE_DIAGNOSTICS) && SD_FONT_REUSE_DIAGNOSTICS
+  // Keep the preceding page's SD cache until the next prewarm so the
+  // diagnostic build can measure exact glyph/bitmap overlap. Compressed-font
+  // cache behavior remains unchanged.
+  if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+#else
+  manager_->clearCache();
+#endif
 
   // Reset per-SdCardFont scan data
   for (int i = 0; i < MAX_SCAN_FONTS; i++) {
@@ -175,7 +195,10 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD]),
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::ITALIC]),
             static_cast<unsigned long>(entry.styleCounts[EpdFontFamily::BOLD_ITALIC]));
+    const uint32_t glyphCacheStartedAt = SD_FONT_DIAG_NOW_US();
+    SD_FONT_DIAG_LOG("glyph_cache_before", styleMask);
     entry.font->prewarm(entry.text.c_str(), styleMask);
+    SD_FONT_DIAG_LOG_AFTER("glyph_cache_after", styleMask, glyphCacheStartedAt);
     entry.text.clear();
     entry.text.shrink_to_fit();
   }
@@ -196,7 +219,14 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
     endScanAndPrewarm();  // no-op if already called (scanMode_ is already None)
+#if defined(SD_FONT_ARENA_REUSE) && SD_FONT_ARENA_REUSE
+    if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+    forEachUniqueSdCardFont(manager_->sdCardFonts_, [](SdCardFont* f) { f->resetPageCache(); });
+#elif defined(SD_FONT_REUSE_DIAGNOSTICS) && SD_FONT_REUSE_DIAGNOSTICS
+    if (manager_->fontDecompressor_) manager_->fontDecompressor_->clearCache();
+#else
     manager_->clearCache();
+#endif
   }
 }
 

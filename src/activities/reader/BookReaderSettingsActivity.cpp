@@ -12,7 +12,6 @@
 
 namespace {
 
-constexpr int kItemCount = static_cast<int>(BookReaderSettingsActivity::Item::Count);
 constexpr uint16_t kFontFields = BookReaderSettings::DirectionFont;
 constexpr uint16_t kSizeFields = BookReaderSettings::DirectionFontSize;
 constexpr uint16_t kSpacingFields = BookReaderSettings::DirectionLineSpacing |
@@ -22,6 +21,7 @@ constexpr uint16_t kMarginFields =
     BookReaderSettings::DirectionMargin | BookReaderSettings::DirectionAlignment | BookReaderSettings::DirectionIndent;
 constexpr uint16_t kRubyFields = BookReaderSettings::DirectionRubyEnabled | BookReaderSettings::DirectionRubyOffsetX |
                                  BookReaderSettings::DirectionRubyOffsetY;
+constexpr uint16_t kTateChuYokoFields = BookReaderSettings::DirectionTateChuYokoDigits;
 
 }  // namespace
 
@@ -32,7 +32,7 @@ void BookReaderSettingsActivity::onEnter() {
 }
 
 void BookReaderSettingsActivity::selectCurrent() {
-  const Item item = static_cast<Item>(selectedIndex);
+  const Item item = itemAtIndex(selectedIndex);
   if (item == Item::TestView) {
     startActivityForResult(
         std::make_unique<ReaderTestViewActivity>(renderer, mappedInput, fingerprint, verticalMode ? 1 : 0),
@@ -76,6 +76,9 @@ void BookReaderSettingsActivity::selectCurrent() {
       case Item::Ruby:
         toggleDirection(direction, currentDirection, kRubyFields);
         break;
+      case Item::TateChuYokoDigits:
+        toggleDirection(direction, currentDirection, kTateChuYokoFields);
+        break;
       case Item::WritingMode:
         if (value.fields & BookReaderSettings::WritingMode)
           value.fields &= ~BookReaderSettings::WritingMode;
@@ -103,7 +106,7 @@ void BookReaderSettingsActivity::selectCurrent() {
       success ? (item == Item::ClearAll ? StrId::STR_BOOK_SETTINGS_CLEARED : StrId::STR_BOOK_SETTINGS_SAVED)
               : StrId::STR_BOOK_SETTINGS_FAILED;
   resultText = I18N.get(labelId);
-  if (success) setResult(MenuResult{selectedIndex});
+  if (success) setResult(MenuResult{static_cast<int>(item)});
   requestUpdate();
 }
 
@@ -127,6 +130,8 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
       return hasDirection(direction, kMarginFields);
     case Item::Ruby:
       return hasDirection(direction, kRubyFields);
+    case Item::TateChuYokoDigits:
+      return hasDirection(direction, kTateChuYokoFields);
     case Item::WritingMode:
       return value.fields & BookReaderSettings::WritingMode;
     case Item::BookStyle:
@@ -140,6 +145,14 @@ bool BookReaderSettingsActivity::isOverridden(const Item item) const {
   return false;
 }
 
+int BookReaderSettingsActivity::itemCount() const { return static_cast<int>(Item::Count) - (verticalMode ? 0 : 1); }
+
+BookReaderSettingsActivity::Item BookReaderSettingsActivity::itemAtIndex(const int index) const {
+  int itemIndex = index;
+  if (!verticalMode && itemIndex >= static_cast<int>(Item::TateChuYokoDigits)) ++itemIndex;
+  return static_cast<Item>(itemIndex);
+}
+
 StrId BookReaderSettingsActivity::itemLabel(const Item item) {
   static constexpr StrId kLabels[] = {
       StrId::STR_READER_TEST_VIEW,
@@ -148,6 +161,7 @@ StrId BookReaderSettingsActivity::itemLabel(const Item item) {
       StrId::STR_LINE_SPACING,
       StrId::STR_SCREEN_MARGIN,
       StrId::STR_BOOK_SETTINGS_RUBY,
+      StrId::STR_TATE_CHU_YOKO_DIGITS,
       StrId::STR_BOOK_SETTINGS_WRITING_MODE,
       StrId::STR_BOOK_STYLE,
       StrId::STR_BOOK_SETTINGS_SAVE_CURRENT,
@@ -167,11 +181,11 @@ void BookReaderSettingsActivity::loop() {
     return;
   }
   buttonNavigator.onPress({MappedInputManager::Button::Right}, [this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, kItemCount);
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, itemCount());
     requestUpdate();
   });
   buttonNavigator.onPress({MappedInputManager::Button::Left}, [this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, kItemCount);
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, itemCount());
     requestUpdate();
   });
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -187,18 +201,19 @@ void BookReaderSettingsActivity::render(RenderLock&&) {
   const int top = 15;
   renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_BOOK_READER_SETTINGS), true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_10_FONT_ID, top + 30, tr(STR_BOOK_SETTINGS_NOTE));
-  for (int index = 0; index < kItemCount; ++index) {
+  const int visibleItemCount = itemCount();
+  for (int index = 0; index < visibleItemCount; ++index) {
     const int y = top + 58 + index * 34;
     const bool selected = index == selectedIndex;
     if (selected) renderer.fillRect(0, y, width - 1, 34, true);
-    const Item item = static_cast<Item>(index);
+    const Item item = itemAtIndex(index);
     renderer.drawText(UI_10_FONT_ID, 20, y + 3, I18N.get(itemLabel(item)), !selected);
     const char* state = item == Item::TestView
                             ? tr(STR_BOOK_SETTINGS_PREVIEW)
                             : (isOverridden(item) ? tr(STR_BOOK_SETTINGS_THIS_BOOK) : tr(STR_BOOK_SETTINGS_GLOBAL));
     renderer.drawText(UI_10_FONT_ID, width - 95, y + 3, state, !selected);
   }
-  if (resultText) renderer.drawCenteredText(UI_10_FONT_ID, top + 58 + kItemCount * 34, resultText);
+  if (resultText) renderer.drawCenteredText(UI_10_FONT_ID, top + 58 + visibleItemCount * 34, resultText);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

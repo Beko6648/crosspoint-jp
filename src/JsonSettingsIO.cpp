@@ -233,6 +233,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     obj["rubyEnabled"] = ds.rubyEnabled;
     obj["rubyOffsetX"] = ds.rubyOffsetX;
     obj["rubyOffsetY"] = ds.rubyOffsetY;
+    obj["tateChuYokoMaxDigits"] = ds.tateChuYokoMaxDigits;
   };
   saveDirection(doc["horizontal"].to<JsonObject>(), s.horizontal);
   saveDirection(doc["vertical"].to<JsonObject>(), s.vertical);
@@ -374,6 +375,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     ds.rubyOffsetY = obj["rubyOffsetY"] | ds.rubyOffsetY;
     if (ds.rubyOffsetX > 80) ds.rubyOffsetX = 16;
     if (ds.rubyOffsetY > 80) ds.rubyOffsetY = 16;
+    ds.tateChuYokoMaxDigits = obj["tateChuYokoMaxDigits"] | ds.tateChuYokoMaxDigits;
+    if (ds.tateChuYokoMaxDigits < 2 || ds.tateChuYokoMaxDigits > 3) {
+      ds.tateChuYokoMaxDigits = 2;
+      if (needsResave) *needsResave = true;
+    }
     return true;
   };
 

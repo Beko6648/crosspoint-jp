@@ -2,8 +2,23 @@
 
 #include <string>
 
+#if SD_FONT_DIAGNOSTICS
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
+
 #define MAX_ENTRY_LEN 256
 #define MAX_LOG_LINES 16
+
+#if SD_FONT_DIAGNOSTICS
+// Development diagnostics emit long, comparable rows from several tasks.
+// Serialize complete log writes so rows cannot splice into each other. Keep
+// the mutex out of normal builds together with SD_FONT_DIAGNOSTICS itself.
+SemaphoreHandle_t diagnosticLogMutex() {
+  static SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+  return mutex;
+}
+#endif
 
 // Simple ring buffer log, useful for error reporting when we encounter a crash
 RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][MAX_ENTRY_LEN];
@@ -59,10 +74,17 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
     }
   }
   va_end(args);
+#if SD_FONT_DIAGNOSTICS
+  SemaphoreHandle_t mutex = diagnosticLogMutex();
+  const bool locked = mutex && xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE;
+#endif
   if (logSerial) {
     logSerial.print(buf);
   }
   addToLogRingBuffer(buf);
+#if SD_FONT_DIAGNOSTICS
+  if (locked) xSemaphoreGive(mutex);
+#endif
 }
 
 std::string getLastLogs() {

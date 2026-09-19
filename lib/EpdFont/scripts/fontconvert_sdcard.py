@@ -982,15 +982,28 @@ def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
     vert_label = ", vert" if any_vert else ""
     print(f"  Output: {output_path} (v5, {style_count} styles{vert_label})", file=sys.stderr)
     print(f"    Header+TOC: {HEADER_SIZE + len(toc_data)} bytes", file=sys.stderr)
+    interval_ram_total = 0
     for style_id in sorted(raster_data.keys()):
         sd = raster_data[style_id]
         secs = packed_sections[style_id]
         style_names = {0: "regular", 1: "bold", 2: "italic", 3: "bolditalic"}
         sname = style_names.get(style_id, str(style_id))
         ssize = style_sections_total_size(secs)
+        # EpdUnicodeInterval is fixed at 12 bytes in the device reader. The
+        # complete interval table for every loaded style remains resident.
+        interval_ram = len(sd.intervals) * 12
+        interval_ram_total += interval_ram
         vert_info = f", {len(sd.vert_glyphs)} vert" if sd.vert_glyphs else ""
         print(f"    {sname}: {len(sd.all_glyphs)} glyphs, {len(sd.intervals)} intervals, "
-              f"{ssize} bytes{vert_info}", file=sys.stderr)
+              f"{ssize} bytes, interval RAM {interval_ram} bytes{vert_info}", file=sys.stderr)
+        print(f"    [runtime] file={os.path.basename(output_path)} style={sname} glyphs={len(sd.all_glyphs)} "
+              f"intervals={len(sd.intervals)} interval_ram={interval_ram}", file=sys.stderr)
+    print(f"    Resident interval RAM: {interval_ram_total} bytes", file=sys.stderr)
+    print(f"    [runtime] file={os.path.basename(output_path)} total_interval_ram={interval_ram_total}", file=sys.stderr)
+    if interval_ram_total > 16 * 1024:
+        print(f"    WARNING: resident interval RAM exceeds 16384 bytes for "
+              f"{os.path.basename(output_path)} "
+              f"({interval_ram_total} bytes)", file=sys.stderr)
     print(f"    Total: {total_file_size} bytes ({total_file_size / 1024 / 1024:.2f} MB)", file=sys.stderr)
     return total_file_size
 
@@ -1038,6 +1051,10 @@ def main():
                         help="Whitelist file of allowed codepoints (hex, one per line). "
                              "When specified, only codepoints present in both the intervals "
                              "and this file are included in the output.")
+    parser.add_argument("--interval-gap-tolerance", dest="interval_gap_tolerance",
+                        type=int, default=4,
+                        help="Merge codepoint runs separated by at most this many filtered "
+                             "codepoints (default: 4).")
 
     args = parser.parse_args()
 
@@ -1095,15 +1112,17 @@ def main():
                 filtered.append((run_start, end))
 
         # Merge intervals with small gaps to reduce interval count.
-        # JIS X 0213 codepoints are scattered in the CJK block, creating thousands
-        # of tiny intervals. Filling gaps <= GAP_TOLERANCE includes a few extra
-        # non-JIS glyphs but keeps interval count under the device's MAX_INTERVALS (4096).
-        GAP_TOLERANCE = 4
+        # Sparse CJK codepoints can create thousands of tiny intervals. Filling
+        # small gaps includes extra placeholders but reduces runtime interval RAM.
+        gap_tolerance = args.interval_gap_tolerance
+        if gap_tolerance < 0:
+            print("Error: --interval-gap-tolerance must be non-negative", file=sys.stderr)
+            sys.exit(1)
         if len(filtered) > 1:
             merged = [filtered[0]]
             for start, end in filtered[1:]:
                 prev_start, prev_end = merged[-1]
-                if start - prev_end - 1 <= GAP_TOLERANCE:
+                if start - prev_end - 1 <= gap_tolerance:
                     merged[-1] = (prev_start, end)
                 else:
                     merged.append((start, end))

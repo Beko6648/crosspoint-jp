@@ -97,17 +97,51 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
     }
   }
 
+  // Tables and ruby normally use virtual 10pt/8pt IDs backed by the primary
+  // body font. Nearest-neighbour downscaling can drop one-pixel strokes,
+  // especially when a 14pt or larger Mincho face is reduced to 10pt. When
+  // enabled, load the family's native 10pt file as a third base. Ruby then
+  // scales from 10pt to 8pt instead of from the larger body face.
+  SdCardFont* smallFont = nullptr;
+  uint8_t smallPt = 0;
+#if defined(SD_FONT_EXACT_SMALL_BASE)
+  // Keep Latin-only families such as OpenDyslexic on the existing two-base
+  // path. The exact small base addresses CJK strokes that disappear during
+  // downscaling, and an extra font would otherwise consume RAM without
+  // improving those families. U+65E5 is checked against the resident interval
+  // table only, so this decision performs no glyph I/O or cache allocation.
+  if (primaryFont->hasCodepoint(0x65E5)) {
+    const SdCardFontFileInfo* smallFile = nullptr;
+    for (const auto& fileInfo : family.files) {
+      if (fileInfo.pointSize == 10 && fileInfo.path != primaryFile->path &&
+          (!secondaryFont || fileInfo.pointSize != secondaryPt)) {
+        smallFile = &fileInfo;
+        break;
+      }
+    }
+    if (smallFile) {
+      smallFont = new (std::nothrow) SdCardFont();
+      if (smallFont) {
+        if (smallFont->load(smallFile->path.c_str())) {
+          smallPt = smallFile->pointSize;
+          loaded_.push_back({smallFont, 0, smallPt});
+          LOG_DBG("SDMGR", "Loaded exact small base: %s (%upt)", smallFile->path.c_str(), smallPt);
+        } else {
+          LOG_ERR("SDMGR", "Failed to load exact small base %s, using scaled body font", smallFile->path.c_str());
+          delete smallFont;
+          smallFont = nullptr;
+        }
+      }
+    }
+  } else {
+    LOG_DBG("SDMGR", "Skipping exact small base for non-CJK family: %s", family.name.c_str());
+  }
+#endif
+
   // --- Register virtual font IDs ---
   virtualFontIds_.clear();
 
   for (uint8_t targetPt : ALL_SIZES) {
-    // fontId is always computed from primary contentHash for getFontId() consistency
-    int fontId = computeFontId(primaryFont->contentHash(), family.name.c_str(), targetPt);
-    if (renderer.getFontMap().count(fontId) != 0) {
-      LOG_ERR("SDMGR", "Font ID %d collides, skipping size %u", fontId, targetPt);
-      continue;
-    }
-
     // Choose base: use the closer one. On tie, prefer larger base (downscale > upscale).
     SdCardFont* chosenFont = primaryFont;
     uint8_t chosenPt = primaryPt;
@@ -121,6 +155,24 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
       }
     }
 
+    if (smallFont) {
+      int diffChosen = abs(static_cast<int>(targetPt) - static_cast<int>(chosenPt));
+      int diffSmall = abs(static_cast<int>(targetPt) - static_cast<int>(smallPt));
+      if (diffSmall < diffChosen || (diffSmall == diffChosen && smallPt > chosenPt)) {
+        chosenFont = smallFont;
+        chosenPt = smallPt;
+      }
+    }
+
+    // Include the chosen file's header/TOC hash in the virtual ID. This makes
+    // a target size switch from a scaled body face to native 10pt invalidate
+    // its cached layout automatically.
+    int fontId = computeFontId(chosenFont->contentHash(), family.name.c_str(), targetPt);
+    if (renderer.getFontMap().count(fontId) != 0) {
+      LOG_ERR("SDMGR", "Font ID %d collides, skipping size %u", fontId, targetPt);
+      continue;
+    }
+
     EpdFontFamily fontFamily(chosenFont->getEpdFont(0), chosenFont->getEpdFont(1), chosenFont->getEpdFont(2),
                              chosenFont->getEpdFont(3));
     renderer.registerSdCardFont(fontId, chosenFont);
@@ -130,6 +182,7 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
     uint16_t scale = static_cast<uint16_t>(static_cast<uint32_t>(targetPt) * 256 / chosenPt);
     renderer.registerSdCardFontScale(fontId, scale);
     virtualFontIds_.push_back(fontId);
+    virtualFontIdsBySize_[targetPt] = fontId;
 
     if (targetPt == primaryPt) {
       loaded_[0].fontId = fontId;
@@ -165,6 +218,7 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
   }
   renderer.clearSdCardFontScales();
   virtualFontIds_.clear();
+  virtualFontIdsBySize_.clear();
 
   // Delete the single SdCardFont object
   for (auto& lf : loaded_) {
@@ -179,6 +233,6 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
 int SdCardFontManager::getFontId(const std::string& familyName, uint8_t size, uint8_t /*style*/) const {
   if (familyName != loadedFamilyName_) return 0;
   if (loaded_.empty()) return 0;
-  // All sizes are registered as virtual fontIds using the same base font's contentHash
-  return computeFontId(loaded_[0].font->contentHash(), familyName.c_str(), size);
+  auto it = virtualFontIdsBySize_.find(size);
+  return it != virtualFontIdsBySize_.end() ? it->second : 0;
 }

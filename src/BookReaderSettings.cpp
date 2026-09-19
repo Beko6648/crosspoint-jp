@@ -46,6 +46,8 @@ void writeDirection(JsonObject object, const BookReaderSettings::DirectionOverri
   if (fields & BookReaderSettings::DirectionRubyEnabled) object["rubyEnabled"] = settings.rubyEnabled;
   if (fields & BookReaderSettings::DirectionRubyOffsetX) object["rubyOffsetX"] = settings.rubyOffsetX;
   if (fields & BookReaderSettings::DirectionRubyOffsetY) object["rubyOffsetY"] = settings.rubyOffsetY;
+  if (fields & BookReaderSettings::DirectionTateChuYokoDigits)
+    object["tateChuYokoMaxDigits"] = settings.tateChuYokoMaxDigits;
 }
 
 bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride& result) {
@@ -81,7 +83,9 @@ bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride
                 BookReaderSettings::DirectionIndent) &&
          readU8(object, "rubyEnabled", 0, 1, settings.rubyEnabled, fields, BookReaderSettings::DirectionRubyEnabled) &&
          readU8(object, "rubyOffsetX", 0, 80, settings.rubyOffsetX, fields, BookReaderSettings::DirectionRubyOffsetX) &&
-         readU8(object, "rubyOffsetY", 0, 80, settings.rubyOffsetY, fields, BookReaderSettings::DirectionRubyOffsetY);
+         readU8(object, "rubyOffsetY", 0, 80, settings.rubyOffsetY, fields, BookReaderSettings::DirectionRubyOffsetY) &&
+         readU8(object, "tateChuYokoMaxDigits", 2, 3, settings.tateChuYokoMaxDigits, fields,
+                BookReaderSettings::DirectionTateChuYokoDigits);
 }
 
 bool readOverride(JsonObjectConst object, BookReaderSettings::Override& result) {
@@ -142,6 +146,8 @@ void applyDirection(const BookReaderSettings::DirectionOverride& value, Directio
   if (fields & BookReaderSettings::DirectionRubyEnabled) target.rubyEnabled = source.rubyEnabled;
   if (fields & BookReaderSettings::DirectionRubyOffsetX) target.rubyOffsetX = source.rubyOffsetX;
   if (fields & BookReaderSettings::DirectionRubyOffsetY) target.rubyOffsetY = source.rubyOffsetY;
+  if (fields & BookReaderSettings::DirectionTateChuYokoDigits)
+    target.tateChuYokoMaxDigits = source.tateChuYokoMaxDigits;
 }
 
 }  // namespace
@@ -154,7 +160,8 @@ BookReaderSettings::Override BookReaderSettings::captureAll(const CrossPointSett
   Override result;
   result.horizontal.fields = DirectionFont | DirectionFontSize | DirectionLineSpacing | DirectionCharSpacing |
                              DirectionAlignment | DirectionParagraphSpacing | DirectionMargin | DirectionIndent |
-                             DirectionRubyEnabled | DirectionRubyOffsetX | DirectionRubyOffsetY;
+                             DirectionRubyEnabled | DirectionRubyOffsetX | DirectionRubyOffsetY |
+                             DirectionTateChuYokoDigits;
   result.vertical.fields = result.horizontal.fields;
   result.horizontal.values = settings.horizontal;
   result.vertical.values = settings.vertical;

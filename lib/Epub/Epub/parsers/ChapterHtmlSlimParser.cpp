@@ -409,7 +409,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   verticalFormulaContinuation = false;
   if (verticalMode) {
     // Classify short numbers and paired !/? consistently with rendering.
-    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer);
+    const auto tateChuYokoKind = VerticalTextUtils::classifyTateChuYoko(partWordBuffer, tateChuYokoMaxDigits);
     auto vb = VerticalTextUtils::VerticalBehavior::Sideways;  // default for Latin text
     if (tateChuYokoKind != VerticalTextUtils::TateChuYokoKind::None) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
@@ -552,7 +552,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
     pendingAnchorId.clear();
   }
-  currentTextBlock.reset(new ParsedText(hyphenationEnabled, blockStyle, firstLineIndent));
+  currentTextBlock.reset(new ParsedText(hyphenationEnabled, blockStyle, firstLineIndent, tateChuYokoMaxDigits));
   wordsExtractedInBlock = 0;
 }
 
@@ -649,7 +649,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     // SVG attributes are presentation attributes: CSS and style="" override
     // them. Preserve their image-dimension subset for a nested raster <image>.
     CssStyle wrapperStyle = parseImageDimensionAttributes(widthAttr, heightAttr);
-    if (self->bookStyle != 0) wrapperStyle.applyOver(cssStyle);
+    if (self->bookStyle == 1) wrapperStyle.applyOver(cssStyle);
     self->svgImageWrappers.push_back({self->depth, std::move(wrapperStyle)});
   }
 
@@ -882,8 +882,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
                 // インライン画像（文字の代替）判定: CSS指定の表示サイズが文字セル1つ分以内なら、
                 // ブロック図版（専用ページ化）ではなく本文中の文字（Word）として扱う。
-                // bookStyle 1(書籍優先)・2(バランス)で有効。0(CrossPoint優先)はCSSを無視するため対象外。
-                if (self->bookStyle != 0 && self->currentTextBlock && hasCssImageConstraint &&
+                // bookStyle 1(書籍優先)で有効。imgStyle が解決されるのは bookStyle==1 のときのみ。
+                if (self->bookStyle == 1 && self->currentTextBlock && hasCssImageConstraint &&
                     !hasClassToken(classAttr, "fit")) {
                   // 縦書きの比較基準は「文字セル1つ分（フォントサイズ=emSize）」を使う。
                   // 実グリフ幅(一)基準はフォントファミリ依存（サンセリフはグリフが狭い）で、
@@ -1550,6 +1550,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->pendingHorizontalSpace = true;
       }
       self->nextWordContinues = false;
+      self->verticalFormulaContinuation = false;
       continue;
     }
 
@@ -1623,14 +1624,18 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     // In horizontal text retain the existing CJK word splitter. In vertical
     // text, UAX #50 is the source of truth: U/Tu characters are individual
     // upright cells, Tr characters remain individual cells for a vertical
-    // glyph or rotation fallback, and R characters stay in sideways runs.
-    const bool splitIntoVerticalCell = self->verticalMode && (VerticalTextUtils::isUprightInVertical(cp) ||
-                                                              VerticalTextUtils::isTransformedRotatedInVertical(cp));
+    // glyph or rotation fallback, and Japanese curly quotes receive the same
+    // cell treatment. Other R characters stay in sideways runs.
+    const bool splitIntoVerticalCell = self->verticalMode && VerticalTextUtils::isVerticalGlyphCell(cp);
     if ((!self->verticalMode && isCjkCodepointForSplit(cp)) || splitIntoVerticalCell) {
       // CJK character: flush any buffered content first
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
       }
+      // Formula continuation is valid for the immediately adjacent ASCII run,
+      // so flush that run first (H<sub>2</sub>O). The punctuation/CJK cell then
+      // ends the formula before the next ASCII word starts (x²、10³).
+      self->verticalFormulaContinuation = false;
       self->flushPendingVerticalWhitespace();
 
       self->ensureTextBlockCapacityForWord();

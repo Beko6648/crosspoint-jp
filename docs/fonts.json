@@ -943,33 +943,33 @@
       "files": [
         {
           "name": "ZenMaruGothic_10.cpfont",
-          "size": 1938480,
-          "sha256": "2c13d9362dc3defd488acd6d6e6e271b4fa6bd9c449500812ca38431f47418ca"
+          "size": 2119240,
+          "sha256": "ad1a3a368c52087cd88debc5f3b8357059d8047632f03a4797e7ad1c948819b7"
         },
         {
           "name": "ZenMaruGothic_12.cpfont",
-          "size": 2551612,
-          "sha256": "bb23e2935af2c78780787608023f41b6418231cdc08eaf3b0fa36da6b261e153"
+          "size": 2732372,
+          "sha256": "1da1e3b478776f14b216d9a083883ef4de56c2b85dc07614cd94742b5c056b24"
         },
         {
           "name": "ZenMaruGothic_14.cpfont",
-          "size": 3252734,
-          "sha256": "ee99988bb8b4bb0aae0cbcc0c1473990ee25fa5af1dd3ed3c21f103d8d869440"
+          "size": 3433494,
+          "sha256": "99557c5d8774e7831897c10ebb040047aacc7031647791cdebc121f5bafa74ee"
         },
         {
           "name": "ZenMaruGothic_16.cpfont",
-          "size": 4071406,
-          "sha256": "564274fa068750a32f95bd73e08f290c6406026bb1e68cd0607a3b0934a6587f"
+          "size": 4252166,
+          "sha256": "530a8f739b6296b92b57e45458920eb11ea30a4ba807f29bf8bf6399707f6971"
         },
         {
           "name": "ZenMaruGothic_18.cpfont",
-          "size": 5004427,
-          "sha256": "4a7dfb4063e53f811eafc2ed0b64af274bb5842a9c043a4f7bcaf56b175c425b"
+          "size": 5185187,
+          "sha256": "5a7afa625ee69d8ac097552cbb30645e374948aeb29b4803383a2afcd770ff95"
         },
         {
           "name": "ZenMaruGothic_8.cpfont",
-          "size": 1414796,
-          "sha256": "1e8fa032dafe7f59b254a8083139da0545664dd0df2748ecc00f83159a277c6d"
+          "size": 1595556,
+          "sha256": "19688cae172ab8c426b061ab4afc3ff0b37b83b3bf8f3460f9bdf74f45962fef"
         }
       ]
     }

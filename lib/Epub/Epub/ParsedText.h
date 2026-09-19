@@ -29,7 +29,7 @@ class ParsedText {
   // CJK tokens normally have no inter-word gap, so this must remain separate
   // from wordContinues in order to preserve an author-written Japanese space.
   std::vector<bool> wordSpaceBefore;
-  std::deque<std::string> rubyTexts;   // words と並列、ルビなしは空文字列
+  std::deque<std::string> rubyTexts;  // words と並列、ルビなしは空文字列
   std::vector<VerticalTextUtils::VerticalBehavior> wordVerticalBehaviors;
   // インライン画像（本文中の文字として扱う画像）。sparse方式: 画像のあるWordの情報だけを、
   // words 内の画像マーカー(U+FFFC)の出現順に保持する。画像でないWordの空要素は持たない
@@ -43,6 +43,7 @@ class ParsedText {
   BlockStyle blockStyle;
   bool firstLineIndent;
   bool hyphenationEnabled;
+  uint8_t tateChuYokoMaxDigits;
   bool layoutFailed_ = false;
   bool admitLayout(size_t bytes, const char* stage);
   void consumePrefix(size_t count);
@@ -67,8 +68,11 @@ class ParsedText {
 
  public:
   explicit ParsedText(const bool hyphenationEnabled = false, const BlockStyle& blockStyle = BlockStyle(),
-                      const bool firstLineIndent = false)
-      : blockStyle(blockStyle), firstLineIndent(firstLineIndent), hyphenationEnabled(hyphenationEnabled) {}
+                      const bool firstLineIndent = false, const uint8_t tateChuYokoMaxDigits = 2)
+      : blockStyle(blockStyle),
+        firstLineIndent(firstLineIndent),
+        hyphenationEnabled(hyphenationEnabled),
+        tateChuYokoMaxDigits(tateChuYokoMaxDigits >= 3 ? 3 : 2) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,

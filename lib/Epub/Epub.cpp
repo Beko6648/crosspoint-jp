@@ -1,6 +1,5 @@
 #include "Epub.h"
 
-
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
@@ -190,8 +189,8 @@ bool Epub::isFullCacheGenerated() const {
     return false;
   }
   uint8_t version = 0;
-  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) &&
-                     marker.available() == 0 && version == FULL_CACHE_MARKER_VERSION;
+  const bool valid = marker.read(&version, sizeof(version)) == sizeof(version) && marker.available() == 0 &&
+                     version == FULL_CACHE_MARKER_VERSION;
   marker.close();
   return valid;
 }
@@ -205,7 +204,7 @@ Epub::CacheGenerationStatus Epub::getCacheGenerationStatus() const {
   // cache directory first: the section lookup already distinguishes a missing
   // cache from a resumable one, and this function runs once per visible book.
   return Storage.exists((cachePath + "/sections").c_str()) ? CacheGenerationStatus::Resumable
-                                                            : CacheGenerationStatus::NotGenerated;
+                                                           : CacheGenerationStatus::NotGenerated;
 }
 
 bool Epub::getSourceFingerprint(uint64_t* fingerprint) const {
@@ -456,7 +455,6 @@ void Epub::discoverCssFilesFromZip() {
       })) {
     LOG_ERR("EBP", "Failed to enumerate ZIP file paths for CSS discovery");
   }
-
 }
 
 void Epub::parseCssFiles() const {
@@ -540,8 +538,8 @@ void Epub::parseCssFiles() const {
     // Explicitly close() file before calling Storage.remove()
     tempCssFile.close();
     Storage.remove(tmpCssPath.c_str());
-    LOG_DBG("EBP", "CSS heap after %s: rules=%zu, free=%u, maxAlloc=%u", cssPath.c_str(),
-            cssParser->ruleCount(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_DBG("EBP", "CSS heap after %s: rules=%zu, free=%u, maxAlloc=%u", cssPath.c_str(), cssParser->ruleCount(),
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   }
 
   // A low-heap-truncated rule set must not become a permanent cache. A later
@@ -596,7 +594,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
           LOG_ERR("EBP", "Could not parse content.opf from cached bookMetadata for CSS files");
           // continue anyway - book will work without CSS and we'll still load any inline style CSS
         } else {
-
           discoverCssFilesFromZip();
         }
         bookMetadataCache.reset();
@@ -1035,17 +1032,25 @@ int Epub::getSpineItemsCount() const {
 size_t Epub::getCumulativeSpineItemSize(const int spineIndex) const { return getSpineItem(spineIndex).cumulativeSize; }
 
 BookMetadataCache::SpineEntry Epub::getSpineItem(const int spineIndex) const {
+  BookMetadataCache::SpineEntry entry;
+  if (!tryGetSpineItem(spineIndex, entry)) {
+    return {};
+  }
+  return entry;
+}
+
+bool Epub::tryGetSpineItem(const int spineIndex, BookMetadataCache::SpineEntry& entry) const {
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
     LOG_ERR("EBP", "getSpineItem called but cache not loaded");
-    return {};
+    return false;
   }
 
   if (spineIndex < 0 || spineIndex >= bookMetadataCache->getSpineCount()) {
     LOG_ERR("EBP", "getSpineItem index:%d is out of range", spineIndex);
-    return bookMetadataCache->getSpineEntry(0);
+    return false;
   }
 
-  return bookMetadataCache->getSpineEntry(spineIndex);
+  return bookMetadataCache->tryGetSpineEntry(spineIndex, entry);
 }
 
 BookMetadataCache::TocEntry Epub::getTocItem(const int tocIndex) const {
