@@ -1105,9 +1105,11 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     RenderLock lock(*this);
     clearDeferredReposition();
   }
+  bool moved = false;
   if (isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
+      moved = true;
     } else {
       // We don't want to delete the section mid-render, so grab the semaphore
       {
@@ -1115,11 +1117,13 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
+        moved = true;
       }
     }
   } else {
     if (section->currentPage > 0) {
       section->currentPage--;
+      moved = true;
     } else if (currentSpineIndex > 0) {
       // We don't want to delete the section mid-render, so grab the semaphore
       {
@@ -1127,7 +1131,25 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
         section.reset();
+        moved = true;
       }
+    }
+  }
+  if (moved) {
+    // Flag the next render to flash a status-bar arrow (page turn accepted).
+    // Forward turn points left in vertical RTL, right in horizontal; backward
+    // turn is the reverse.
+    pageTurnIndicatorPending = SETTINGS.statusBarPageTurn != 0;
+    pageTurnIndicatorPointingLeft = isForwardTurn ? verticalMode : !verticalMode;
+    // Draw the page-turn indicator immediately instead of waiting for the
+    // render task. The render task may be busy laying out a heavy page (e.g.
+    // one with many emphasis dots / underlines), which would otherwise delay
+    // the indicator until that render completes. displayBuffer() does not
+    // require the RenderLock, so this is safe even while holding it.
+    if (pageTurnIndicatorPending) {
+      pageTurnIndicatorPending = false;
+      GUI.drawPageTurnIndicator(renderer, pageTurnIndicatorPointingLeft, 0, currentPageBookmarked);
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     }
   }
   lastPageTurnTime = millis();
@@ -1138,6 +1160,16 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
 void EpubReaderActivity::render(RenderLock&& lock) {
   if (!epub) {
     return;
+  }
+
+  // If a page-turn was just accepted and the status-bar page-turn indicator is
+  // enabled, flash a small direction arrow over the previous frame before
+  // redrawing. This gives immediate visual feedback while the new page is still
+  // being laid out, pointing in the direction of the turn.
+  if (pageTurnIndicatorPending) {
+    pageTurnIndicatorPending = false;
+    GUI.drawPageTurnIndicator(renderer, pageTurnIndicatorPointingLeft, 0, currentPageBookmarked);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
 
   // Resolve the writing mode before handling a restored end-of-book position.

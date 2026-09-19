@@ -809,7 +809,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // keeps `image { ... }` and `image.class { ... }` rules for
                 // SVG wrappers distinct from ordinary `img` rules.
                 CssStyle imgStyle = parseImageDimensionAttributes(widthAttr, heightAttr);
-                if (self->bookStyle != 0) imgStyle.applyOver(cssStyle);
+                if (self->bookStyle == 1) imgStyle.applyOver(cssStyle);
                 const CssStyle* svgWrapperStyle = strcmp(name, "image") == 0 && !self->svgImageWrappers.empty()
                                                       ? &self->svgImageWrappers.back().style
                                                       : nullptr;
