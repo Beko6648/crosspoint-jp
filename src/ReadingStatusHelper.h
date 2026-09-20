@@ -10,6 +10,16 @@ enum class ReadingStatus : uint8_t {
   Finished  // progress.bin が存在し、読了フラグあり
 };
 
+struct ReadingProgress {
+  static constexpr uint8_t PERCENT_UNKNOWN = 0xff;
+
+  ReadingStatus status = ReadingStatus::Unread;
+  uint8_t percent = PERCENT_UNKNOWN;
+  bool hasBookmarks = false;
+
+  bool hasPercent() const { return percent <= 100; }
+};
+
 // The browser keeps the expensive per-book SD-card checks in this compact
 // on-card index. Unknown values deliberately fall back to the authoritative
 // per-book files, so a missing or corrupt index can only cost time, never show
@@ -38,6 +48,7 @@ void invalidateBookListStatusIndexEntry(const std::string& filepath, const std::
 // filepath: 書籍ファイルの絶対パス（例: "/books/sample.epub"）
 // cacheDir: キャッシュルート（通常 "/.crosspoint"）
 ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir, uint64_t bookId = 0);
+ReadingProgress getReadingProgress(const std::string& filepath, const std::string& cacheDir, uint64_t bookId = 0);
 
 // Build a sorted index of book-cache directory names once. Call
 // getReadingStatusFromCacheEntries() for visible files to avoid reading every

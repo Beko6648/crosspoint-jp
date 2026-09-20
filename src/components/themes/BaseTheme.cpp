@@ -12,6 +12,7 @@
 #include "I18n.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
+#include "components/icons/bookmark24.h"
 #include "fontIds.h"
 
 // Internal constants
@@ -465,10 +466,10 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 // Draw the "Recent Book" cover card on the home screen
 // TODO: Refactor method to make it cleaner, split into smaller methods
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                    const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                     std::function<bool()> storeCoverBuffer) const {
-  (void)bookStatuses;
+  (void)bookProgress;
   const bool hasContinueReading = !recentBooks.empty();
   const bool bookSelected = hasContinueReading && selectorIndex == 0;
 
@@ -887,15 +888,12 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                         showBatteryPercentage);
   }
 
-  // Keep the bookmark mark deliberately simple so it also works with every
-  // orientation and does not consume a font glyph.
-  const int bookmarkWidth = 8;
+  constexpr int bookmarkSize = 16;
+  const int bookmarkWidth = bookmarkSize;
   if (isPageBookmarked) {
     constexpr int bookmarkGap = 6;
     const int x = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + batteryClusterWidth + bookmarkGap;
-    renderer.drawRect(x, textY, bookmarkWidth, 12);
-    renderer.drawLine(x, textY + 11, x + bookmarkWidth / 2, textY + 7);
-    renderer.drawLine(x + bookmarkWidth, textY + 11, x + bookmarkWidth / 2, textY + 7);
+    renderer.drawIcon(Bookmark16Icon, x, textY - 2, bookmarkSize, bookmarkSize);
   }
 
   // Draw Title

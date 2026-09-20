@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
 #include "ReadingHistoryStore.h"
+#include "ReadingStatusHelper.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontGlobals.h"
@@ -403,19 +404,24 @@ void TxtReaderActivity::renderStatusBar() const {
 }
 
 void TxtReaderActivity::saveProgress(const bool isFinished) const {
-  uint8_t data[5];
+  uint8_t data[6];
   data[0] = currentPage & 0xFF;
   data[1] = (currentPage >> 8) & 0xFF;
   data[2] = (currentPage >> 16) & 0xFF;
   data[3] = (currentPage >> 24) & 0xFF;
   data[4] = isFinished ? 1 : 0;
+  data[5] = totalPages > 0
+                ? static_cast<uint8_t>((static_cast<uint32_t>(std::min(currentPage + 1, totalPages)) * 100) /
+                                       static_cast<uint32_t>(totalPages))
+                : ReadingProgress::PERCENT_UNKNOWN;
+  if (isFinished) data[5] = 100;
   ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data));
 }
 
 void TxtReaderActivity::loadProgress() {
   FsFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[5] = {0};
+    uint8_t data[6] = {0};
     const int bytesRead = f.read(data, sizeof(data));
     if (bytesRead >= 4) {
       currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |

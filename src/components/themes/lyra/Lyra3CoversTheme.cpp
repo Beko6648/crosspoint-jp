@@ -5,13 +5,16 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 #include "RecentBooksStore.h"
 #include "components/CacheStatusIcon.h"
 #include "components/UITheme.h"
+#include "components/icons/bookmark24.h"
 #include "components/icons/book_finished24.h"
 #include "components/icons/book_reading24.h"
 #include "components/icons/cover.h"
@@ -21,10 +24,19 @@
 namespace {
 constexpr int hPaddingInSelection = 8;
 constexpr int cornerRadius = 6;
+
+void drawHomeProgressBar(const GfxRenderer& renderer, const Rect rect, int percent) {
+  if (rect.width <= 4 || rect.height <= 4) return;
+  percent = std::clamp(percent, 0, 100);
+  renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
+  const int innerWidth = rect.width - 4;
+  const int fillWidth = (innerWidth * percent + 99) / 100;
+  if (fillWidth > 0) renderer.fillRect(rect.x + 2, rect.y + 2, fillWidth, rect.height - 4);
+}
 }  // namespace
 
 void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                           const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                           const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                            bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                            std::function<bool()> storeCoverBuffer) const {
   const int tileWidth = (rect.width - 2 * Lyra3CoversMetrics::values.contentSidePadding) / 3;
@@ -94,25 +106,31 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
 
-      auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3);
+      auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 2);
 
-      constexpr int readingStatusIconSize = 24;
-      constexpr int readingStatusIconTopMargin = 4;
+      constexpr int statusIconSize = 24;
+      constexpr int statusIconTopMargin = 4;
+      const bool hasProgressData = i < static_cast<int>(bookProgress.size());
+      const ReadingStatus readingStatus = hasProgressData ? bookProgress[i].status : ReadingStatus::Unread;
       const bool hasReadingStatusIcon =
-          i < static_cast<int>(bookStatuses.size()) &&
-          (bookStatuses[i] == ReadingStatus::Reading || bookStatuses[i] == ReadingStatus::Finished);
+          readingStatus == ReadingStatus::Reading || readingStatus == ReadingStatus::Finished;
+      const bool hasBookmarkIcon = hasProgressData && bookProgress[i].hasBookmarks;
       const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(recentBooks[i].path);
       const Epub::CacheGenerationStatus cacheStatus =
           hasCacheStatusIcon ? Epub(recentBooks[i].path, "/.crosspoint").getCacheGenerationStatus()
                              : Epub::CacheGenerationStatus::NotGenerated;
-      const bool hasStatusIcons = hasReadingStatusIcon || hasCacheStatusIcon;
+      const bool hasStatusIcons = hasBookmarkIcon || hasReadingStatusIcon || hasCacheStatusIcon;
+      const bool hasProgressBar = hasProgressData && bookProgress[i].hasPercent();
 
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
       const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
-      const int readingStatusBlockHeight =
-          hasStatusIcons ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+      const int statusBlockHeight = hasStatusIcons ? statusIconSize + statusIconTopMargin : 0;
+      constexpr int progressTopMargin = 6;
+      constexpr int progressBarHeight = 10;
+      const int progressBlockHeight = hasProgressBar ? progressTopMargin + progressBarHeight : 0;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
-      const int dynamicTitleBoxHeight = dynamicBlockHeight + readingStatusBlockHeight + hPaddingInSelection + 5;
+      const int dynamicTitleBoxHeight =
+          dynamicBlockHeight + statusBlockHeight + progressBlockHeight + hPaddingInSelection + 5;
 
       if (bookSelected) {
         // Draw selection box
@@ -133,19 +151,39 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
         currentY += titleLineHeight;
       }
       if (hasStatusIcons) {
-        currentY += readingStatusIconTopMargin;
+        currentY += statusIconTopMargin;
+        int iconX = tileX + hPaddingInSelection;
+        if (hasBookmarkIcon) {
+          renderer.drawIcon(Bookmark24Icon, iconX, currentY, statusIconSize, statusIconSize);
+          iconX += statusIconSize + 6;
+        }
         if (hasReadingStatusIcon) {
           const uint8_t* iconBitmap =
-              (bookStatuses[i] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
-          renderer.drawIcon(iconBitmap, tileX + hPaddingInSelection, currentY, readingStatusIconSize,
-                            readingStatusIconSize);
+              readingStatus == ReadingStatus::Finished ? BookFinished24Icon : BookReading24Icon;
+          renderer.drawIcon(iconBitmap, iconX, currentY, statusIconSize, statusIconSize);
+          iconX += statusIconSize + 6;
         }
         if (hasCacheStatusIcon) {
           constexpr int cacheStatusIconRadius = 7;
-          const int cacheCenterX = tileX + hPaddingInSelection +
-                                   (hasReadingStatusIcon ? readingStatusIconSize + 11 : cacheStatusIconRadius);
-          CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, cacheCenterX,
-                                currentY + readingStatusIconSize / 2);
+          CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, iconX + cacheStatusIconRadius,
+                                currentY + statusIconSize / 2);
+        }
+        currentY += statusIconSize;
+      }
+      if (hasProgressBar) {
+        currentY += progressTopMargin;
+        const int displayPercent = readingStatus == ReadingStatus::Finished ? 100 : bookProgress[i].percent;
+        char percentText[8];
+        snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(displayPercent));
+        const bool showPercent = readingStatus != ReadingStatus::Finished;
+        const int percentWidth = showPercent ? renderer.getTextWidth(SMALL_FONT_ID, percentText) : 0;
+        constexpr int percentGap = 6;
+        const int barX = tileX + hPaddingInSelection;
+        const int barWidth = maxLineWidth - (showPercent ? percentWidth + percentGap : 0);
+        drawHomeProgressBar(renderer, Rect{barX, currentY, barWidth, progressBarHeight}, displayPercent);
+        if (showPercent) {
+          const int textY = currentY + (progressBarHeight - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+          renderer.drawText(SMALL_FONT_ID, barX + barWidth + percentGap, textY, percentText, true);
         }
       }
     }

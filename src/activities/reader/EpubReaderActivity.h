@@ -64,7 +64,8 @@ class EpubReaderActivity final : public Activity {
   void renderStatusBar() const;
   void renderRubyAdjustOverlay() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
-  void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false);
+  void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false, int percent = -1);
+  int calculateBookPercent(int currentPage, int pageCount) const;
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void jumpToBookProgress(float progress);

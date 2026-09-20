@@ -981,16 +981,17 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       const uint16_t savedSpineIndex = hasProgress ? currentSpineIndex : 0;
       const uint16_t savedPage = hasProgress ? section->currentPage : 0;
       const uint16_t savedPageCount = hasProgress ? section->pageCount : 0;
+      const int savedPercent = hasProgress ? calculateBookPercent(savedPage, savedPageCount) : -1;
       startActivityForResult(
           std::make_unique<BookCacheClearActivity>(renderer, mappedInput, epub),
-          [this, hasProgress, savedSpineIndex, savedPage, savedPageCount](const ActivityResult& result) {
+          [this, hasProgress, savedSpineIndex, savedPage, savedPageCount, savedPercent](const ActivityResult& result) {
             if (!result.isCancelled) {
               section.reset();
               // progress.bin is deliberately restored after the cache directory is removed.
               // It is the only per-book state retained by this operation.
               if (hasProgress && epub) {
                 epub->setupCacheDir();
-                saveProgress(savedSpineIndex, savedPage, savedPageCount);
+                saveProgress(savedSpineIndex, savedPage, savedPageCount, false, savedPercent);
               }
               onGoHome();
             }
@@ -1167,7 +1168,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
-    saveProgress(currentSpineIndex, 0, 0, true);
+    saveProgress(currentSpineIndex, 0, 0, true, 100);
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
@@ -1427,13 +1428,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
   {
-    bool nearEnd = false;
-    if (epub->getBookSize() > 0 && section->pageCount > 0) {
-      const float chapterProgress =
-          static_cast<float>(section->currentPage + 1) / static_cast<float>(section->pageCount);
-      nearEnd = epub->calculateProgress(currentSpineIndex, chapterProgress) >= 0.95f;
-    }
-    saveProgress(currentSpineIndex, section->currentPage, section->pageCount, nearEnd);
+    const int percent = calculateBookPercent(section->currentPage, section->pageCount);
+    saveProgress(currentSpineIndex, section->currentPage, section->pageCount, percent >= 95, percent);
   }
 
   if (pendingScreenshot) {
@@ -1502,8 +1498,14 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 }
 
-void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished) {
-  uint8_t data[7];
+int EpubReaderActivity::calculateBookPercent(const int currentPage, const int pageCount) const {
+  if (!epub || epub->getBookSize() == 0 || pageCount <= 0) return -1;
+  const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(pageCount);
+  return clampPercent(static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f));
+}
+
+void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished, int percent) {
+  uint8_t data[8];
   data[0] = spineIndex & 0xFF;
   data[1] = (spineIndex >> 8) & 0xFF;
   data[2] = currentPage & 0xFF;
@@ -1511,6 +1513,7 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   data[4] = pageCount & 0xFF;
   data[5] = (pageCount >> 8) & 0xFF;
   data[6] = isFinished ? 1 : 0;
+  data[7] = percent >= 0 && percent <= 100 ? static_cast<uint8_t>(percent) : ReadingProgress::PERCENT_UNKNOWN;
   uint64_t bookId = 0;
   const bool hasBookId = epub->getSourceFingerprint(&bookId);
   const std::string progressPath =

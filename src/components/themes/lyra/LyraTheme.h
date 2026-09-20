@@ -69,7 +69,7 @@ class LyraTheme : public BaseTheme {
                       const std::function<std::string(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                           const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex, bool& coverRendered,
+                           const std::vector<ReadingProgress>& bookProgress, const int selectorIndex, bool& coverRendered,
                            bool& coverBufferStored, bool& bufferRestored,
                            std::function<bool()> storeCoverBuffer) const override;
   void drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const;

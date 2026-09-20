@@ -31,10 +31,10 @@ int HomeActivity::getMenuItemCount() const {
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
   recentBooks.clear();
-  recentBookStatuses.clear();
+  recentBookProgress.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(static_cast<int>(books.size()), maxBooks));
-  recentBookStatuses.reserve(std::min(static_cast<int>(books.size()), maxBooks));
+  recentBookProgress.reserve(std::min(static_cast<int>(books.size()), maxBooks));
 
   for (const RecentBook& book : books) {
     // Limit to maximum number of recent books
@@ -48,7 +48,7 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
     }
 
     recentBooks.push_back(book);
-    recentBookStatuses.push_back(getReadingStatus(book.path, "/.crosspoint", book.bookId));
+    recentBookProgress.push_back(getReadingProgress(book.path, "/.crosspoint", book.bookId));
   }
 }
 
@@ -242,7 +242,7 @@ void HomeActivity::render(RenderLock&&) {
 GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
 
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, recentBookStatuses, selectorIndex, coverRendered, coverBufferStored,
+                          recentBooks, recentBookProgress, selectorIndex, coverRendered, coverBufferStored,
                           bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically

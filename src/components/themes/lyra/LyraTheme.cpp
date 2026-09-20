@@ -592,7 +592,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 }
 
 void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                    const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                     std::function<bool()> storeCoverBuffer) const {
   const int tileWidth = rect.width - 2 * LyraMetrics::values.contentSidePadding;
@@ -679,8 +679,8 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     constexpr int readingStatusIconSize = 24;
     constexpr int readingStatusIconTopMargin = 8;
-    const bool hasReadingStatusIcon = !bookStatuses.empty() && (bookStatuses[0] == ReadingStatus::Reading ||
-                                                            bookStatuses[0] == ReadingStatus::Finished);
+    const ReadingStatus status = bookProgress.empty() ? ReadingStatus::Unread : bookProgress[0].status;
+    const bool hasReadingStatusIcon = status == ReadingStatus::Reading || status == ReadingStatus::Finished;
     const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(book.path);
     const Epub::CacheGenerationStatus cacheStatus =
         hasCacheStatusIcon ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
@@ -711,8 +711,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (hasStatusIcons) {
       titleY += readingStatusIconTopMargin;
       if (hasReadingStatusIcon) {
-        const uint8_t* iconBitmap =
-            (bookStatuses[0] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
+        const uint8_t* iconBitmap = status == ReadingStatus::Finished ? BookFinished24Icon : BookReading24Icon;
         renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
       }
       if (hasCacheStatusIcon) {
