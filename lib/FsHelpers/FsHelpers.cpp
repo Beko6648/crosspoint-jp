@@ -129,4 +129,7 @@ std::string extractFolderPath(const std::string& filePath) {
   return filePath.substr(0, lastSlash);
 }
 
+bool isSafePathComponent(std::string_view name) {
+  return !name.empty() && name.find_first_of("/\\") == std::string_view::npos && name != "." && name != "..";
+}
 }  // namespace FsHelpers
