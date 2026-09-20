@@ -1,5 +1,66 @@
 #include "Utf8.h"
 
+#include "Utf8ComposeTable.h"
+
+namespace {
+uint32_t utf8ComposePair(const uint32_t base, const uint32_t mark) {
+  if (base > 0xFFFF || mark > 0xFFFF) return 0;
+  int lo = 0;
+  int hi = kUtf8ComposeTableSize - 1;
+  while (lo <= hi) {
+    const int mid = (lo + hi) / 2;
+    const Utf8ComposeEntry& entry = kUtf8ComposeTable[mid];
+    if (entry.base < base || (entry.base == base && entry.mark < mark)) {
+      lo = mid + 1;
+    } else if (entry.base > base || (entry.base == base && entry.mark > mark)) {
+      hi = mid - 1;
+    } else {
+      return entry.composed;
+    }
+  }
+  return 0;
+}
+}  // namespace
+
+std::string utf8ComposeNfc(const std::string& in) {
+  bool maybeHasMarks = false;
+  for (const unsigned char c : in) {
+    if (c == 0xCC || c == 0xCD) {
+      maybeHasMarks = true;
+      break;
+    }
+  }
+  if (!maybeHasMarks) return in;
+
+  std::string out;
+  out.reserve(in.size());
+  const auto* p = reinterpret_cast<const unsigned char*>(in.c_str());
+  uint32_t base = 0;
+  bool haveBase = false;
+  while (*p) {
+    const uint32_t cp = utf8NextCodepoint(&p);
+    if (cp == 0) break;
+    if (utf8IsCombiningMark(cp)) {
+      const uint32_t composed = haveBase ? utf8ComposePair(base, cp) : 0;
+      if (composed) {
+        base = composed;
+        continue;
+      }
+      if (haveBase) {
+        utf8AppendCodepoint(base, out);
+        haveBase = false;
+      }
+      utf8AppendCodepoint(cp, out);
+    } else {
+      if (haveBase) utf8AppendCodepoint(base, out);
+      base = cp;
+      haveBase = true;
+    }
+  }
+  if (haveBase) utf8AppendCodepoint(base, out);
+  return out;
+}
+
 int utf8CodepointLen(const unsigned char c) {
   if (c < 0x80) return 1;          // 0xxxxxxx
   if ((c >> 5) == 0x6) return 2;   // 110xxxxx
@@ -54,6 +115,24 @@ uint32_t utf8NextCodepoint(const unsigned char** string) {
   *string += bytes;
 
   return cp;
+}
+
+void utf8AppendCodepoint(const uint32_t cp, std::string& out) {
+  if (cp < 0x80) {
+    out += static_cast<char>(cp);
+  } else if (cp < 0x800) {
+    out += static_cast<char>(0xC0 | (cp >> 6));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else if (cp < 0x10000) {
+    out += static_cast<char>(0xE0 | (cp >> 12));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else {
+    out += static_cast<char>(0xF0 | (cp >> 18));
+    out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  }
 }
 
 int utf8SafeTruncateBuffer(const char* buf, int len) {

@@ -196,7 +196,11 @@ bool collectSectionFontCodepoints(const std::string& htmlPath, std::string& uniq
 // 126: Cache the selected two- or three-digit TateChuYoko layout and the
 // per-block rendering limit used after a page is restored.
 // 127: Split Japanese curly quotes into vertical cells for optical placement.
-constexpr uint8_t SECTION_FILE_VERSION = 128;
+// 128-133: Development revisions for SD-font measurement, NFC composition,
+// and long sideways-run bounds.
+// 134: Reserve the final rotated glyph and emphasis mark when splitting long
+// sideways Latin runs.
+constexpr uint8_t SECTION_FILE_VERSION = 134;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
@@ -831,6 +835,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
                                 const std::function<bool()>& cancelFn) {
+  const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
   BookMetadataCache::SpineEntry spineItem;

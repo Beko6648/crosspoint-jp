@@ -180,29 +180,48 @@ void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) 
         // A sideways Latin run occupies the column along its horizontal text
         // advance. CSS text-emphasis applies to each eligible character, not
         // to the run as one oversized glyph.
+        // Match drawTextSideways(), which shifts the rotated body down by one
+        // third of the ascender. Without this, sesame marks sit visibly above
+        // the centers of their Latin glyphs.
+        const int sidewaysShift = renderer.getFontAscenderSize(fontId) / 3;
         p = reinterpret_cast<const unsigned char*>(words[i].c_str());
         std::string prefix;
         prefix.reserve(words[i].size());
+        int runningAdvance = 0;
+        const bool useLinearAdvance = renderer.isSdCardFont(fontId);
         while (*p) {
           const auto* start = p;
           const uint32_t cp = utf8NextCodepoint(&p);
-          const int before = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
-          prefix.append(reinterpret_cast<const char*>(start), p - start);
-          const int after = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          const int before = useLinearAdvance ? runningAdvance
+                                              : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          const std::string character(reinterpret_cast<const char*>(start), p - start);
+          prefix.append(character);
+          const int after = useLinearAdvance
+                                ? before + renderer.getTextAdvanceX(fontId, character.c_str(), wordStyles[i])
+                                : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          runningAdvance = after;
           if (textEmphasis::eligible(cp)) {
-            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + (before + after) / 2);
+            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2,
+                 y + wordYpos[i] + sidewaysShift + (before + after) / 2);
           }
         }
       }
     } else {
       std::string prefix;
       prefix.reserve(words[i].size());
+      int runningAdvance = 0;
+      const bool useLinearAdvance = renderer.isSdCardFont(fontId);
       while (*p) {
         const auto* start = p;
         const uint32_t cp = utf8NextCodepoint(&p);
-        const int before = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
-        prefix.append(reinterpret_cast<const char*>(start), p - start);
-        const int after = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        const int before =
+            useLinearAdvance ? runningAdvance : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        const std::string character(reinterpret_cast<const char*>(start), p - start);
+        prefix.append(character);
+        const int after = useLinearAdvance
+                              ? before + renderer.getTextAdvanceX(fontId, character.c_str(), wordStyles[i])
+                              : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        runningAdvance = after;
         if (textEmphasis::eligible(cp)) draw(x + wordXpos[i] + (before + after) / 2, y - 2 - (size + 1) / 2);
       }
     }

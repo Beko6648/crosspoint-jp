@@ -1940,7 +1940,11 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
       cp = displayCodepoint(cp, false);
       uint16_t advance = 0;
-      if (!sdIt->second->tryGetAdvanceOrLoad(cp, styleIdx, advance)) {
+      if (measureOnly_ && !utf8IsCombiningMark(cp)) {
+        advance = sdIt->second->getAdvance(cp, styleIdx);
+        if (advance == 0) advance = sdIt->second->readAdvanceOnly(cp, styleIdx);
+      }
+      if (advance == 0 && !sdIt->second->tryGetAdvanceOrLoad(cp, styleIdx, advance)) {
         // renderChar() draws '?' when the SD-card font has no requested
         // glyph. Use the same width, so layout cannot collapse the missing
         // character to zero and let the rendered fallback escape the column.

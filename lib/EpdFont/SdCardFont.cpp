@@ -739,6 +739,15 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   if (s.miniBitmapIsChunked) freeStyleMiniData(s);
 #endif
 
+  // Layout-only measurements must not replace a resident bitmap arena. Doing
+  // so makes the following render fetch every page glyph through the overflow
+  // path, and grayscale bands repeat those SD reads several times.
+  if (metadataOnly && !s.miniMetadataOnly && s.miniGlyphCount > 0 && s.miniBitmapUsed > 0) {
+    LOG_DBG("SDCF", "Prewarm: keeping bitmap arena for metadata-only request (style=%u cps=%u)", styleIdx,
+            cpCount);
+    return 0;
+  }
+
   // Map codepoints to global glyph indices for this style
   struct CpGlyphMapping {
     uint32_t codepoint;
@@ -1401,6 +1410,42 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
   return 0;
 }
 
+uint16_t SdCardFont::readAdvanceOnly(const uint32_t codepoint, uint8_t style) const {
+  style = resolveStyle(style);
+  if (!loaded_ || style >= MAX_STYLES || !styles_[style].present) return 0;
+  const auto& s = styles_[style];
+
+  if (s.miniData.intervals && s.miniData.intervalCount > 0 && s.miniData.glyph) {
+    const auto* begin = s.miniData.intervals;
+    const auto* end = begin + s.miniData.intervalCount;
+    const auto it = std::upper_bound(
+        begin, end, codepoint, [](const uint32_t value, const EpdUnicodeInterval& interval) {
+          return value < interval.first;
+        });
+    if (it != begin) {
+      const auto& interval = *(it - 1);
+      if (codepoint <= interval.last) {
+        return s.miniData.glyph[interval.offset + (codepoint - interval.first)].advanceX;
+      }
+    }
+  }
+
+  for (uint32_t i = 0; i < overflowCount_; ++i) {
+    if (overflow_[i].codepoint == codepoint && overflow_[i].styleIdx == style) return overflow_[i].glyph.advanceX;
+  }
+
+  const int32_t globalIndex = findGlobalGlyphIndex(s, codepoint);
+  if (globalIndex < 0) return 0;
+  FsFile file;
+  if (!Storage.openFileForRead("SDCF", filePath_, file)) return 0;
+  EpdGlyph glyph = {};
+  const uint32_t offset = s.glyphsFileOffset + static_cast<uint32_t>(globalIndex) * sizeof(EpdGlyph);
+  if (!file.seekSet(offset) || file.read(reinterpret_cast<uint8_t*>(&glyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+    return 0;
+  }
+  return glyph.advanceX;
+}
+
 uint16_t SdCardFont::getAdvanceOrLoad(const uint32_t codepoint, const uint8_t style) {
   uint16_t advance = 0;
   return tryGetAdvanceOrLoad(codepoint, style, advance) ? advance : 0;
@@ -1820,7 +1865,6 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   self->overflow_[slot].bitmap = tempBitmap;
   self->overflow_[slot].codepoint = codepoint;
   self->overflow_[slot].styleIdx = styleIdx;
-
 #if !SD_FONT_DIAGNOSTICS
   // This can emit hundreds of rows per page. Suppress successful per-glyph
   // traces while collecting SFD measurements so USB serial does not drop

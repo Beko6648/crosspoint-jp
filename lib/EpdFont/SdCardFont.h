@@ -7,7 +7,7 @@
 
 class SdCardFont {
  public:
-  static constexpr uint16_t MAX_PAGE_GLYPHS = 128;
+  static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
   static constexpr uint8_t MAX_STYLES = 4;
   static constexpr uint8_t KERN_ROW_CACHE_ROWS = 4;
 
@@ -35,6 +35,9 @@ class SdCardFont {
   // Look up advanceX for a codepoint from the advance table.
   // Returns the 12.4 fixed-point advance, or 0 if not found.
   uint16_t getAdvance(uint32_t codepoint, uint8_t style) const;
+
+  // Read only a glyph record for layout measurement, without retaining its bitmap.
+  uint16_t readAdvanceOnly(uint32_t codepoint, uint8_t style) const;
 
   // Look up an advance-table entry, loading one glyph's metrics on demand when
   // the bounded table does not contain the codepoint.  This keeps layout
@@ -255,8 +258,11 @@ class SdCardFont {
   };
   OverflowContext overflowCtx_[MAX_STYLES] = {};
 
-  // Shared on-demand overflow buffer (ring buffer of glyphs loaded via glyphMissHandler)
-  static constexpr uint32_t OVERFLOW_CAPACITY = 8;
+  // Shared on-demand overflow buffer (ring buffer of glyphs loaded via glyphMissHandler).
+  // Keep a page-sized working set because grayscale rendering redraws the same
+  // page in several bands. A small ring repeatedly reloads uncached glyphs
+  // from the SD card during every band.
+  static constexpr uint32_t OVERFLOW_CAPACITY = 48;
   struct OverflowEntry {
     EpdGlyph glyph;
     uint8_t* bitmap = nullptr;

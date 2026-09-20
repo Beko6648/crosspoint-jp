@@ -176,7 +176,12 @@ size_t adjustHorizontalKinsokuBreak(const WordContainer& words, const std::vecto
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
                          const bool attachToPrevious, const bool spaceBefore) {
-  if (layoutFailed_ || word.empty()) return;
+  if (layoutFailed_ || word.empty() || !hasHeapForToken()) return;
+
+  // Compose decomposed Latin accents before measuring and caching the layout.
+  // Rendering standalone marks is both visually incorrect and very expensive
+  // for long sideways runs.
+  word = utf8ComposeNfc(word);
 
   // words/rubyTexts use deque because a ruby base may legitimately exceed the
   // normal parser flush limit.  Reserve only the small parallel metadata
@@ -278,6 +283,16 @@ bool ParsedText::admitLayout(size_t bytes, const char* stage) {
   return false;
 }
 
+bool ParsedText::hasHeapForToken() {
+  constexpr uint32_t MIN_FREE_HEAP = 4 * 1024;
+  constexpr uint32_t MIN_MAX_ALLOC = 2 * 1024;
+  if (ESP.getFreeHeap() >= MIN_FREE_HEAP && ESP.getMaxAllocHeap() >= MIN_MAX_ALLOC) return true;
+  LOG_ERR("PTX", "Token push stopped at %u tokens: free=%u largest=%u", static_cast<unsigned>(words.size()),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  layoutFailed_ = true;
+  return false;
+}
+
 void ParsedText::consumePrefix(size_t count) {
   if (!count) return;
   size_t images = 0;
@@ -369,7 +384,7 @@ void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const s
     rubyTexts.resize(words.size());
   }
 
-  rubyTexts[index] = ruby;
+  rubyTexts[index] = utf8ComposeNfc(ruby);
 
   // CJK base text is tokenized one character at a time. Mark the remaining tokens in this
   // ruby group so rendering can center the annotation over the complete base-text span.
@@ -384,6 +399,7 @@ void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const s
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<bool(std::shared_ptr<TextBlock>)>& processLine,
                                        const bool includeLastLine) {
+  const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   if (layoutFailed_ || words.empty()) return;
   if (!admitLayout(LayoutMemory::multiply(words.size(), 16), "horizontal plan")) return;
 
@@ -485,6 +501,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fontId, const uint16_t columnHeight,
                                        const std::function<bool(std::shared_ptr<TextBlock>)>& processColumn,
                                        const bool includeLastColumn) {
+  const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   if (layoutFailed_ || words.empty()) return;
   if (!admitLayout(LayoutMemory::multiply(words.size(), 16), "vertical plan")) return;
 
@@ -595,7 +612,25 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
   // shaping. A run taller than one column, however, has no legal break point
   // and can never be displayed completely. Split only those oversized runs;
   // each fragment remains sideways and is laid out in the following column.
-  const int maxSidewaysRunAdvance = std::max(1, static_cast<int>(columnHeight) - cjkSpacing);
+  bool hasAnyEmphasis = false;
+  for (const auto value : emphasis) {
+    if (value != TextEmphasis::None) {
+      hasAnyEmphasis = true;
+      break;
+    }
+  }
+  // A full-column sideways fragment is drawn below its layout origin by the
+  // ascender shift. Emphasis marks can add another half mark at the tail. If
+  // these are omitted from the split limit, the first fragment in a column
+  // cannot be moved elsewhere and its last glyph/mark is clipped.
+  // Reserve one full body cell for the rotated final glyph. Its bitmap
+  // bearings vary by font and can extend much farther than the ascender/3
+  // origin shift alone (notably Noto Serif Latin with combining accents).
+  const int sidewaysShiftGuard = std::max(0, renderer.getLineHeight(fontId));
+  const int emphasisTailGuard =
+      hasAnyEmphasis ? (std::clamp(renderer.getLineHeight(fontId) / 5, 4, 8) + 1) / 2 + 1 : 0;
+  const int maxSidewaysRunAdvance =
+      std::max(1, static_cast<int>(columnHeight) - cjkSpacing - sidewaysShiftGuard - emphasisTailGuard);
   bool needsSidewaysRunSplit = false;
   for (size_t i = 0; i < words.size(); ++i) {
     const bool sideways =
@@ -855,7 +890,27 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     int currentY = verticalIndent;
     for (size_t i = 0; i < words.size(); i++) {
       const uint16_t fitHeight = hasAnyRuby ? rubyFitHeights[i] : wordHeights[i];
-      if (currentY + fitHeight > columnHeight && i > columnStart) {
+      const auto behavior =
+          i < wordVerticalBehaviors.size() ? wordVerticalBehaviors[i] : VerticalTextUtils::VerticalBehavior::Upright;
+      // Sideways text is shifted down by one third of the ascender when it is
+      // drawn. Its final glyph may also extend beyond its logical advance.
+      // Reserve both parts here; using only the shift allowed the visible ink
+      // of the last Latin glyph to enter the status bar or leave the screen.
+      int sidewaysTailGuard = 0;
+      if (behavior == VerticalTextUtils::VerticalBehavior::Sideways) {
+        const int wordFontId = scriptAwareFontId(fontId, wordStyles[i]);
+        int visibleMinX = 0;
+        int visibleMaxX = 0;
+        renderer.getTextVisibleBoundsX(wordFontId, words[i].c_str(), &visibleMinX, &visibleMaxX,
+                                       glyphStyle(wordStyles[i]));
+        const int visibleOverhang = std::max(0, visibleMaxX + 1 - static_cast<int>(wordHeights[i] - cjkSpacing));
+        sidewaysTailGuard = std::max(0, renderer.getFontAscenderSize(wordFontId) / 3) + visibleOverhang;
+        if (i < emphasis.size() && emphasis[i] != TextEmphasis::None) {
+          sidewaysTailGuard +=
+              (std::clamp(renderer.getLineHeight(wordFontId) / 5, 4, 8) + 1) / 2 + 1;
+        }
+      }
+      if (currentY + fitHeight + sidewaysTailGuard > columnHeight && i > columnStart) {
         size_t breakAt = i;
         // Kinsoku-head pullback (e.g., closing brackets, small kana cannot start a column)
         while (breakAt > columnStart + 1 && VerticalTextUtils::isKinsokuHead(firstCodepoint(words[breakAt]))) {
