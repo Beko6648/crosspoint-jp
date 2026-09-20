@@ -575,11 +575,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
-  // Extract class, style, and id attributes
+  // Extract class, style, id, and hidden attributes.
   std::string classAttr;
   std::string styleAttr;
   std::string widthAttr;
   std::string heightAttr;
+  bool hasHiddenAttr = false;
   if (atts != nullptr) {
     for (int i = 0; atts[i]; i += 2) {
       if (strcmp(atts[i], "class") == 0) {
@@ -593,6 +594,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       } else if (strcmp(atts[i], "id") == 0) {
         // Defer recording until startNewTextBlock, after previous block is flushed to pages
         self->pendingAnchorId = atts[i + 1];
+      } else if (strcmp(atts[i], "hidden") == 0) {
+        hasHiddenAttr = true;
       }
     }
   }
@@ -614,6 +617,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (self->bookStyle != 0 && !styleAttr.empty()) {
     CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
     cssStyle.applyOver(inlineStyle);
+  }
+  // The HTML hidden attribute overrides author CSS and reader style settings.
+  if (hasHiddenAttr) {
+    cssStyle.display = CssDisplay::None;
+    cssStyle.defined.display = 1;
   }
   if (self->bookStyle == 2 && !matches(name, HEADER_TAGS, NUM_HEADER_TAGS)) {
     retainBalancedParagraphStyle(cssStyle);
