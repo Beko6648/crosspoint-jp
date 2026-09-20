@@ -65,6 +65,27 @@ int zipReadCallback(uzlib_uncomp* uncomp) {
   uncomp->source_limit = ctx->readBuf + bytesRead;
   return ctx->readBuf[0];
 }
+
+uint8_t* allocateStreamChunk(const size_t requestedSize, size_t& allocatedSize) {
+  constexpr size_t MIN_CHUNK_SIZE = 512;
+  allocatedSize = 0;
+  if (requestedSize == 0) return nullptr;
+
+  size_t candidate = requestedSize;
+  while (true) {
+    if (auto* buffer = static_cast<uint8_t*>(malloc(candidate))) {
+      allocatedSize = candidate;
+      if (candidate != requestedSize) {
+        LOG_DBG("ZIP", "Reduced stream chunk from %zu to %zu bytes (maxAlloc=%u)", requestedSize, candidate,
+                ESP.getMaxAllocHeap());
+      }
+      return buffer;
+    }
+    if (candidate <= MIN_CHUNK_SIZE) break;
+    candidate = std::max(MIN_CHUNK_SIZE, candidate / 2);
+  }
+  return nullptr;
+}
 }  // namespace
 
 bool ZipFile::loadAllFileStatSlims() {
@@ -526,7 +547,8 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
   if (fileStat.method == ZIP_METHOD_STORED) {
     // no deflation, just read content
-    const auto buffer = static_cast<uint8_t*>(malloc(chunkSize));
+    size_t allocatedChunkSize = 0;
+    const auto buffer = allocateStreamChunk(chunkSize, allocatedChunkSize);
     if (!buffer) {
       LOG_ERR("ZIP", "Failed to allocate memory for buffer (heap free=%u, maxAlloc=%u)", ESP.getFreeHeap(),
               ESP.getMaxAllocHeap());
@@ -535,7 +557,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     size_t remaining = inflatedDataSize;
     while (remaining > 0) {
-      const size_t dataRead = file.read(buffer, remaining < chunkSize ? remaining : chunkSize);
+      const size_t dataRead = file.read(buffer, remaining < allocatedChunkSize ? remaining : allocatedChunkSize);
       if (dataRead == 0) {
         LOG_ERR("ZIP", "Could not read more bytes");
         free(buffer);
@@ -614,14 +636,16 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
       return true;
     }
 
-    auto* fileReadBuffer = static_cast<uint8_t*>(malloc(chunkSize));
+    size_t readChunkSize = 0;
+    auto* fileReadBuffer = allocateStreamChunk(chunkSize, readChunkSize);
     if (!fileReadBuffer) {
       LOG_ERR("ZIP", "Failed to allocate memory for zip file read buffer (heap free=%u, maxAlloc=%u)",
               ESP.getFreeHeap(), ESP.getMaxAllocHeap());
       return false;
     }
 
-    auto* outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
+    size_t outputChunkSize = 0;
+    auto* outputBuffer = allocateStreamChunk(chunkSize, outputChunkSize);
     if (!outputBuffer) {
       LOG_ERR("ZIP", "Failed to allocate memory for output buffer (heap free=%u, maxAlloc=%u)", ESP.getFreeHeap(),
               ESP.getMaxAllocHeap());
@@ -633,7 +657,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
     ctx.file = &file;
     ctx.fileRemaining = deflatedDataSize;
     ctx.readBuf = fileReadBuffer;
-    ctx.readBufSize = chunkSize;
+    ctx.readBufSize = readChunkSize;
 
     if (!ctx.reader.init(true)) {
       LOG_ERR("ZIP", "Failed to init inflate reader (heap free=%u, maxAlloc=%u)", ESP.getFreeHeap(),
@@ -649,7 +673,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     while (true) {
       size_t produced;
-      const InflateStatus status = ctx.reader.readAtMost(outputBuffer, chunkSize, &produced);
+      const InflateStatus status = ctx.reader.readAtMost(outputBuffer, outputChunkSize, &produced);
 
       totalProduced += produced;
       if (totalProduced > static_cast<size_t>(inflatedDataSize)) {
