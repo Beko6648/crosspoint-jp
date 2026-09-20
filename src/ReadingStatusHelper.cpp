@@ -255,7 +255,20 @@ bool saveBookListStatusIndex(const std::string& cacheDir, const std::vector<Book
 }
 
 ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir, const uint64_t bookId) {
-  return getReadingProgress(filepath, cacheDir, bookId).status;
+  std::string cacheEntryName;
+  bool isEpub;
+  if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) return ReadingStatus::Unread;
+
+  if (isEpub) {
+    uint64_t resolvedBookId = bookId;
+    if (resolvedBookId == 0) BookIdentity::getLastArchiveId(filepath, resolvedBookId);
+    if (resolvedBookId != 0) {
+      const std::string canonicalPath = BookDataPath::getProgressPath(resolvedBookId);
+      if (Storage.exists(canonicalPath.c_str())) return readProgress(canonicalPath, true).status;
+    }
+  }
+
+  return readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub).status;
 }
 
 ReadingProgress getReadingProgress(const std::string& filepath, const std::string& cacheDir, const uint64_t bookId) {

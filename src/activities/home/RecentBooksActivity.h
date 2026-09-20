@@ -8,6 +8,7 @@
 
 #include "../Activity.h"
 #include "ReadingStatusHelper.h"
+#include "ReadingHistoryStore.h"
 #include "RecentBooksStore.h"
 #include "util/ButtonNavigator.h"
 
@@ -22,14 +23,20 @@ class RecentBooksActivity final : public Activity {
   size_t menuIndex = 0;
   Screen screen = Screen::Menu;
   MeterPage meterPage = MeterPage::Overview;
+  bool booksLoaded = false;
+  bool meterSummaryLoaded = false;
+  ReadingHistorySummary meterSummary;
 
   // Recent tab state
   std::vector<RecentBook> recentBooks;
   std::vector<ReadingStatus> bookStatuses;
   std::vector<Epub::CacheGenerationStatus> bookCacheStatuses;
+  std::vector<bool> bookDetailsLoaded;
+  std::vector<BookListStatusEntry> bookListStatusIndex;
 
   // Data loading
   void loadRecentBooks();
+  void loadVisibleBookDetails(int pageStart, int pageItems);
 
  public:
   explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

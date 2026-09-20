@@ -26,6 +26,17 @@ constexpr StrId HISTORY_MENU_TITLES[] = {StrId::STR_BOOK_HISTORY, StrId::STR_REA
 constexpr StrId HISTORY_MENU_DESCRIPTIONS[] = {StrId::STR_BOOK_HISTORY_DESC, StrId::STR_READING_METER_DESC};
 constexpr UIIcon HISTORY_MENU_ICONS[] = {UIIcon::Recent, UIIcon::Library};
 
+Epub::CacheGenerationStatus fromCachedBookStatus(const CachedBookStatus status) {
+  switch (status) {
+    case CachedBookStatus::Resumable:
+      return Epub::CacheGenerationStatus::Resumable;
+    case CachedBookStatus::Complete:
+      return Epub::CacheGenerationStatus::Complete;
+    default:
+      return Epub::CacheGenerationStatus::NotGenerated;
+  }
+}
+
 std::string formatDuration(const uint32_t seconds) {
   const uint32_t hours = seconds / 3600;
   const uint32_t minutes = (seconds % 3600) / 60;
@@ -39,31 +50,53 @@ void RecentBooksActivity::loadRecentBooks() {
   recentBooks.clear();
   bookStatuses.clear();
   bookCacheStatuses.clear();
+  bookDetailsLoaded.clear();
+  loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
   const auto& books = READING_HISTORY.getBooks();
   recentBooks.reserve(books.size());
   bookStatuses.reserve(books.size());
   bookCacheStatuses.reserve(books.size());
+  bookDetailsLoaded.reserve(books.size());
 
   for (const auto& book : books) {
-    if (book.seconds == 0 || !Storage.exists(book.path.c_str())) continue;
+    if (book.seconds == 0) continue;
     recentBooks.push_back({book.path, book.title, book.author, "", book.bookId});
-    bookStatuses.push_back(getReadingStatus(book.path, "/.crosspoint", book.bookId));
-    bookCacheStatuses.push_back(FsHelpers::hasEpubExtension(book.path)
-                                    ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
-                                    : Epub::CacheGenerationStatus::NotGenerated);
+    bookStatuses.push_back(book.finished ? ReadingStatus::Finished : ReadingStatus::Reading);
+    bookCacheStatuses.push_back(Epub::CacheGenerationStatus::NotGenerated);
+    bookDetailsLoaded.push_back(false);
+  }
+}
+
+void RecentBooksActivity::loadVisibleBookDetails(const int pageStart, const int pageItems) {
+  const int pageEnd = std::min(static_cast<int>(recentBooks.size()), pageStart + pageItems);
+  for (int index = pageStart; index < pageEnd; ++index) {
+    if (bookDetailsLoaded[index]) continue;
+    const auto& book = recentBooks[index];
+    if (FsHelpers::hasEpubExtension(book.path)) {
+      ReadingStatus indexedReadingStatus = ReadingStatus::Unread;
+      CachedBookStatus indexedCacheStatus = CachedBookStatus::Unknown;
+      static const std::vector<std::string> unusedCacheEntries;
+      if (getBookListStatusFromIndex(book.path, unusedCacheEntries, bookListStatusIndex, indexedReadingStatus,
+                                     indexedCacheStatus) &&
+          indexedCacheStatus != CachedBookStatus::Unknown) {
+        bookCacheStatuses[index] = fromCachedBookStatus(indexedCacheStatus);
+      } else {
+        bookCacheStatuses[index] = Epub(book.path, "/.crosspoint").getCacheGenerationStatus();
+      }
+    }
+    bookDetailsLoaded[index] = true;
   }
 }
 
 void RecentBooksActivity::onEnter() {
   Activity::onEnter();
 
-  // Load data
-  loadRecentBooks();
-
   selectorIndex = 0;
   menuIndex = 0;
   screen = Screen::Menu;
   meterPage = MeterPage::Overview;
+  booksLoaded = false;
+  meterSummaryLoaded = false;
   requestUpdate();
 }
 
@@ -72,6 +105,10 @@ void RecentBooksActivity::onExit() {
   recentBooks.clear();
   bookStatuses.clear();
   bookCacheStatuses.clear();
+  bookDetailsLoaded.clear();
+  bookListStatusIndex.clear();
+  booksLoaded = false;
+  meterSummaryLoaded = false;
 }
 
 void RecentBooksActivity::loop() {
@@ -80,6 +117,13 @@ void RecentBooksActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (screen == Screen::Menu) {
       screen = menuIndex == 0 ? Screen::Books : Screen::Meter;
+      if (screen == Screen::Books && !booksLoaded) {
+        loadRecentBooks();
+        booksLoaded = true;
+      } else if (screen == Screen::Meter && !meterSummaryLoaded) {
+        meterSummary = READING_HISTORY.getSummary();
+        meterSummaryLoaded = true;
+      }
       meterPage = MeterPage::Overview;
       requestUpdate();
       return;
@@ -89,11 +133,13 @@ void RecentBooksActivity::loop() {
       onSelectBook(recentBooks[selectorIndex].path);
       return;
     }
-    if (screen == Screen::Meter && gpio.deviceIsX3() && !READING_HISTORY.getSummary().hasCalendarTime) {
+    if (screen == Screen::Meter && gpio.deviceIsX3() && !meterSummary.hasCalendarTime) {
       // X3 can start without calendar time. Let the reader recover calendar-based
       // statistics directly from the screen that explains why they are absent.
       startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                              [this](const ActivityResult&) {
+                               meterSummary = READING_HISTORY.getSummary();
+                               meterSummaryLoaded = true;
                                meterPage = MeterPage::Overview;
                                requestUpdate();
                              });
@@ -113,7 +159,7 @@ void RecentBooksActivity::loop() {
   if (screen == Screen::Meter) {
     // The X3 keeps its compact overview readable by moving the graph and book
     // ranking to a second page. X4 has sufficient room for the full dashboard.
-    if (gpio.deviceIsX3() && READING_HISTORY.getSummary().hasCalendarTime) {
+    if (gpio.deviceIsX3() && meterSummary.hasCalendarTime) {
       buttonNavigator.onNextRelease([this] {
         if (meterPage == MeterPage::Overview) {
           meterPage = MeterPage::Details;
@@ -173,7 +219,7 @@ void RecentBooksActivity::render(RenderLock&&) {
                  [](int index) { return std::string(I18N.get(HISTORY_MENU_DESCRIPTIONS[index])); },
                  [](int index) { return HISTORY_MENU_ICONS[index]; });
   } else if (screen == Screen::Meter) {
-    const auto summary = READING_HISTORY.getSummary();
+    const auto& summary = meterSummary;
     const bool hasCalendarTime = summary.hasCalendarTime;
     const bool isX3 = gpio.deviceIsX3();
     renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 4, tr(STR_READING_METER));
@@ -321,14 +367,16 @@ void RecentBooksActivity::render(RenderLock&&) {
   } else if (recentBooks.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOK_HISTORY));
   } else {
+    const int rowHeight = metrics.listWithSubtitleRowHeight;
+    const int pageItems = std::max(1, contentHeight / rowHeight);
+    const int pageStart = (selectorIndex / pageItems) * pageItems;
+    loadVisibleBookDetails(pageStart, pageItems);
+
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,
         [this](int index) { return recentBooks[index].title; }, [this](int index) { return recentBooks[index].author; },
         [this](int index) { return UITheme::getFileIcon(recentBooks[index].path, bookStatuses[index]); });
 
-    const int rowHeight = metrics.listWithSubtitleRowHeight;
-    const int pageItems = std::max(1, contentHeight / rowHeight);
-    const int pageStart = (selectorIndex / pageItems) * pageItems;
     const int iconCenterX = pageWidth - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
     for (int index = pageStart; index < static_cast<int>(recentBooks.size()) && index < pageStart + pageItems; ++index) {
       if (!FsHelpers::hasEpubExtension(recentBooks[index].path)) continue;
@@ -341,13 +389,13 @@ void RecentBooksActivity::render(RenderLock&&) {
   // Help text
   const char* backLabel = screen == Screen::Menu ? tr(STR_HOME) : tr(STR_BACK);
   const bool x3MeterTimeRecovery = screen == Screen::Meter && gpio.deviceIsX3() &&
-                                   !READING_HISTORY.getSummary().hasCalendarTime;
+                                   !meterSummary.hasCalendarTime;
   const char* confirmLabel = screen == Screen::Menu
                                  ? tr(STR_SELECT)
                                  : (x3MeterTimeRecovery ? tr(STR_READING_METER_SYNC_TIME)
                                                         : (screen == Screen::Meter ? "" : tr(STR_OPEN)));
   const bool x3MeterPaging = screen == Screen::Meter && gpio.deviceIsX3() &&
-                              READING_HISTORY.getSummary().hasCalendarTime;
+                              meterSummary.hasCalendarTime;
   const char* previousLabel = x3MeterPaging && meterPage == MeterPage::Details
                                   ? tr(STR_PREVIOUS)
                                   : (screen == Screen::Meter ? "" : tr(STR_DIR_UP));
