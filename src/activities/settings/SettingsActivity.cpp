@@ -32,6 +32,7 @@
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
@@ -497,10 +498,22 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
 void SettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  Rect contentArea = layout.content;
+  if (layout.landscape) {
+    if (gpio.deviceIsX3()) {
+      constexpr int sideHintWidth = 54;
+      contentArea.width -= sideHintWidth;
+      if (!layout.frontHintsOnLeft) contentArea.x += sideHintWidth;
+    } else {
+      const int sideHintHeight = metrics.sideButtonHintsWidth;
+      contentArea.height -= sideHintHeight;
+      if (renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+        contentArea.y += sideHintHeight;
+      }
+    }
+  }
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
   // Keep the list clear of the edge hints without narrowing it more than
@@ -510,10 +523,12 @@ void SettingsActivity::render(RenderLock&&) {
   constexpr int x4RightInset = 12;
   const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
   const int x3Inset = isLyraTheme ? x3LyraInset : x3ClassicInset;
-  const int listLeftInset = gpio.deviceIsX3() ? x3Inset : 0;
-  const int listRightInset = gpio.deviceIsX3() ? x3Inset : x4RightInset;
+  const int listLeftInset = layout.landscape ? 0 : (gpio.deviceIsX3() ? x3Inset : 0);
+  const int listRightInset = layout.landscape ? 0 : (gpio.deviceIsX3() ? x3Inset : x4RightInset);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight},
+  GUI.drawHeader(renderer,
+                 Rect{contentArea.x, contentArea.y + metrics.topPadding + hintGutterHeight, contentArea.width,
+                      metrics.headerHeight},
                  tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
 
   std::vector<TabInfo> tabs;
@@ -522,17 +537,22 @@ void SettingsActivity::render(RenderLock&&) {
     tabs.push_back({I18N.get(categoryNames[i]), selectedCategoryIndex == i});
   }
   GUI.drawTabBar(renderer,
-                 Rect{0, metrics.topPadding + hintGutterHeight + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+                 Rect{contentArea.x, contentArea.y + metrics.topPadding + hintGutterHeight + metrics.headerHeight,
+                      contentArea.width, metrics.tabBarHeight},
                  tabs, selectedSettingIndex == 0);
 
   const auto& settings = *currentSettings;
   const int listTop =
-      metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+      contentArea.y + metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight +
+      metrics.verticalSpacing;
   const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
-  const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight;
+  const int listBottom =
+      contentArea.y + contentArea.height - bottomHints - metrics.verticalSpacing * 2 - helpTextHeight;
   GUI.drawList(
       renderer,
-      Rect{listLeftInset, listTop, pageWidth - listLeftInset - listRightInset, listBottom - listTop},
+      Rect{contentArea.x + listLeftInset, listTop, contentArea.width - listLeftInset - listRightInset,
+           listBottom - listTop},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
@@ -583,8 +603,8 @@ void SettingsActivity::render(RenderLock&&) {
       },
       editingValue);
 
-  GUI.drawHelpText(renderer, Rect{listLeftInset, listBottom + metrics.verticalSpacing,
-                                  pageWidth - listLeftInset - listRightInset, helpTextHeight},
+  GUI.drawHelpText(renderer, Rect{contentArea.x + listLeftInset, listBottom + metrics.verticalSpacing,
+                                  contentArea.width - listLeftInset - listRightInset, helpTextHeight},
                    currentSettingDescription());
 
   // Draw help text
@@ -605,7 +625,7 @@ void SettingsActivity::render(RenderLock&&) {
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, previousLabel, nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  if (selectedSettingIndex == 0) {
+  if (layout.landscape || selectedSettingIndex == 0) {
     GUI.drawSideButtonHints(renderer, tr(STR_SETTINGS_NAV_PREVIOUS), tr(STR_SETTINGS_NAV_NEXT));
   }
 

@@ -536,6 +536,27 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   const auto orientation = renderer.getOrientation();
   if (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
       orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    if (!gpio.deviceIsX3()) {
+      constexpr int landscapeButtonHeight = LyraMetrics::values.sideButtonHintsWidth;
+      constexpr int landscapeButtonWidth = 78;
+      const int groupWidth = landscapeButtonWidth * 2;
+      const int x = (screenWidth - groupWidth) / 2;
+      const int y = orientation == GfxRenderer::Orientation::LandscapeClockwise
+                        ? screenHeight - landscapeButtonHeight
+                        : 0;
+      const char* labels[] = {topBtn, bottomBtn};
+      for (int i = 0; i < 2; ++i) {
+        if (labels[i] == nullptr || labels[i][0] == '\0') continue;
+        const int buttonX = x + i * landscapeButtonWidth;
+        renderer.drawRoundedRect(buttonX, y, landscapeButtonWidth, landscapeButtonHeight, 1, cornerRadius, true, true,
+                                 true, true, true);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+        const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
+        renderer.drawText(SMALL_FONT_ID, buttonX + (landscapeButtonWidth - textWidth) / 2,
+                          y + (landscapeButtonHeight - textHeight) / 2, labels[i]);
+      }
+      return;
+    }
     const bool frontHintsOnLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise;
     // Keep short Japanese labels horizontal and fully visible in landscape.
     constexpr int landscapeButtonWidth = 54;
