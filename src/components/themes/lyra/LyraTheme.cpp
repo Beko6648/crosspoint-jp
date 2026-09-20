@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "components/CacheStatusIcon.h"
 #include "components/icons/book.h"
 #include "components/icons/book24.h"
+#include "components/icons/bookmark24.h"
 #include "components/icons/book_finished24.h"
 #include "components/icons/book_reading24.h"
 #include "components/icons/cover.h"
@@ -43,6 +45,15 @@ constexpr int topHintButtonY = 345;
 constexpr int popupMarginX = 16;
 constexpr int popupMarginY = 12;
 constexpr int maxListValueWidth = 200;
+
+void drawHomeProgressBar(const GfxRenderer& renderer, const Rect rect, int percent) {
+  if (rect.width <= 4 || rect.height <= 4) return;
+  percent = std::clamp(percent, 0, 100);
+  renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
+  const int innerWidth = rect.width - 4;
+  const int fillWidth = (innerWidth * percent + 99) / 100;
+  if (fillWidth > 0) renderer.fillRect(rect.x + 2, rect.y + 2, fillWidth, rect.height - 4);
+}
 constexpr int listValueRightInset = 8;
 // CJK UI glyph bitmaps can extend beyond their reported advance. Grow the
 // selected-value pill to the left and move its text with it, keeping the safe
@@ -677,26 +688,33 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
     const int authorLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-    constexpr int readingStatusIconSize = 24;
-    constexpr int readingStatusIconTopMargin = 8;
+    constexpr int statusIconSize = 24;
+    constexpr int statusIconTopMargin = 8;
+    const bool hasProgressData = !bookProgress.empty();
     const ReadingStatus status = bookProgress.empty() ? ReadingStatus::Unread : bookProgress[0].status;
     const bool hasReadingStatusIcon = status == ReadingStatus::Reading || status == ReadingStatus::Finished;
+    const bool hasBookmarkIcon = hasProgressData && bookProgress[0].hasBookmarks;
     const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(book.path);
     const Epub::CacheGenerationStatus cacheStatus =
         hasCacheStatusIcon ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
                            : Epub::CacheGenerationStatus::NotGenerated;
-    const bool hasStatusIcons = hasReadingStatusIcon || hasCacheStatusIcon;
-    const int readingStatusBlockHeight = hasStatusIcons ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
+    const bool hasStatusIcons = hasBookmarkIcon || hasReadingStatusIcon || hasCacheStatusIcon;
+    const bool hasProgressBar = hasProgressData && bookProgress[0].hasPercent();
+    const int statusBlockHeight = hasStatusIcons ? statusIconSize + statusIconTopMargin : 0;
+    constexpr int progressTopMargin = 8;
+    constexpr int progressBarHeight = 10;
+    const int progressBlockHeight = hasProgressBar ? progressTopMargin + progressBarHeight : 0;
 
     const int authorHeight = book.author.empty() ? 0 : (authorLineHeight * 3 / 2);
 
-    auto titleLines =
-        wrapUtf8TextByPixelWidth(renderer, UI_12_FONT_ID, book.title.c_str(), textWidth, 8, EpdFontFamily::BOLD);
+    const int maxTitleLines = hasProgressBar ? 4 : 8;
+    auto titleLines = wrapUtf8TextByPixelWidth(renderer, UI_12_FONT_ID, book.title.c_str(), textWidth, maxTitleLines,
+                                               EpdFontFamily::BOLD);
 
     auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
     const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
 
-    const int totalBlockHeight = titleBlockHeight + authorHeight + readingStatusBlockHeight;
+    const int totalBlockHeight = titleBlockHeight + authorHeight + statusBlockHeight + progressBlockHeight;
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {
@@ -709,16 +727,37 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       titleY += authorLineHeight;
     }
     if (hasStatusIcons) {
-      titleY += readingStatusIconTopMargin;
+      titleY += statusIconTopMargin;
+      int iconX = textX;
       if (hasReadingStatusIcon) {
         const uint8_t* iconBitmap = status == ReadingStatus::Finished ? BookFinished24Icon : BookReading24Icon;
-        renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
+        renderer.drawIcon(iconBitmap, iconX, titleY, statusIconSize, statusIconSize);
+        iconX += statusIconSize + 8;
+      }
+      if (hasBookmarkIcon) {
+        renderer.drawIcon(Bookmark24Icon, iconX, titleY, statusIconSize, statusIconSize);
+        iconX += statusIconSize + 8;
       }
       if (hasCacheStatusIcon) {
         constexpr int cacheStatusIconRadius = 7;
-        const int cacheCenterX = textX + (hasReadingStatusIcon ? readingStatusIconSize + 11 : cacheStatusIconRadius);
-        CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, cacheCenterX,
-                              titleY + readingStatusIconSize / 2);
+        CacheStatusIcon::draw(renderer, cacheStatus, cacheStatusIconRadius, iconX + cacheStatusIconRadius,
+                              titleY + statusIconSize / 2);
+      }
+      titleY += statusIconSize;
+    }
+    if (hasProgressBar) {
+      titleY += progressTopMargin;
+      const int displayPercent = status == ReadingStatus::Finished ? 100 : bookProgress[0].percent;
+      char percentText[8];
+      snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(displayPercent));
+      const bool showPercent = status != ReadingStatus::Finished;
+      const int percentWidth = showPercent ? renderer.getTextWidth(SMALL_FONT_ID, percentText) : 0;
+      constexpr int percentGap = 8;
+      const int barWidth = textWidth - (showPercent ? percentWidth + percentGap : 0);
+      drawHomeProgressBar(renderer, Rect{textX, titleY, barWidth, progressBarHeight}, displayPercent);
+      if (showPercent) {
+        const int percentY = titleY + (progressBarHeight - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+        renderer.drawText(SMALL_FONT_ID, textX + barWidth + percentGap, percentY, percentText, true);
       }
     }
   } else {

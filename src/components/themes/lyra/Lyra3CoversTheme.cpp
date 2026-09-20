@@ -153,14 +153,14 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       if (hasStatusIcons) {
         currentY += statusIconTopMargin;
         int iconX = tileX + hPaddingInSelection;
-        if (hasBookmarkIcon) {
-          renderer.drawIcon(Bookmark24Icon, iconX, currentY, statusIconSize, statusIconSize);
-          iconX += statusIconSize + 6;
-        }
         if (hasReadingStatusIcon) {
           const uint8_t* iconBitmap =
               readingStatus == ReadingStatus::Finished ? BookFinished24Icon : BookReading24Icon;
           renderer.drawIcon(iconBitmap, iconX, currentY, statusIconSize, statusIconSize);
+          iconX += statusIconSize + 6;
+        }
+        if (hasBookmarkIcon) {
+          renderer.drawIcon(Bookmark24Icon, iconX, currentY, statusIconSize, statusIconSize);
           iconX += statusIconSize + 6;
         }
         if (hasCacheStatusIcon) {
