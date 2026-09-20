@@ -861,14 +861,12 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
   }
 
-  // The previous section may leave an SD-font advance table resident. Release
-  // that rebuildable table before the ZIP stream admission check; otherwise a
-  // long book can fail every remaining section with an almost-large-enough
-  // contiguous block (Issue #36 observed 32,756 bytes for a 32,768-byte allocation).
+  // Reclaim rebuildable font caches before the ZIP stream, CSS, and layout
+  // allocations. The font objects and coverage data remain loaded.
   renderer.resetSdCardAdvanceBuildTiming();
-  if (ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_SECTION_STREAM) {
-    if (auto* fontCache = renderer.getFontCacheManager()) {
-      fontCache->releaseSdFontCaches();
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
+    if (ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_SECTION_STREAM) {
       // Vertical substitutions are optional until the page is drawn. Reclaim
       // them here as well: ZenMaruGothic's data can fragment the C3 heap below
       // the 32KB contiguous ZIP-inflate buffer even after ordinary caches are
