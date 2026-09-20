@@ -28,6 +28,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
                                  .homeContinueReadingInMenu = false,
                                  .homeMenuTopOffset = 16,
                                  .buttonHintsHeight = 40,
+                                 .landscapeButtonHintsWidth = 80,
                                  .sideButtonHintsWidth = 30,
                                  .progressBarHeight = 16,
                                  .progressBarMarginTop = 1,
@@ -48,6 +49,11 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
 
 class LyraTheme : public BaseTheme {
  public:
+  int getHomeCoverHeight(const GfxRenderer& renderer) const override;
+  int getHomeLandscapeCoverPercent() const override { return 65; }
+  int getHomeLandscapeMenuOffset() const override { return 0; }
+  int getHomeLandscapeMenuInset() const override { return 12; }
+  int getHomePortraitMenuTop(const GfxRenderer& renderer) const override;
   // Component drawing methods
   //   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) override;
   void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true) const override;

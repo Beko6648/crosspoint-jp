@@ -17,6 +17,8 @@ constexpr ThemeMetrics values = [] {
 
 class Lyra3CoversTheme : public LyraTheme {
  public:
+  int getHomeRecentBooksCount(const GfxRenderer& renderer) const override;
+  int getHomePortraitMenuTop(const GfxRenderer& renderer) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            const std::vector<ReadingProgress>& bookProgress, const int selectorIndex, bool& coverRendered,
                            bool& coverBufferStored, bool& bufferRestored,

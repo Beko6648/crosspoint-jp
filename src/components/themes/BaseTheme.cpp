@@ -225,7 +225,7 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher
-    constexpr int x3ButtonY = 155;
+    const int x3ButtonY = orientation == GfxRenderer::Orientation::PortraitInverted ? 205 : 155;
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
       const int leftX = buttonMargin;
@@ -465,6 +465,19 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 
 // Draw the "Recent Book" cover card on the home screen
 // TODO: Refactor method to make it cleaner, split into smaller methods
+int BaseTheme::getHomeRecentBooksCount(const GfxRenderer& /*renderer*/) const {
+  return UITheme::getInstance().getMetrics().homeRecentBooksCount;
+}
+
+int BaseTheme::getHomeCoverHeight(const GfxRenderer& /*renderer*/) const {
+  return UITheme::getInstance().getMetrics().homeCoverHeight;
+}
+
+int BaseTheme::getHomePortraitMenuTop(const GfxRenderer& /*renderer*/) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing;
+}
+
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                     const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
@@ -512,13 +525,19 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   }
 
   if (!hasCoverImage) {
-    // No cover: use half screen size
-    bookWidth = rect.width / 2;
+    // No cover: use a stable book-like aspect ratio instead of stretching to
+    // half of the available landscape column.
+    bookWidth = std::min(baseHeight * 2 / 3, static_cast<int>(rect.width * 0.9f));
   }
 
   bookX = rect.x + (rect.width - bookWidth) / 2;
   const int bookY = rect.y;
   const int bookHeight = baseHeight;
+  const auto drawCenteredInBook = [&renderer, bookX, bookWidth](const int fontId, const int y, const char* text,
+                                                               const bool color = true) {
+    const int textWidth = renderer.getTextWidth(fontId, text);
+    renderer.drawText(fontId, bookX + (bookWidth - textWidth) / 2, y, text, color);
+  };
 
   // Bookmark dimensions (used in multiple places)
   const int bookmarkWidth = bookWidth / 8;
@@ -667,7 +686,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
       const int boxWidth = maxTextWidth + boxPadding * 2;
       const int boxHeight = totalTextHeight + boxPadding * 2;
-      const int boxX = rect.x + (rect.width - boxWidth) / 2;
+      const int boxX = bookX + (bookWidth - boxWidth) / 2;
       const int boxY = titleYStart - boxPadding;
 
       // Draw box (inverted when selected: black box instead of white)
@@ -677,13 +696,13 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     for (const auto& line : lines) {
-      renderer.drawCenteredText(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected);
+      drawCenteredInBook(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected);
       titleYStart += renderer.getLineHeight(UI_12_FONT_ID);
     }
 
     if (!truncatedAuthor.empty()) {
       titleYStart += renderer.getLineHeight(UI_10_FONT_ID) / 2;
-      renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, truncatedAuthor.c_str(), !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, titleYStart, truncatedAuthor.c_str(), !bookSelected);
     }
 
     // "Continue Reading" label at the bottom
@@ -695,20 +714,20 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       constexpr int continuePadding = 6;
       const int continueBoxWidth = continueTextWidth + continuePadding * 2;
       const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
-      const int continueBoxX = rect.x + (rect.width - continueBoxWidth) / 2;
+      const int continueBoxX = bookX + (bookWidth - continueBoxWidth) / 2;
       const int continueBoxY = continueY - continuePadding / 2;
       renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
       renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, continueY, continueText, !bookSelected);
     } else {
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);
     }
   } else {
     // No book to continue reading
     const int y =
         bookY + (bookHeight - renderer.getLineHeight(UI_12_FONT_ID) - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-    renderer.drawCenteredText(UI_12_FONT_ID, y, "No open book");
-    renderer.drawCenteredText(UI_10_FONT_ID, y + renderer.getLineHeight(UI_12_FONT_ID), "Start reading below");
+    drawCenteredInBook(UI_12_FONT_ID, y, "No open book");
+    drawCenteredInBook(UI_10_FONT_ID, y + renderer.getLineHeight(UI_12_FONT_ID), "Start reading below");
   }
 }
 

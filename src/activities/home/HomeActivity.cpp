@@ -19,6 +19,7 @@
 #include "RecentBooksStore.h"
 #include "activities/settings/AozoraActivity.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
@@ -127,8 +128,7 @@ void HomeActivity::onEnter() {
 
   selectorIndex = 0;
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  loadRecentBooks(metrics.homeRecentBooksCount);
+  loadRecentBooks(GUI.getHomeRecentBooksCount(renderer));
 
   // Trigger first update
   requestUpdate();
@@ -234,17 +234,9 @@ void HomeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
 
   renderer.clearScreen();
-
-  const int coverCacheSidePadding = 60;
-  const int coverCacheW = pageWidth - 2 * coverCacheSidePadding;
-
-  coverRectX = coverCacheSidePadding;
-  coverRectY = metrics.homeTopPadding;
-  coverRectW = coverCacheW > 0 ? coverCacheW : pageWidth;
-  coverRectH = metrics.homeCoverTileHeight;
-
 
   // Full render clears the screen, so do not restore old cover buffer here.
   // Force the recent cover area to be redrawn every time.
@@ -252,11 +244,41 @@ void HomeActivity::render(RenderLock&&) {
   coverBufferStored = false;
   bool bufferRestored = false;
 
-GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+  Rect recentRect;
+  Rect menuRect;
+  if (layout.landscape) {
+    GUI.drawHeader(renderer,
+                   Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.homeTopPadding}, nullptr);
+    const int contentTop = layout.content.y + metrics.homeTopPadding;
+    const int contentHeight = layout.content.y + layout.content.height - contentTop - metrics.verticalSpacing;
+    const int recentWidth = layout.content.width * GUI.getHomeLandscapeCoverPercent() / 100;
+    const int recentHeight = std::min(
+        contentHeight, GUI.getHomeCoverHeight(renderer) + metrics.homeCoverTileHeight - metrics.homeCoverHeight);
+    const int menuHeight = 5 * (metrics.menuRowHeight + metrics.menuSpacing) + metrics.verticalSpacing;
+    const int recentTop = contentTop + std::max(0, (contentHeight - recentHeight) / 4);
+    const int menuTop = contentTop + std::max(0, (contentHeight - menuHeight) / 4) +
+                        GUI.getHomeLandscapeMenuOffset();
+    recentRect = Rect{layout.content.x, recentTop, recentWidth, recentHeight};
+    const int menuInset = GUI.getHomeLandscapeMenuInset();
+    menuRect = Rect{layout.content.x + recentWidth - menuInset, menuTop, layout.content.width - recentWidth,
+                    contentHeight - (menuTop - contentTop)};
+  } else {
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+    recentRect = Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
+    const int menuTop = GUI.getHomePortraitMenuTop(renderer);
+    menuRect = Rect{0, menuTop, pageWidth,
+                    pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
+                                  metrics.buttonHintsHeight)};
+  }
 
-  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, recentBookProgress, selectorIndex, coverRendered, coverBufferStored,
-                          bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));
+  const int coverCacheSidePadding = layout.landscape ? 0 : 60;
+  coverRectX = recentRect.x + coverCacheSidePadding;
+  coverRectY = recentRect.y;
+  coverRectW = std::max(1, recentRect.width - coverCacheSidePadding * 2);
+  coverRectH = recentRect.height;
+
+  GUI.drawRecentBookCover(renderer, recentRect, recentBooks, recentBookProgress, selectorIndex, coverRendered,
+                          coverBufferStored, bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
@@ -269,11 +291,7 @@ GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopP
   }
 
   GUI.drawButtonMenu(
-      renderer,
-      Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
-                         metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
+      renderer, menuRect, static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
 
@@ -295,7 +313,7 @@ GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopP
     requestUpdate();
   } else if (!recentsLoaded && !recentsLoading) {
     recentsLoading = true;
-    loadRecentCovers(metrics.homeCoverHeight);
+    loadRecentCovers(GUI.getHomeCoverHeight(renderer));
   }
 }
 
@@ -321,7 +339,6 @@ void HomeActivity::onAozoraOpen() {
     coverBufferStored = false;
     recentsLoaded = false;
     recentsLoading = false;
-    const auto& metrics = UITheme::getInstance().getMetrics();
-    loadRecentBooks(metrics.homeRecentBooksCount);
+    loadRecentBooks(GUI.getHomeRecentBooksCount(renderer));
   });
 }

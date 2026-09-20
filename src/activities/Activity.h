@@ -44,6 +44,7 @@ class Activity {
   virtual bool preventAutoSleep() { return false; }
   virtual bool isReaderActivity() const { return false; }
   virtual bool supportsLandscape() const { return false; }
+  virtual bool supportsUiLandscape() const { return false; }
 
   // Start a new activity without destroying the current one
   // Note: requestUpdate() will be invoked automatically once resultHandler finishes
