@@ -270,6 +270,23 @@ class GfxRenderer {
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
 
+  void releaseFrameBufferForBuild();
+  bool restoreFrameBufferAfterBuild();
+  bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+
+  class FrameBufferLoan {
+   public:
+    explicit FrameBufferLoan(GfxRenderer& renderer);
+    ~FrameBufferLoan() { end(); }
+    void end();
+    FrameBufferLoan(const FrameBufferLoan&) = delete;
+    FrameBufferLoan& operator=(const FrameBufferLoan&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    bool active_ = false;
+  };
+
   // Low level functions
   uint8_t* getFrameBuffer() const;
   uint8_t* getWriteTarget() const;

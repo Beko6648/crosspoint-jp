@@ -55,6 +55,7 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
 void HomeActivity::loadRecentCovers(int coverHeight) {
   recentsLoading = true;
   bool showingLoading = false;
+  bool bufferLent = false;
   Rect popupRect;
 
   int progress = 0;
@@ -69,15 +70,22 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           epub.load(false, true);
 
           // Try to generate thumbnail image for Continue Reading card
-          if (!showingLoading) {
+          if (!showingLoading && !bufferLent) {
             showingLoading = true;
             popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
           }
-          GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-          bool success = epub.generateThumbBmp(coverHeight);
-          if (!success) {
+          if (!bufferLent) GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
+          bool success;
+          {
+            GfxRenderer::FrameBufferLoan loan(renderer);
+            success = epub.generateThumbBmp(coverHeight);
+          }
+          bufferLent = true;
+          if (!success && !epub.hasCoverImage()) {
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
             book.coverBmpPath = "";
+          } else if (!success) {
+            LOG_INF("HOME", "Thumbnail build failed; keeping cover path for retry: %s", book.path.c_str());
           }
           coverRendered = false;
           requestUpdate();
@@ -86,12 +94,17 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           Xtc xtc(book.path, "/.crosspoint");
           if (xtc.load()) {
             // Try to generate thumbnail image for Continue Reading card
-            if (!showingLoading) {
+            if (!showingLoading && !bufferLent) {
               showingLoading = true;
               popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
             }
-            GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-            bool success = xtc.generateThumbBmp(coverHeight);
+            if (!bufferLent) GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
+            bool success;
+            {
+              GfxRenderer::FrameBufferLoan loan(renderer);
+              success = xtc.generateThumbBmp(coverHeight);
+            }
+            bufferLent = true;
             if (!success) {
               RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
               book.coverBmpPath = "";
