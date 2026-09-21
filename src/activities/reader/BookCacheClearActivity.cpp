@@ -4,11 +4,15 @@
 #include <Logging.h>
 
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 void BookCacheClearActivity::onEnter() {
   Activity::onEnter();
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
   requestUpdate();
 }
 
@@ -16,26 +20,34 @@ void BookCacheClearActivity::onExit() { Activity::onExit(); }
 
 void BookCacheClearActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int headerY = layout.content.y + metrics.topPadding + topHintGutter;
+  const int centerX = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  const int centerY = headerY + metrics.headerHeight +
+                      (layout.content.y + layout.content.height - headerY - metrics.headerHeight) / 2;
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DELETE_CACHE));
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
+                 tr(STR_DELETE_CACHE));
 
   if (state == WARNING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 60, tr(STR_DELETE_BOOK_CACHE_WARNING_1), true,
-                              EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_DELETE_BOOK_CACHE_WARNING_2));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_DELETE_BOOK_CACHE_WARNING_3));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY - 60, tr(STR_DELETE_BOOK_CACHE_WARNING_1), true, centerX,
+                                    EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY - 20, tr(STR_DELETE_BOOK_CACHE_WARNING_2), true, centerX);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 10, tr(STR_DELETE_BOOK_CACHE_WARNING_3), true, centerX);
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_DELETE), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == CLEARING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_CLEARING_CACHE));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_CLEARING_CACHE), true, centerX);
   } else if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_CACHE_CLEARED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_CACHE_CLEARED), true, centerX,
+                                    EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_CLEAR_CACHE_FAILED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_CLEAR_CACHE_FAILED), true, centerX,
+                                    EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
