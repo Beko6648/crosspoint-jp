@@ -13,6 +13,7 @@ class BmpViewerActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   void loop() override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   std::string filePath;

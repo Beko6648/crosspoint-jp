@@ -5,6 +5,10 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
+#include <cmath>
+
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -17,8 +21,11 @@ void BmpViewerActivity::onEnter() {
 
   FsFile file;
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  const auto pageWidth = layout.content.width;
+  const auto pageHeight = layout.content.height;
+  const int centerOffset =
+      layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
   Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   GUI.fillPopupProgress(renderer, popupRect, 20);  // Initial 20% progress
   // 1. Open the file
@@ -27,26 +34,13 @@ void BmpViewerActivity::onEnter() {
 
     // 2. Parse headers to get dimensions
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      int x, y;
-
-      if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
-        float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
-        const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
-
-        if (ratio > screenRatio) {
-          // Wider than screen
-          x = 0;
-          y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
-        } else {
-          // Taller than screen
-          x = std::round((static_cast<float>(pageWidth) - static_cast<float>(pageHeight) * ratio) / 2);
-          y = 0;
-        }
-      } else {
-        // Center small images
-        x = (pageWidth - bitmap.getWidth()) / 2;
-        y = (pageHeight - bitmap.getHeight()) / 2;
-      }
+      float scale = std::min(static_cast<float>(pageWidth) / bitmap.getWidth(),
+                             static_cast<float>(pageHeight) / bitmap.getHeight());
+      scale = std::min(scale, 2.0f);
+      const int renderedWidth = static_cast<int>(std::floor(bitmap.getWidth() * scale));
+      const int renderedHeight = static_cast<int>(std::floor(bitmap.getHeight() * scale));
+      const int x = layout.content.x + (pageWidth - renderedWidth) / 2;
+      const int y = layout.content.y + (pageHeight - renderedHeight) / 2;
 
       // 4. Prepare Rendering
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
@@ -66,7 +60,8 @@ void BmpViewerActivity::onEnter() {
     } else {
       // Handle file parsing error
       renderer.clearScreen();
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Invalid BMP File");
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, layout.content.y + pageHeight / 2, "Invalid BMP File", true,
+                                      centerOffset);
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -76,7 +71,8 @@ void BmpViewerActivity::onEnter() {
   } else {
     // Handle file open error
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Could not open file");
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, layout.content.y + pageHeight / 2, "Could not open file", true,
+                                    centerOffset);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
