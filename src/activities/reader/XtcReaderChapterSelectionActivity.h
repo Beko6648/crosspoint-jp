@@ -11,6 +11,7 @@ class XtcReaderChapterSelectionActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   uint32_t currentPage = 0;
   int selectorIndex = 0;
+  GfxRenderer::Orientation readerOrientation;
 
   int getPageItems() const;
   int findChapterIndexForPage(uint32_t page) const;
@@ -18,10 +19,14 @@ class XtcReaderChapterSelectionActivity final : public Activity {
  public:
   explicit XtcReaderChapterSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              const std::shared_ptr<Xtc>& xtc, uint32_t currentPage)
-      : Activity("XtcReaderChapterSelection", renderer, mappedInput), xtc(xtc), currentPage(currentPage) {}
+      : Activity("XtcReaderChapterSelection", renderer, mappedInput),
+        xtc(xtc),
+        currentPage(currentPage),
+        readerOrientation(renderer.getOrientation()) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  bool supportsLandscape() const override { return true; }
 };

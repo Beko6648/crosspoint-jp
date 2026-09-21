@@ -6,22 +6,26 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
-int XtcReaderChapterSelectionActivity::getPageItems() const {
-  constexpr int lineHeight = 30;
+namespace {
+constexpr int kTitleY = 15;
+constexpr int kListY = 60;
+constexpr int kLineHeight = 30;
+}  // namespace
 
-  const int screenHeight = renderer.getScreenHeight();
-  const auto orientation = renderer.getOrientation();
-  // In inverted portrait, the hint row is drawn near the logical top.
-  // Reserve vertical space so the list starts below the hints.
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int startY = 60 + hintGutterHeight;
-  const int availableHeight = screenHeight - startY - lineHeight;
-  // Clamp to at least one item to prevent empty page math.
-  return std::max(1, availableHeight / lineHeight);
+int XtcReaderChapterSelectionActivity::getPageItems() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int listTop = layout.content.y + kListY + topHintGutter;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int listBottom = layout.content.y + layout.content.height - bottomHints;
+  return std::max(1, (listBottom - listTop) / kLineHeight);
 }
 
 int XtcReaderChapterSelectionActivity::findChapterIndexForPage(uint32_t page) const {
@@ -40,6 +44,9 @@ int XtcReaderChapterSelectionActivity::findChapterIndexForPage(uint32_t page) co
 
 void XtcReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
+
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
 
   if (!xtc) {
     return;
@@ -93,49 +100,39 @@ void XtcReaderChapterSelectionActivity::loop() {
 void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto orientation = renderer.getOrientation();
-  // Landscape orientation: reserve a horizontal gutter for button hints.
-  const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
-  const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  // Inverted portrait: reserve vertical space for hints at the top.
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  constexpr int landscapeHintGutterWidth = 100;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
-  // Landscape CW places hints on the left edge; CCW keeps them on the right.
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int contentY = hintGutterHeight;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int titleY = layout.content.y + kTitleY + topHintGutter;
+  const int listY = layout.content.y + kListY + topHintGutter;
   const int pageItems = getPageItems();
-  // Manual centering to honor content gutters.
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_SELECT_CHAPTER), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_SELECT_CHAPTER), true, EpdFontFamily::BOLD);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, titleY, tr(STR_SELECT_CHAPTER), true, centerOffset,
+                                  EpdFontFamily::BOLD);
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
 
   const auto& chapters = xtc->getChapters();
   if (chapters.empty()) {
-    // Center the empty state within the gutter-safe content region.
-    const int emptyX = contentX + (contentWidth - renderer.getTextWidth(UI_10_FONT_ID, tr(STR_NO_CHAPTERS))) / 2;
-    renderer.drawText(UI_10_FONT_ID, emptyX, 120 + contentY, tr(STR_NO_CHAPTERS));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, listY + 60, tr(STR_NO_CHAPTERS), true, centerOffset);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
 
   const auto pageStartIndex = selectorIndex / pageItems * pageItems;
-  // Highlight only the content area, not the hint gutters.
-  renderer.fillRect(contentX, 60 + contentY + (selectorIndex % pageItems) * 30 - 2, contentWidth - 1, 30);
+  renderer.fillRect(layout.content.x, listY + (selectorIndex % pageItems) * kLineHeight - 2,
+                    layout.content.width - 1, kLineHeight);
   for (int i = pageStartIndex; i < static_cast<int>(chapters.size()) && i < pageStartIndex + pageItems; i++) {
     const auto& chapter = chapters[i];
     const char* title = chapter.name.empty() ? tr(STR_UNNAMED) : chapter.name.c_str();
-    renderer.drawText(UI_10_FONT_ID, contentX + 20, 60 + contentY + (i % pageItems) * 30, title, i != selectorIndex);
+    const std::string chapterName = renderer.truncatedText(UI_10_FONT_ID, title, layout.content.width - 40);
+    renderer.drawText(UI_10_FONT_ID, layout.content.x + 20, listY + (i % pageItems) * kLineHeight,
+                      chapterName.c_str(), i != selectorIndex);
   }
 
-  // Skip button hints in landscape CW mode (they overlap content)
-  if (renderer.getOrientation() != GfxRenderer::LandscapeClockwise) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  }
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

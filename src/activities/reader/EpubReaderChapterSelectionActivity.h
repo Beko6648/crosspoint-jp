@@ -12,6 +12,7 @@ class EpubReaderChapterSelectionActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int currentSpineIndex = 0;
   int selectorIndex = 0;
+  GfxRenderer::Orientation readerOrientation;
 
   // Number of items that fit on a page, derived from logical screen height.
   // This adapts automatically when switching between portrait and landscape.
@@ -27,10 +28,12 @@ class EpubReaderChapterSelectionActivity final : public Activity {
       : Activity("EpubReaderChapterSelection", renderer, mappedInput),
         epub(epub),
         epubPath(epubPath),
-        currentSpineIndex(currentSpineIndex) {}
+        currentSpineIndex(currentSpineIndex),
+        readerOrientation(renderer.getOrientation()) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  bool supportsLandscape() const override { return true; }
 };
