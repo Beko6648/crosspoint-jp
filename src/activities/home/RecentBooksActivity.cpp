@@ -12,6 +12,7 @@
 #include "ReadingHistoryStore.h"
 #include "RecentBooksStore.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "components/CacheStatusIcon.h"
 #include "fontIds.h"
@@ -159,7 +160,10 @@ void RecentBooksActivity::loop() {
   if (screen == Screen::Meter) {
     // The X3 keeps its compact overview readable by moving the graph and book
     // ranking to a second page. X4 has sufficient room for the full dashboard.
-    if (gpio.deviceIsX3() && meterSummary.hasCalendarTime) {
+    const auto orientation = renderer.getOrientation();
+    const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                           orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
+    if ((gpio.deviceIsX3() || landscape) && meterSummary.hasCalendarTime) {
       buttonNavigator.onNextRelease([this] {
         if (meterPage == MeterPage::Overview) {
           meterPage = MeterPage::Details;
@@ -203,18 +207,29 @@ void RecentBooksActivity::loop() {
 void RecentBooksActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int headerY = layout.content.y + metrics.topPadding + topHintGutter;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int centerOffset =
+      layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  const auto drawCentered = [&](const int fontId, const int y, const char* text,
+                                const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+    renderer.drawCenteredTextOffset(fontId, y, text, true, centerOffset, style);
+  };
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_READING_HISTORY));
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
+                 tr(STR_READING_HISTORY));
+  const int contentTop = headerY + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = layout.content.y + layout.content.height - bottomHints - contentTop;
 
   if (screen == Screen::Menu) {
     // Keep the same two-line row rhythm as the file-transfer chooser.  Lyra
     // also uses the icons here, while the Classic theme preserves its simple list style.
-    GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, HISTORY_MENU_ITEM_COUNT, menuIndex,
+    GUI.drawList(renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight},
+                 HISTORY_MENU_ITEM_COUNT, menuIndex,
                  [](int index) { return std::string(I18N.get(HISTORY_MENU_TITLES[index])); },
                  [](int index) { return std::string(I18N.get(HISTORY_MENU_DESCRIPTIONS[index])); },
                  [](int index) { return HISTORY_MENU_ICONS[index]; });
@@ -222,10 +237,11 @@ void RecentBooksActivity::render(RenderLock&&) {
     const auto& summary = meterSummary;
     const bool hasCalendarTime = summary.hasCalendarTime;
     const bool isX3 = gpio.deviceIsX3();
-    renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 4, tr(STR_READING_METER));
-    if (isX3) {
-      const int rowLeft = metrics.contentSidePadding + 8;
-      const int rowRight = pageWidth - metrics.contentSidePadding - 8;
+    drawCentered(UI_12_FONT_ID, contentTop + 4, tr(STR_READING_METER));
+    const bool compactMeter = isX3 || layout.landscape;
+    if (compactMeter) {
+      const int rowLeft = layout.content.x + metrics.contentSidePadding + 8;
+      const int rowRight = layout.content.x + layout.content.width - metrics.contentSidePadding - 8;
       const auto drawOverviewRow = [&](const int y, const char* label, const std::string& value) {
         renderer.drawLine(rowLeft, y - 8, rowRight, y - 8);
         renderer.drawText(UI_10_FONT_ID, rowLeft, y, label);
@@ -249,9 +265,8 @@ void RecentBooksActivity::render(RenderLock&&) {
       if (meterPage == MeterPage::Overview || !hasCalendarTime) {
         const std::string primaryLabel = hasCalendarTime ? tr(STR_READING_METER_WEEK) : tr(STR_READING_METER_TOTAL);
         const uint32_t primarySeconds = hasCalendarTime ? summary.weekSeconds : summary.totalSeconds;
-        renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 43, primaryLabel.c_str());
-        renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 68, formatDuration(primarySeconds).c_str(), true,
-                                  EpdFontFamily::BOLD);
+        drawCentered(UI_10_FONT_ID, contentTop + 43, primaryLabel.c_str());
+        drawCentered(UI_12_FONT_ID, contentTop + 68, formatDuration(primarySeconds).c_str(), EpdFontFamily::BOLD);
         int rowY = contentTop + 125;
         if (hasCalendarTime) {
           drawOverviewRow(rowY, tr(STR_READING_METER_TODAY), formatDuration(summary.todaySeconds));
@@ -265,12 +280,12 @@ void RecentBooksActivity::render(RenderLock&&) {
         drawOverviewRow(rowY + 38, tr(STR_READING_METER_FINISHED), finished);
         renderer.drawLine(rowLeft, rowY + 68, rowRight, rowY + 68);
         if (!hasCalendarTime) {
-          renderer.drawCenteredText(UI_10_FONT_ID, rowY + 104, tr(STR_READING_METER_TIME_UNAVAILABLE));
-          renderer.drawCenteredText(UI_10_FONT_ID, rowY + 128, tr(STR_READING_METER_TIME_SYNC_HINT));
+          drawCentered(UI_10_FONT_ID, rowY + 104, tr(STR_READING_METER_TIME_UNAVAILABLE));
+          drawCentered(UI_10_FONT_ID, rowY + 128, tr(STR_READING_METER_TIME_SYNC_HINT));
         }
       } else {
-        const int graphLeft = metrics.contentSidePadding + 18;
-        const int graphWidth = pageWidth - graphLeft * 2;
+        const int graphLeft = layout.content.x + metrics.contentSidePadding + 18;
+        const int graphWidth = layout.content.width - (metrics.contentSidePadding + 18) * 2;
         // Leave the same clear separation below the 12pt meter title as the
         // overview page.  The old position put the graph label into the title
         // glyph bounds on X3.
@@ -296,44 +311,46 @@ void RecentBooksActivity::render(RenderLock&&) {
         drawTopBooks(baselineY + 37);
       }
     } else {
-    const auto drawBookSummary = [this, &summary, pageWidth, contentTop, &metrics](const int topY) {
+    const auto drawBookSummary = [this, &summary, &layout, &metrics, &drawCentered](const int topY) {
       const std::string bookCount = std::string(tr(STR_READING_METER_BOOKS)) + ": " +
                                     std::to_string(summary.bookCount) + tr(STR_READING_METER_BOOKS_UNIT);
-      renderer.drawCenteredText(UI_10_FONT_ID, topY, bookCount.c_str());
+      drawCentered(UI_10_FONT_ID, topY, bookCount.c_str());
       const std::string finishedCount = std::string(tr(STR_READING_METER_FINISHED)) + ": " +
                                         std::to_string(summary.finishedBookCount) + tr(STR_READING_METER_BOOKS_UNIT);
-      renderer.drawCenteredText(UI_10_FONT_ID, topY + 22, finishedCount.c_str());
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, topY + 64, tr(STR_READING_METER_TOP_BOOKS), true,
+      drawCentered(UI_10_FONT_ID, topY + 22, finishedCount.c_str());
+      const int left = layout.content.x + metrics.contentSidePadding;
+      const int right = layout.content.x + layout.content.width - metrics.contentSidePadding;
+      renderer.drawText(UI_10_FONT_ID, left, topY + 64, tr(STR_READING_METER_TOP_BOOKS), true,
                         EpdFontFamily::BOLD);
       for (uint8_t index = 0; index < summary.topBookCount; ++index) {
         const auto& book = summary.topBooks[index];
         const std::string value = formatDuration(book.seconds);
         const int valueWidth = renderer.getTextWidth(UI_10_FONT_ID, value.c_str());
-        const int titleWidth = pageWidth - metrics.contentSidePadding * 2 - valueWidth - 18;
+        const int titleWidth = layout.content.width - metrics.contentSidePadding * 2 - valueWidth - 18;
         const auto title = renderer.truncatedText(UI_10_FONT_ID, book.title.c_str(), titleWidth);
         const int y = topY + 99 + index * 38;
-        renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, title.c_str());
-        renderer.drawText(UI_10_FONT_ID, pageWidth - metrics.contentSidePadding - valueWidth, y, value.c_str());
+        renderer.drawText(UI_10_FONT_ID, left, y, title.c_str());
+        renderer.drawText(UI_10_FONT_ID, right - valueWidth, y, value.c_str());
       }
     };
     if (hasCalendarTime) {
       const std::string today = std::string(tr(STR_READING_METER_TODAY)) + ": " + formatDuration(summary.todaySeconds);
       const std::string week = std::string(tr(STR_READING_METER_WEEK)) + ": " + formatDuration(summary.weekSeconds);
       const std::string month = std::string(tr(STR_READING_METER_MONTH)) + ": " + formatDuration(summary.monthSeconds);
-      renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 43, today.c_str());
-      renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 70, week.c_str());
-      renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 97, month.c_str());
+      drawCentered(UI_10_FONT_ID, contentTop + 43, today.c_str());
+      drawCentered(UI_10_FONT_ID, contentTop + 70, week.c_str());
+      drawCentered(UI_10_FONT_ID, contentTop + 97, month.c_str());
 
       uint32_t maximum = 0;
       for (const auto seconds : summary.recentDaySeconds) maximum = std::max(maximum, seconds);
       if (maximum == 0) {
         // A large empty graph is less useful than the books that have been read
         // before this week. Keep the time summary, then bring those books closer.
-        renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 150, tr(STR_READING_METER_NO_RECENT_ACTIVITY));
+        drawCentered(UI_10_FONT_ID, contentTop + 150, tr(STR_READING_METER_NO_RECENT_ACTIVITY));
         drawBookSummary(contentTop + 185);
       } else {
-      const int graphLeft = metrics.contentSidePadding + 18;
-      const int graphWidth = pageWidth - graphLeft * 2;
+      const int graphLeft = layout.content.x + metrics.contentSidePadding + 18;
+      const int graphWidth = layout.content.width - (metrics.contentSidePadding + 18) * 2;
       const int graphTop = contentTop + 145;
       const int graphHeight = std::max(80, std::min(170, contentHeight - 215));
       const int baselineY = graphTop + graphHeight;
@@ -356,16 +373,16 @@ void RecentBooksActivity::render(RenderLock&&) {
     } else {
       // X4 normally has no clock after a full power-off. Show persistent,
       // useful statistics instead of an empty daily graph.
-      renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 34, tr(STR_READING_METER_TOTAL));
-      renderer.drawCenteredText(UI_12_FONT_ID, contentTop + 58, formatDuration(summary.totalSeconds).c_str(), true,
-                                EpdFontFamily::BOLD);
+      drawCentered(UI_10_FONT_ID, contentTop + 34, tr(STR_READING_METER_TOTAL));
+      drawCentered(UI_12_FONT_ID, contentTop + 58, formatDuration(summary.totalSeconds).c_str(), EpdFontFamily::BOLD);
       drawBookSummary(contentTop + 96);
     }
     const std::string total = std::string(tr(STR_READING_METER_TOTAL)) + ": " + formatDuration(summary.totalSeconds);
-    if (hasCalendarTime) renderer.drawCenteredText(UI_10_FONT_ID, contentTop + contentHeight - 25, total.c_str());
+    if (hasCalendarTime) drawCentered(UI_10_FONT_ID, contentTop + contentHeight - 25, total.c_str());
     }
   } else if (recentBooks.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_BOOK_HISTORY));
+    renderer.drawText(UI_10_FONT_ID, layout.content.x + metrics.contentSidePadding, contentTop + 20,
+                      tr(STR_NO_BOOK_HISTORY));
   } else {
     const int rowHeight = metrics.listWithSubtitleRowHeight;
     const int pageItems = std::max(1, contentHeight / rowHeight);
@@ -373,11 +390,13 @@ void RecentBooksActivity::render(RenderLock&&) {
     loadVisibleBookDetails(pageStart, pageItems);
 
     GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,
+        renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight}, recentBooks.size(),
+        selectorIndex,
         [this](int index) { return recentBooks[index].title; }, [this](int index) { return recentBooks[index].author; },
         [this](int index) { return UITheme::getFileIcon(recentBooks[index].path, bookStatuses[index]); });
 
-    const int iconCenterX = pageWidth - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
+    const int iconCenterX =
+        layout.content.x + layout.content.width - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
     for (int index = pageStart; index < static_cast<int>(recentBooks.size()) && index < pageStart + pageItems; ++index) {
       if (!FsHelpers::hasEpubExtension(recentBooks[index].path)) continue;
       const int iconCenterY = contentTop + (index - pageStart) * rowHeight + rowHeight / 2;
@@ -394,12 +413,12 @@ void RecentBooksActivity::render(RenderLock&&) {
                                  ? tr(STR_SELECT)
                                  : (x3MeterTimeRecovery ? tr(STR_READING_METER_SYNC_TIME)
                                                         : (screen == Screen::Meter ? "" : tr(STR_OPEN)));
-  const bool x3MeterPaging = screen == Screen::Meter && gpio.deviceIsX3() &&
-                              meterSummary.hasCalendarTime;
-  const char* previousLabel = x3MeterPaging && meterPage == MeterPage::Details
+  const bool compactMeterPaging = screen == Screen::Meter && (gpio.deviceIsX3() || layout.landscape) &&
+                                  meterSummary.hasCalendarTime;
+  const char* previousLabel = compactMeterPaging && meterPage == MeterPage::Details
                                   ? tr(STR_PREVIOUS)
                                   : (screen == Screen::Meter ? "" : tr(STR_DIR_UP));
-  const char* nextLabel = x3MeterPaging && meterPage == MeterPage::Overview
+  const char* nextLabel = compactMeterPaging && meterPage == MeterPage::Overview
                               ? tr(STR_NEXT)
                               : (screen == Screen::Meter ? "" : tr(STR_DIR_DOWN));
   const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, previousLabel, nextLabel);
