@@ -3,10 +3,13 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "CrossPointSettings.h"
+#include "HalGPIO.h"
 #include "MappedInputManager.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -52,31 +55,57 @@ void LineSpacingSelectionActivity::loop() {
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustValue(-kSmallStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustValue(kSmallStep); });
+  // On X4 with the right side held upward, the physical pair is reversed on
+  // screen. Keep the button labelled "+10" increasing the left-to-right bar.
+  const bool reverseX4LandscapeStep =
+      !gpio.deviceIsX3() && renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise;
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ValueIncrease},
-                                       [this] { adjustValue(kLargeStep); });
+                                       [this, reverseX4LandscapeStep] {
+                                         adjustValue(reverseX4LandscapeStep ? -kLargeStep : kLargeStep);
+                                       });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ValueDecrease},
-                                       [this] { adjustValue(-kLargeStep); });
+                                       [this, reverseX4LandscapeStep] {
+                                         adjustValue(reverseX4LandscapeStep ? kLargeStep : -kLargeStep);
+                                       });
 }
 
 void LineSpacingSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto metrics = UITheme::getInstance().getMetrics();
+  auto layout = UiLayout::from(renderer);
+  if (layout.landscape) {
+    if (gpio.deviceIsX3()) {
+      constexpr int sideHintWidth = 54;
+      layout.content.width -= sideHintWidth;
+      if (!layout.frontHintsOnLeft) layout.content.x += sideHintWidth;
+    } else {
+      const int sideHintHeight = metrics.sideButtonHintsWidth;
+      layout.content.height -= sideHintHeight;
+      if (renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+        layout.content.y += sideHintHeight;
+      }
+    }
+  }
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
 
-  renderer.drawCenteredText(UI_12_FONT_ID, 15 + hintGutterHeight, tr(STR_LINE_SPACING), true, EpdFontFamily::BOLD);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  const int headerY = layout.content.y + metrics.topPadding + hintGutterHeight;
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
+                 tr(STR_LINE_SPACING));
 
   char valueBuf[16];
   snprintf(valueBuf, sizeof(valueBuf), "%.2fx", static_cast<float>(value) / 100.0f);
   const std::string valueText = valueBuf;
-  renderer.drawCenteredText(UI_12_FONT_ID, 90 + hintGutterHeight, valueText.c_str(), true, EpdFontFamily::BOLD);
+  const int valueY = headerY + metrics.headerHeight + metrics.verticalSpacing * 2;
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, valueY, valueText.c_str(), true, centerOffset,
+                                  EpdFontFamily::BOLD);
 
-  const int screenWidth = renderer.getScreenWidth();
-  constexpr int barWidth = 360;
+  const int barWidth = std::min(360, std::max(80, layout.content.width - metrics.contentSidePadding * 4));
   constexpr int barHeight = 16;
-  const int barX = (screenWidth - barWidth) / 2;
-  const int barY = 140 + hintGutterHeight;
+  const int barX = layout.content.x + (layout.content.width - barWidth) / 2;
+  const int barY = valueY + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing * 2;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 
@@ -90,13 +119,15 @@ void LineSpacingSelectionActivity::render(RenderLock&&) {
   const int knobX = barX + 2 + fillWidth - 2;
   renderer.fillRect(knobX, barY - 4, 4, barHeight + 8, true);
 
-  renderer.drawCenteredText(SMALL_FONT_ID, barY + 30, tr(STR_PERCENT_STEP_HINT), true);
+  renderer.drawCenteredTextOffset(SMALL_FONT_ID, barY + 30, tr(STR_PERCENT_STEP_HINT), true, centerOffset);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  // ValueIncrease is the physical upper side button on X4. X3 uses its
-  // right-side button instead and does not show these X4-specific hints.
-  GUI.drawSideButtonHints(renderer, "+10", "-10");
+  // X4's physical side-button pair appears in the opposite left-to-right
+  // order in landscape. Match the labels to the orientation-specific action.
+  const bool reverseX4LandscapeHints = !gpio.deviceIsX3() && layout.landscape;
+  GUI.drawSideButtonHints(renderer, reverseX4LandscapeHints ? "-10" : "+10",
+                          reverseX4LandscapeHints ? "+10" : "-10");
 
   renderer.displayBuffer();
 }
