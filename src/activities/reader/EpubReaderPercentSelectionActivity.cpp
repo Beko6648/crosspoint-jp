@@ -3,8 +3,12 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -15,6 +19,8 @@ constexpr int kLargeStep = 10;
 
 void EpubReaderPercentSelectionActivity::onEnter() {
   Activity::onEnter();
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
   // Set up rendering task and mark first frame dirty.
   requestUpdate();
 }
@@ -60,22 +66,25 @@ void EpubReaderPercentSelectionActivity::loop() {
 void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto metrics = UITheme::getInstance().getMetrics();
-  const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
 
   // Title and numeric percent value.
-  renderer.drawCenteredText(UI_12_FONT_ID, 15 + hintGutterHeight, tr(STR_GO_TO_PERCENT), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, layout.content.y + 15 + topHintGutter, tr(STR_GO_TO_PERCENT), true,
+                                  centerOffset, EpdFontFamily::BOLD);
 
   const std::string percentText = std::to_string(percent) + "%";
-  renderer.drawCenteredText(UI_12_FONT_ID, 90 + hintGutterHeight, percentText.c_str(), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, layout.content.y + 90 + topHintGutter, percentText.c_str(), true,
+                                  centerOffset, EpdFontFamily::BOLD);
 
   // Draw slider track.
-  const int screenWidth = renderer.getScreenWidth();
-  constexpr int barWidth = 360;
+  const int barWidth = std::min(360, layout.content.width - 40);
   constexpr int barHeight = 16;
-  const int barX = (screenWidth - barWidth) / 2;
-  const int barY = 140 + hintGutterHeight;
+  const int barX = layout.content.x + (layout.content.width - barWidth) / 2;
+  const int barY = layout.content.y + 140 + topHintGutter;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 
@@ -90,7 +99,7 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   renderer.fillRect(knobX, barY - 4, 4, barHeight + 8, true);
 
   // Hint text for step sizes.
-  renderer.drawCenteredText(SMALL_FONT_ID, barY + 30, tr(STR_PERCENT_STEP_HINT), true);
+  renderer.drawCenteredTextOffset(SMALL_FONT_ID, barY + 30, tr(STR_PERCENT_STEP_HINT), true, centerOffset);
 
   // Button hints follow the current front button layout.
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
