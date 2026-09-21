@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include "ReaderProfile.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "../util/ConfirmationActivity.h"
@@ -96,16 +97,21 @@ void ReaderProfilesActivity::loop() {
 void ReaderProfilesActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_READER_PROFILES));
-  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  GUI.drawList(renderer, Rect{0, top, pageWidth, height}, kItemCount, selectedIndex,
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int headerY = layout.content.y + metrics.topPadding + topHintGutter;
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
+                 tr(STR_READER_PROFILES));
+  const int top = headerY + metrics.headerHeight + metrics.verticalSpacing;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int resultHeight = resultText.empty() ? 0 : renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
+  const int height = layout.content.y + layout.content.height - top - bottomHints - resultHeight;
+  GUI.drawList(renderer, Rect{layout.content.x, top, layout.content.width, height}, kItemCount, selectedIndex,
                [](const int index) { return itemLabel(index); });
   if (!resultText.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2,
-                              resultText.c_str(), true);
+    const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top + height, resultText.c_str(), true, centerOffset);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

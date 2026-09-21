@@ -10,10 +10,20 @@
 
 namespace {
 
+bool isPreferredWrapBreak(const std::string& character) {
+  return character == " " || character == "\t" || character == "、" || character == "。" || character == "！" ||
+         character == "？";
+}
+
+void trimLeadingSpaces(std::string& text) {
+  while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.erase(text.begin());
+}
+
 std::vector<std::string> wrapConfirmationText(const GfxRenderer& renderer, const int fontId, const std::string& text,
                                               const int maxWidth, const int maxLines) {
   std::vector<std::string> lines;
   std::string current;
+  size_t preferredBreak = std::string::npos;
   const auto* cursor = reinterpret_cast<const unsigned char*>(text.c_str());
 
   while (*cursor != '\0') {
@@ -21,18 +31,32 @@ std::vector<std::string> wrapConfirmationText(const GfxRenderer& renderer, const
     utf8NextCodepoint(&cursor);
     const std::string character(reinterpret_cast<const char*>(characterStart),
                                 static_cast<size_t>(cursor - characterStart));
+    if (character == "\n") {
+      if (!current.empty()) lines.push_back(current);
+      current.clear();
+      preferredBreak = std::string::npos;
+      continue;
+    }
     const std::string candidate = current + character;
     if (!current.empty() &&
         renderer.getTextWidth(fontId, candidate.c_str(), EpdFontFamily::REGULAR) > maxWidth) {
-      lines.push_back(current);
-      current.clear();
+      if (preferredBreak != std::string::npos) {
+        lines.push_back(current.substr(0, preferredBreak));
+        current.erase(0, preferredBreak);
+        trimLeadingSpaces(current);
+      } else {
+        lines.push_back(current);
+        current.clear();
+      }
       if (static_cast<int>(lines.size()) == maxLines - 1) {
-        const std::string remainder = character + reinterpret_cast<const char*>(cursor);
+        const std::string remainder = current + character + reinterpret_cast<const char*>(cursor);
         lines.push_back(renderer.truncatedText(fontId, remainder.c_str(), maxWidth, EpdFontFamily::REGULAR));
         return lines;
       }
+      preferredBreak = std::string::npos;
     }
     current += character;
+    if (isPreferredWrapBreak(character)) preferredBreak = current.size();
   }
 
   if (!current.empty() && static_cast<int>(lines.size()) < maxLines) lines.push_back(current);

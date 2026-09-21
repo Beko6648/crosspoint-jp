@@ -11,7 +11,8 @@ class ReaderProfilesActivity final : public Activity {
 
   void onEnter() override;
   void loop() override;
- void render(RenderLock&&) override;
+  void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   static constexpr int kProfileItemCount = ReaderProfile::SLOT_COUNT * 2;
