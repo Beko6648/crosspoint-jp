@@ -854,11 +854,14 @@ void BaseTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& lay
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool rtlProgress, const bool isPageBookmarked) const {
+                              const bool rtlProgress, const bool isPageBookmarked, const int previewInsetLeft,
+                              const int previewInsetRight) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
+  orientedMarginLeft += previewInsetLeft;
+  orientedMarginRight += previewInsetRight;
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
