@@ -29,9 +29,10 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   const bool landscapeCW = effectiveOrientation == Orientation::LandscapeClockwise;
   const bool landscapeCCW = effectiveOrientation == Orientation::LandscapeCounterClockwise;
 
-  // On X4, the portrait upper/lower side buttons become right/left in
-  // LandscapeClockwise. Keep screen-left as Up/Previous and right as Down/Next.
-  const bool reverseSidePair = inverted || (!isX3 && landscapeCW);
+  // Rotate the physical side-button pair so screen-up/left remains Previous
+  // and screen-down/right remains Next in landscape.
+  const bool reverseLandscapeSidePair = isX3 ? landscapeCCW : landscapeCW;
+  const bool reverseSidePair = inverted || reverseLandscapeSidePair;
   const ButtonIndex sideFirst = reverseSidePair ? sideHw.second : sideHw.first;
   const ButtonIndex sideSecond = reverseSidePair ? sideHw.first : sideHw.second;
   const ButtonIndex sideIncrease = isX3 ? sideHw.second : sideHw.first;

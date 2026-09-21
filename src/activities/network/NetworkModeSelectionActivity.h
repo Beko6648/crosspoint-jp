@@ -28,6 +28,7 @@ class NetworkModeSelectionActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
   void onModeSelected(NetworkMode mode);
   void onCancel();
