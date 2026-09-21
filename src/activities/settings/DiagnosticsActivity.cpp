@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "fontIds.h"
@@ -390,13 +391,14 @@ void DiagnosticsActivity::renderDetails(const int x, int y, const int contentWid
 
 void DiagnosticsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int x = metrics.contentSidePadding;
-  const int contentWidth = pageWidth - 2 * x;
+  const auto layout = UiLayout::from(renderer);
+  const int x = layout.content.x + metrics.contentSidePadding;
+  const int contentWidth = layout.content.width - 2 * metrics.contentSidePadding;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DIAGNOSTICS));
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 tr(STR_DIAGNOSTICS));
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const char* pageTitle = page == Page::Overview   ? tr(STR_DIAGNOSTICS_OVERVIEW)
                           : page == Page::Logs     ? tr(STR_DIAGNOSTICS_RECENT_LOGS)

@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -135,15 +136,17 @@ void TiltDiagnosticsActivity::drawWrapped(const char* text, const int x, int& y,
 
 void TiltDiagnosticsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int width = renderer.getScreenWidth();
-  const int x = metrics.contentSidePadding;
-  const int contentWidth = width - 2 * x;
+  const auto layout = UiLayout::from(renderer);
+  const int x = layout.content.x + metrics.contentSidePadding;
+  const int contentWidth = layout.content.width - 2 * metrics.contentSidePadding;
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto d = halTiltSensor.getDiagnostics(SETTINGS.orientation);
   char line[96];
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_TILT_DIAGNOSTICS));
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 tr(STR_TILT_DIAGNOSTICS));
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
 
   if (page == Page::Test) {
@@ -153,7 +156,7 @@ void TiltDiagnosticsActivity::render(RenderLock&&) {
     y += metrics.verticalSpacing;
     snprintf(line, sizeof(line), "Peak R/L: %.0f / %.0f  Target: %.0f", d.rightPeakDps, d.leftPeakDps,
              d.triggerThresholdDps);
-    renderer.drawCenteredText(UI_10_FONT_ID, y, line);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, y, line, true, centerOffset);
     y += lineHeight + metrics.verticalSpacing;
     renderer.drawText(UI_10_FONT_ID, x, y,
                       d.rightCrossings > 0 ? tr(STR_TILT_RIGHT_DETECTED) : tr(STR_TILT_RIGHT_WAITING));
