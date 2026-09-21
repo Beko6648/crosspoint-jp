@@ -54,6 +54,9 @@ SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 
 void logX3DisplayProbeDiag() {
+#ifdef SIMULATOR
+  return;
+#else
   if (!gpio.deviceIsX3()) return;
 
   const auto& diag = freeink::getXteinkDisplayProbeDiag();
@@ -75,6 +78,7 @@ void logX3DisplayProbeDiag() {
     LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0], diag.mtp[0x17],
             diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C], diag.mtp[0x1D]);
   }
+#endif
 }
 
 // Fonts
@@ -172,7 +176,9 @@ void enterDeepSleep() {
 
   // Native SDMMC boards must unmount and release their host before the sleep
   // power rails are isolated.  The SDK keeps this a no-op on X3/X4 SPI cards.
+#ifndef SIMULATOR
   Storage.shutdown();
+#endif
 
   halTiltSensor.deepSleep();
   display.deepSleep();
@@ -377,9 +383,14 @@ void setup() {
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
+#ifdef SIMULATOR
+      gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
+                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+#else
       gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                    SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
                                    !SETTINGS.rtcEnabled || !halRTC.isAvailable());
+#endif
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep

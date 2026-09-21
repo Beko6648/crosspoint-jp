@@ -18,6 +18,53 @@
 namespace {
 constexpr const char* kDiagnosticsDirectory = "/.crosspoint/diagnostics";
 
+#ifdef SIMULATOR
+struct SimulatorImuSample {
+  float ax = 0.02f;
+  float ay = -0.03f;
+  float az = 0.99f;
+  float gx = 8.0f;
+  float gy = -3.0f;
+  float gz = 1.0f;
+};
+
+struct TiltDiagnosticsSnapshot {
+  bool available = true;
+  bool awake = true;
+  uint8_t i2cAddress = 0x6B;
+  SimulatorImuSample sample{};
+  float currentAxisDps = 8.0f;
+  float displayAxisDps = 8.0f;
+  const char* axisName = "GX";
+  float triggerThresholdDps = 270.0f;
+  float neutralThresholdDps = 50.0f;
+  float rightPeakDps = 312.0f;
+  float leftPeakDps = 298.0f;
+  float idleNoiseDps = 7.0f;
+  uint32_t readErrorCount = 0;
+  uint16_t rightCrossings = 3;
+  uint16_t leftCrossings = 3;
+};
+
+TiltDiagnosticsSnapshot simulatorDiagnostics;
+
+void beginTiltDiagnostics() { simulatorDiagnostics = TiltDiagnosticsSnapshot{}; }
+void endTiltDiagnostics() {}
+void updateTiltDiagnostics() {}
+void resetTiltDiagnostics() { simulatorDiagnostics = TiltDiagnosticsSnapshot{}; }
+TiltDiagnosticsSnapshot getTiltDiagnostics() { return simulatorDiagnostics; }
+float tiltTriggerThreshold() { return simulatorDiagnostics.triggerThresholdDps; }
+#else
+using TiltDiagnosticsSnapshot = HalTiltSensor::Diagnostics;
+
+void beginTiltDiagnostics() { halTiltSensor.beginDiagnostics(SETTINGS.orientation); }
+void endTiltDiagnostics() { halTiltSensor.endDiagnostics(); }
+void updateTiltDiagnostics() { halTiltSensor.updateDiagnostics(SETTINGS.orientation); }
+void resetTiltDiagnostics() { halTiltSensor.resetDiagnostics(); }
+TiltDiagnosticsSnapshot getTiltDiagnostics() { return halTiltSensor.getDiagnostics(SETTINGS.orientation); }
+float tiltTriggerThreshold() { return HalTiltSensor::triggerThreshold(); }
+#endif
+
 std::string makeReportPath() {
   const time_t now = time(nullptr);
   if (now >= 1704067200) {
@@ -34,20 +81,19 @@ std::string makeReportPath() {
 
 void TiltDiagnosticsActivity::onEnter() {
   Activity::onEnter();
-  halTiltSensor.beginDiagnostics(SETTINGS.orientation);
+  beginTiltDiagnostics();
   lastRenderRequestMs = millis();
   requestUpdate();
 }
 
 void TiltDiagnosticsActivity::onExit() {
-  halTiltSensor.endDiagnostics();
+  endTiltDiagnostics();
   Activity::onExit();
 }
 
 const char* TiltDiagnosticsActivity::recommendation() const {
-  const auto d = halTiltSensor.getDiagnostics(SETTINGS.orientation);
-  if (d.rightPeakDps >= HalTiltSensor::triggerThreshold() &&
-      d.leftPeakDps >= HalTiltSensor::triggerThreshold()) {
+  const auto d = getTiltDiagnostics();
+  if (d.rightPeakDps >= tiltTriggerThreshold() && d.leftPeakDps >= tiltTriggerThreshold()) {
     return tr(STR_TILT_RECOMMEND_NORMAL);
   }
   if (d.rightPeakDps >= d.neutralThresholdDps && d.leftPeakDps >= d.neutralThresholdDps) {
@@ -57,11 +103,14 @@ const char* TiltDiagnosticsActivity::recommendation() const {
 }
 
 bool TiltDiagnosticsActivity::saveReport() {
+#ifdef SIMULATOR
+  return false;
+#else
   if (!Storage.ready() || !Storage.ensureDirectoryExists(kDiagnosticsDirectory)) return false;
   savedReportPath = makeReportPath();
   auto file = Storage.open(savedReportPath.c_str(), O_WRITE | O_CREAT | O_TRUNC);
   if (!file) return false;
-  const auto d = halTiltSensor.getDiagnostics(SETTINGS.orientation);
+  const auto d = getTiltDiagnostics();
   file.printf("Yomuka IMU diagnostics\n");
   file.printf("version=%s\n", CROSSPOINT_VERSION);
   file.printf("device=X3\n");
@@ -87,10 +136,11 @@ bool TiltDiagnosticsActivity::saveReport() {
   file.close();
   LOG_INF("IMUDIAG", "Saved IMU report: %s", savedReportPath.c_str());
   return true;
+#endif
 }
 
 void TiltDiagnosticsActivity::loop() {
-  halTiltSensor.updateDiagnostics(SETTINGS.orientation);
+  updateTiltDiagnostics();
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     finish();
     return;
@@ -101,7 +151,7 @@ void TiltDiagnosticsActivity::loop() {
     return;
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    halTiltSensor.resetDiagnostics();
+    resetTiltDiagnostics();
     saveResult = SaveResult::None;
     requestUpdate();
     return;
@@ -141,7 +191,7 @@ void TiltDiagnosticsActivity::render(RenderLock&&) {
   const int contentWidth = layout.content.width - 2 * metrics.contentSidePadding;
   const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto d = halTiltSensor.getDiagnostics(SETTINGS.orientation);
+  const auto d = getTiltDiagnostics();
   char line[96];
 
   renderer.clearScreen();

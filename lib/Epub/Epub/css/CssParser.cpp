@@ -882,12 +882,17 @@ bool CssParser::saveToCache() const {
   }
 
   file.flush();
+#ifndef SIMULATOR
+  const bool writeFailed = file.getWriteError();
+#endif
   file.close();
-  if (file.getWriteError()) {
+#ifndef SIMULATOR
+  if (writeFailed) {
     Storage.remove(tmpPath.c_str());
     LOG_ERR("CSS", "Failed writing CSS cache");
     return false;
   }
+#endif
   Storage.remove(finalPath.c_str());
   if (!Storage.rename(tmpPath.c_str(), finalPath.c_str())) {
     Storage.remove(tmpPath.c_str());

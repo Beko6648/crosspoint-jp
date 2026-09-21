@@ -32,8 +32,17 @@ class OtaUpdater {
   bool getRender() const { return render; }
 
   OtaUpdater() = default;
+#ifdef SIMULATOR
+  using ProgressCallback = void (*)(void*);
+  bool isUpdateNewer() const { return updateAvailable; }
+#else
   bool isUpdateNewer() const;
+#endif
   const std::string& getLatestVersion() const;
   OtaUpdaterError checkForUpdate();
+#ifdef SIMULATOR
+  OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr);
+#else
   OtaUpdaterError installUpdate();
+#endif
 };

@@ -13,6 +13,12 @@ class CacheGenerationControls {
   bool shouldCancel(GfxRenderer& renderer) {
     gpio.update();
 
+#ifdef SIMULATOR
+    // The desktop simulator has no raw ADC or power-button GPIO. Any mapped
+    // press provides a deterministic way to stop synchronous cache generation.
+    return gpio.wasAnyPressed();
+#else
+
     // Do not wait for InputManager's debounced state here: DOWN's ADC value is
     // immediately available to the cancellation path, while a just-pressed
     // POWER button may not have reached that state yet.
@@ -31,6 +37,7 @@ class CacheGenerationControls {
     screenshotHeld = false;
     constexpr int kAdcNoButton = 3800;
     return analogRead(1) < kAdcNoButton || analogRead(2) < kAdcNoButton;
+#endif
   }
 
  private:

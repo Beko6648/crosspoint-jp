@@ -1260,7 +1260,7 @@ void CrossPointWebServer::handleGetSettings() const {
   String output;
 
   const auto sendDocument = [&](const JsonDocument& document) {
-    output.clear();
+    output = "";
     serializeJson(document, output);
     if (seenFirst) {
       server->sendContent(",");

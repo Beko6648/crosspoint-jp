@@ -58,6 +58,9 @@ std::string deviceDescription() {
 }
 
 const char* inputStyleName() {
+#ifdef SIMULATOR
+  return "simulated_buttons";
+#else
   switch (BoardConfig::ACTIVE.inputStyle) {
     case BoardConfig::InputStyle::XteinkAdcLadder:
       return "xteink_adc_ladder";
@@ -66,6 +69,7 @@ const char* inputStyleName() {
     default:
       return "other";
   }
+#endif
 }
 
 const char* sdTransportName() {
@@ -212,8 +216,13 @@ void DiagnosticsActivity::collectSnapshot() {
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
+#ifdef SIMULATOR
+  sdTotalBytes = 0;
+  sdUsedBytes = 0;
+#else
   sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
   sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
+#endif
   if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
   const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
   cacheDirectoryCount = cacheUsage.directoryCount;
@@ -246,6 +255,11 @@ void DiagnosticsActivity::collectSnapshot() {
 }
 
 bool DiagnosticsActivity::saveReport() {
+#ifdef SIMULATOR
+  // Report persistence depends on hardware-only storage and PSRAM metrics.
+  // The screen and its state transitions remain available for UI testing.
+  return false;
+#else
   if (!sdReady || !Storage.ensureDirectoryExists(kDiagnosticsDirectory)) return false;
 
   savedReportPath = makeReportPath();
@@ -297,6 +311,7 @@ bool DiagnosticsActivity::saveReport() {
   file.close();
   LOG_INF("DIAG", "Saved diagnostics report: %s", savedReportPath.c_str());
   return true;
+#endif
 }
 
 void DiagnosticsActivity::loop() {

@@ -24,6 +24,12 @@
 #include "images/Logo120.h"
 
 namespace {
+#ifdef SIMULATOR
+constexpr auto SLEEP_REFRESH_MODE = HalDisplay::FULL_REFRESH;
+#else
+constexpr auto SLEEP_REFRESH_MODE = HalDisplay::SLEEP_REFRESH;
+#endif
+
 constexpr char TRANSPARENT_SLEEP_OVERLAY_PATH[] = "/sleep-overlay.bmp";
 constexpr char TRANSPARENT_SLEEP_OVERLAY_DIR[] = "/.sleep-overlay";
 constexpr size_t MAX_SLEEP_OVERLAY_FILE_NAME = 256;
@@ -131,14 +137,14 @@ void SleepActivity::onEnter() {
              ti.tm_hour, ti.tm_min, ti.tm_sec, g_timeRestoreSource, powerManager.getBatteryPercentage());
     renderer.fillRect(5, 5, 600, 30, false);
     renderer.drawText(UI_10_FONT_ID, 10, 10, dbg, true);
-    renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+    renderer.displayBuffer(SLEEP_REFRESH_MODE);
   }
 
   // ビットマップパスで消費されなかった場合（BLANK/DARK/LIGHT）はここで描画
   if (calendarPending) {
     calendarPending = false;
     renderCalendarOverlay();
-    renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+    renderer.displayBuffer(SLEEP_REFRESH_MODE);
   }
 
   renderer.setDarkMode(wasDarkMode);
@@ -329,7 +335,7 @@ bool SleepActivity::renderTransparentSleepOverlayFile(const char* path) const {
     }
   }
 
-  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  renderer.displayBuffer(SLEEP_REFRESH_MODE);
   return true;
 }
 
@@ -347,7 +353,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  renderer.displayBuffer(SLEEP_REFRESH_MODE);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
@@ -405,7 +411,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
   // カレンダーをBWパスに挿入（displayBuffer前）
   drawCalendarIfPending();
 
-  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  renderer.displayBuffer(SLEEP_REFRESH_MODE);
 
   if (hasGreyscale && !SETTINGS.sleepCalendar) {
     bitmap.rewindToData();
@@ -506,7 +512,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::SLEEP_REFRESH);
+  renderer.displayBuffer(SLEEP_REFRESH_MODE);
 }
 
 void SleepActivity::drawCalendarIfPending() const {
