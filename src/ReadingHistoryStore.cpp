@@ -215,6 +215,49 @@ void ReadingHistoryStore::migrateBookId(const uint64_t previousBookId, const uin
   }
 }
 
+bool ReadingHistoryStore::removeBook(const std::string& path, const uint64_t bookId) {
+  ensureLoaded();
+  const auto it = std::find_if(books.begin(), books.end(), [&path, bookId](const ReadingHistoryBook& entry) {
+    return entry.path == path || (bookId != 0 && entry.bookId == bookId);
+  });
+  if (it == books.end()) return false;
+
+  const auto removed = *it;
+  const auto index = static_cast<size_t>(std::distance(books.begin(), it));
+  books.erase(it);
+  dirty = true;
+  if (saveToFile()) {
+    LOG_INF("RH", "Removed book from reading history: %s", path.c_str());
+    return true;
+  }
+
+  books.insert(books.begin() + std::min(index, books.size()), removed);
+  dirty = true;
+  return false;
+}
+
+bool ReadingHistoryStore::clearAll() {
+  ensureLoaded();
+  const auto previousBooks = books;
+  const auto previousDays = days;
+  const uint32_t previousTotalSeconds = totalSeconds;
+
+  books.clear();
+  days.clear();
+  totalSeconds = 0;
+  dirty = true;
+  if (saveToFile()) {
+    LOG_INF("RH", "Cleared all reading history");
+    return true;
+  }
+
+  books = previousBooks;
+  days = previousDays;
+  totalSeconds = previousTotalSeconds;
+  dirty = true;
+  return false;
+}
+
 ReadingHistorySummary ReadingHistoryStore::getSummary() {
   ensureLoaded();
   tick();

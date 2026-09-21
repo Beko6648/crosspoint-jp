@@ -21,6 +21,7 @@ namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 constexpr int CACHE_STATUS_ICON_RADIUS = 7;
 constexpr int HISTORY_MENU_ITEM_COUNT = 2;
+constexpr int HISTORY_DELETE_HOLD_MS = 700;
 constexpr StrId WEEKDAY_IDS[] = {StrId::STR_SUN, StrId::STR_MON, StrId::STR_TUE, StrId::STR_WED, StrId::STR_THU,
                                  StrId::STR_FRI, StrId::STR_SAT};
 constexpr StrId HISTORY_MENU_TITLES[] = {StrId::STR_BOOK_HISTORY, StrId::STR_READING_METER};
@@ -98,6 +99,8 @@ void RecentBooksActivity::onEnter() {
   meterPage = MeterPage::Overview;
   booksLoaded = false;
   meterSummaryLoaded = false;
+  deleteMode = DeleteMode::None;
+  ignoreDeleteOpeningRelease = false;
   requestUpdate();
 }
 
@@ -115,6 +118,49 @@ void RecentBooksActivity::onExit() {
 void RecentBooksActivity::loop() {
   const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, true);
 
+  if (screen == Screen::Books && deleteMode != DeleteMode::None) {
+    if (ignoreDeleteOpeningRelease) {
+      if (!mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+          !mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+        ignoreDeleteOpeningRelease = false;
+      }
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      bool deleted = false;
+      const bool deletingAll = deleteMode == DeleteMode::All;
+      if (deletingAll) {
+        deleted = READING_HISTORY.clearAll();
+      } else if (selectorIndex < recentBooks.size()) {
+        const auto book = recentBooks[selectorIndex];
+        deleted = READING_HISTORY.removeBook(book.path, book.bookId);
+      }
+      deleteMode = DeleteMode::None;
+      if (deleted) {
+        loadRecentBooks();
+        meterSummaryLoaded = false;
+        if (deletingAll) {
+          selectorIndex = 0;
+        } else if (selectorIndex >= recentBooks.size() && selectorIndex > 0) {
+          --selectorIndex;
+        }
+      }
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      deleteMode = DeleteMode::None;
+      requestUpdate();
+    }
+    return;
+  }
+
+  if (screen == Screen::Books && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() >= HISTORY_DELETE_HOLD_MS && selectorIndex < recentBooks.size()) {
+    deleteMode = DeleteMode::One;
+    ignoreDeleteOpeningRelease = true;
+    requestUpdate();
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (screen == Screen::Menu) {
       screen = menuIndex == 0 ? Screen::Books : Screen::Meter;
@@ -129,7 +175,12 @@ void RecentBooksActivity::loop() {
       requestUpdate();
       return;
     }
-    if (screen == Screen::Books && !recentBooks.empty() && selectorIndex < static_cast<int>(recentBooks.size())) {
+    if (screen == Screen::Books && selectorIndex == recentBooks.size() && !recentBooks.empty()) {
+      deleteMode = DeleteMode::All;
+      requestUpdate();
+      return;
+    }
+    if (screen == Screen::Books && !recentBooks.empty() && selectorIndex < recentBooks.size()) {
       LOG_DBG("RBA", "Selected recent book: %s", recentBooks[selectorIndex].path.c_str());
       onSelectBook(recentBooks[selectorIndex].path);
       return;
@@ -180,7 +231,7 @@ void RecentBooksActivity::loop() {
     return;
   }
 
-  const int listSize = screen == Screen::Menu ? HISTORY_MENU_ITEM_COUNT : static_cast<int>(recentBooks.size());
+  const int listSize = screen == Screen::Menu ? HISTORY_MENU_ITEM_COUNT : static_cast<int>(recentBooks.size()) + 1;
   size_t& selectedIndex = screen == Screen::Menu ? menuIndex : selectorIndex;
 
   buttonNavigator.onNextRelease([&selectedIndex, listSize, this] {
@@ -385,19 +436,46 @@ void RecentBooksActivity::render(RenderLock&&) {
                       tr(STR_NO_BOOK_HISTORY));
   } else {
     const int rowHeight = metrics.listWithSubtitleRowHeight;
-    const int pageItems = std::max(1, contentHeight / rowHeight);
+    const int deleteHintHeight = renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
+    const int listHeight = deleteMode == DeleteMode::None ? contentHeight - deleteHintHeight : contentHeight;
+    const int pageItems = std::max(1, listHeight / rowHeight);
     const int pageStart = (selectorIndex / pageItems) * pageItems;
     loadVisibleBookDetails(pageStart, pageItems);
 
-    GUI.drawList(
-        renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight}, recentBooks.size(),
-        selectorIndex,
-        [this](int index) { return recentBooks[index].title; }, [this](int index) { return recentBooks[index].author; },
-        [this](int index) { return UITheme::getFileIcon(recentBooks[index].path, bookStatuses[index]); });
+    if (deleteMode != DeleteMode::None) {
+      const bool deleteAll = deleteMode == DeleteMode::All;
+      drawCentered(UI_10_FONT_ID, contentTop + contentHeight / 2 - 25,
+                   deleteAll ? tr(STR_CONFIRM_CLEAR_READING_HISTORY) : tr(STR_CONFIRM_DELETE_HISTORY_BOOK),
+                   EpdFontFamily::BOLD);
+      if (!deleteAll && selectorIndex < recentBooks.size()) {
+        const auto title = renderer.truncatedText(UI_10_FONT_ID, recentBooks[selectorIndex].title.c_str(),
+                                                  layout.content.width - metrics.contentSidePadding * 2);
+        drawCentered(UI_10_FONT_ID, contentTop + contentHeight / 2 + 10, title.c_str());
+      }
+    } else {
+      const int itemCount = static_cast<int>(recentBooks.size()) + 1;
+      GUI.drawList(
+          renderer, Rect{layout.content.x, contentTop, layout.content.width, listHeight}, itemCount, selectorIndex,
+          [this](int index) {
+            return index == static_cast<int>(recentBooks.size()) ? std::string(tr(STR_CLEAR_ALL_READING_HISTORY))
+                                                                 : recentBooks[index].title;
+          },
+          [this](int index) {
+            return index == static_cast<int>(recentBooks.size()) ? std::string() : recentBooks[index].author;
+          },
+          [this](int index) {
+            return index == static_cast<int>(recentBooks.size())
+                       ? UIIcon::Settings
+                       : UITheme::getFileIcon(recentBooks[index].path, bookStatuses[index]);
+          });
+      drawCentered(UI_10_FONT_ID, contentTop + listHeight + metrics.verticalSpacing / 2,
+                   tr(STR_HOLD_SELECT_TO_DELETE_HISTORY));
+    }
 
     const int iconCenterX =
         layout.content.x + layout.content.width - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
     for (int index = pageStart; index < static_cast<int>(recentBooks.size()) && index < pageStart + pageItems; ++index) {
+      if (deleteMode != DeleteMode::None) break;
       if (!FsHelpers::hasEpubExtension(recentBooks[index].path)) continue;
       const int iconCenterY = contentTop + (index - pageStart) * rowHeight + rowHeight / 2;
       const bool ink = UITheme::getInstance().getTheme().showsFileIcons() || index != selectorIndex;
@@ -406,13 +484,17 @@ void RecentBooksActivity::render(RenderLock&&) {
   }
 
   // Help text
-  const char* backLabel = screen == Screen::Menu ? tr(STR_HOME) : tr(STR_BACK);
+  const char* backLabel = deleteMode != DeleteMode::None
+                              ? tr(STR_CANCEL)
+                              : (screen == Screen::Menu ? tr(STR_HOME) : tr(STR_BACK));
   const bool x3MeterTimeRecovery = screen == Screen::Meter && gpio.deviceIsX3() &&
                                    !meterSummary.hasCalendarTime;
-  const char* confirmLabel = screen == Screen::Menu
-                                 ? tr(STR_SELECT)
-                                 : (x3MeterTimeRecovery ? tr(STR_READING_METER_SYNC_TIME)
-                                                        : (screen == Screen::Meter ? "" : tr(STR_OPEN)));
+  const char* confirmLabel = deleteMode != DeleteMode::None
+                                 ? tr(STR_DELETE)
+                                 : (screen == Screen::Menu
+                                        ? tr(STR_SELECT)
+                                        : (x3MeterTimeRecovery ? tr(STR_READING_METER_SYNC_TIME)
+                                                               : (screen == Screen::Meter ? "" : tr(STR_OPEN))));
   const bool compactMeterPaging = screen == Screen::Meter && (gpio.deviceIsX3() || layout.landscape) &&
                                   meterSummary.hasCalendarTime;
   const char* previousLabel = compactMeterPaging && meterPage == MeterPage::Details

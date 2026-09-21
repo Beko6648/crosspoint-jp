@@ -16,6 +16,7 @@ class RecentBooksActivity final : public Activity {
  private:
   enum class Screen : uint8_t { Menu, Meter, Books };
   enum class MeterPage : uint8_t { Overview, Details };
+  enum class DeleteMode : uint8_t { None, One, All };
 
   ButtonNavigator buttonNavigator;
 
@@ -25,6 +26,8 @@ class RecentBooksActivity final : public Activity {
   MeterPage meterPage = MeterPage::Overview;
   bool booksLoaded = false;
   bool meterSummaryLoaded = false;
+  DeleteMode deleteMode = DeleteMode::None;
+  bool ignoreDeleteOpeningRelease = false;
   ReadingHistorySummary meterSummary;
 
   // Recent tab state
