@@ -14,6 +14,7 @@
 
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "Epub/parsers/ContainerParser.h"
 #include "fontIds.h"
@@ -1214,24 +1215,29 @@ void AozoraActivity::loop() {
 
 void AozoraActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  const int contentLeft = layout.content.x + metrics.contentSidePadding;
+  const int contentWidth = layout.content.width - metrics.contentSidePadding * 2;
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_AOZORA_BUNKO));
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 tr(STR_AOZORA_BUNKO));
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const auto centerY = (pageHeight - lineHeight) / 2;
 
   if (state_ == LOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_LOADING_LIST));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_LOADING_LIST), true, centerOffset);
 
   } else if (state_ == TOP_MENU) {
     GUI.drawList(
         renderer,
-        Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+        Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
         TOP_MENU_COUNT, selectedIndex_,
         [](int index) -> std::string {
           switch (index) {
@@ -1259,7 +1265,7 @@ void AozoraActivity::render(RenderLock&&) {
   } else if (state_ == KANA_SELECT) {
     GUI.drawList(
         renderer,
-        Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+        Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
         KANA_ROW_COUNT, selectedIndex_, [](int index) -> std::string { return I18N.get(KANA_ROWS[index].label); },
         nullptr, nullptr, nullptr, false, nullptr);
 
@@ -1270,7 +1276,7 @@ void AozoraActivity::render(RenderLock&&) {
     const int charCount = KANA_CHAR_COUNTS[selectedKanaRowIndex_];
     GUI.drawList(
         renderer,
-        Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+        Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
         charCount, selectedIndex_,
         [this](int index) -> std::string { return KANA_CHARS[selectedKanaRowIndex_][index]; }, nullptr, nullptr,
         nullptr, false, nullptr);
@@ -1281,7 +1287,7 @@ void AozoraActivity::render(RenderLock&&) {
   } else if (state_ == GENRE_SELECT) {
     GUI.drawList(
         renderer,
-        Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+        Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
         GENRE_COUNT, selectedIndex_, [](int index) -> std::string { return I18N.get(GENRES[index].label); }, nullptr,
         nullptr, nullptr, false, nullptr);
 
@@ -1290,13 +1296,13 @@ void AozoraActivity::render(RenderLock&&) {
 
   } else if (state_ == AUTHOR_LIST) {
     if (authors_.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS));
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS), true, centerOffset);
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     } else {
       GUI.drawList(
           renderer,
-          Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+          Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
           static_cast<int>(authors_.size()), selectedIndex_,
           [this](int index) -> std::string { return authors_[index].name; }, nullptr, nullptr,
           [this](int index) -> std::string {
@@ -1321,7 +1327,7 @@ void AozoraActivity::render(RenderLock&&) {
 
   } else if (state_ == WORK_LIST) {
     if (works_.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS));
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS), true, centerOffset);
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     } else {
@@ -1331,13 +1337,14 @@ void AozoraActivity::render(RenderLock&&) {
         int currentPage = (worksOffset_ / WORKS_PAGE_SIZE) + 1;
         int totalPages = (worksTotal_ + WORKS_PAGE_SIZE - 1) / WORKS_PAGE_SIZE;
         snprintf(pageInfo, sizeof(pageInfo), "%d/%d (%d)", currentPage, totalPages, worksTotal_);
-        renderer.drawText(UI_10_FONT_ID, pageWidth - metrics.contentSidePadding - 80, contentTop, pageInfo);
+        renderer.drawText(UI_10_FONT_ID, layout.content.x + layout.content.width - metrics.contentSidePadding - 80,
+                          contentTop, pageInfo);
       }
 
       const int listTop = (worksTotal_ > WORKS_PAGE_SIZE) ? contentTop + lineHeight + 4 : contentTop;
       GUI.drawList(
           renderer,
-          Rect{0, listTop, pageWidth, pageHeight - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+          Rect{layout.content.x, listTop, layout.content.width, pageHeight - listTop - bottomHints},
           static_cast<int>(works_.size()), selectedIndex_,
           [this](int index) -> std::string { return works_[index].title; }, nullptr, nullptr,
           [this](int index) -> std::string {
@@ -1355,18 +1362,18 @@ void AozoraActivity::render(RenderLock&&) {
   } else if (state_ == WORK_DETAIL) {
     int y = contentTop;
 
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, selectedWorkTitle_);
+    renderer.drawText(UI_12_FONT_ID, contentLeft, y, selectedWorkTitle_);
     y += renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
 
     if (selectedWorkAuthor_[0] != '\0') {
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, selectedWorkAuthor_);
+      renderer.drawText(UI_10_FONT_ID, contentLeft, y, selectedWorkAuthor_);
       y += lineHeight + metrics.verticalSpacing;
     }
 
     bool alreadyDownloaded = indexManager_.isDownloaded(selectedWorkId_);
     if (alreadyDownloaded) {
       y += metrics.verticalSpacing;
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y, tr(STR_DOWNLOAD_COMPLETE));
+      renderer.drawText(UI_10_FONT_ID, contentLeft, y, tr(STR_DOWNLOAD_COMPLETE));
 
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", tr(STR_DELETE_CONFIRM), tr(STR_AOZORA_UPDATE));
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -1376,7 +1383,7 @@ void AozoraActivity::render(RenderLock&&) {
     }
 
   } else if (state_ == DOWNLOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, tr(STR_DOWNLOADING_BOOK));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY - lineHeight, tr(STR_DOWNLOADING_BOOK), true, centerOffset);
 
     float progress = 0;
     if (downloadTotal_ > 0) {
@@ -1384,10 +1391,8 @@ void AozoraActivity::render(RenderLock&&) {
     }
 
     int barY = centerY + metrics.verticalSpacing;
-    GUI.drawProgressBar(
-        renderer,
-        Rect{metrics.contentSidePadding, barY, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-        downloadProgress_, downloadTotal_);
+    GUI.drawProgressBar(renderer, Rect{contentLeft, barY, contentWidth, metrics.progressBarHeight}, downloadProgress_,
+                        downloadTotal_);
 
     int percentY = barY + metrics.progressBarHeight + metrics.verticalSpacing;
     char buf[32];
@@ -1398,19 +1403,19 @@ void AozoraActivity::render(RenderLock&&) {
     } else {
       snprintf(buf, sizeof(buf), "...");
     }
-    renderer.drawCenteredText(UI_10_FONT_ID, percentY, buf);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, percentY, buf, true, centerOffset);
 
   } else if (state_ == FAVORITE_AUTHORS) {
     const auto& favEntries = favoritesManager_.entries();
 
     if (favEntries.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_FAVORITE_AUTHORS));
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_NO_FAVORITE_AUTHORS), true, centerOffset);
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     } else {
       GUI.drawList(
           renderer,
-          Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+          Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
           static_cast<int>(favEntries.size()), selectedIndex_,
           [&favEntries](int index) -> std::string { return favEntries[index].name; }, nullptr, nullptr, nullptr, false,
           nullptr);
@@ -1420,13 +1425,13 @@ void AozoraActivity::render(RenderLock&&) {
     }
 
   } else if (state_ == AUTHOR_ACTION) {
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, contentTop, selectedAuthorName_);
+    renderer.drawText(UI_12_FONT_ID, contentLeft, contentTop, selectedAuthorName_);
     const int listTop = contentTop + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
 
     bool isFav = favoritesManager_.isFavorited(selectedAuthorId_);
     GUI.drawList(
         renderer,
-        Rect{0, listTop, pageWidth, pageHeight - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing}, 2,
+        Rect{layout.content.x, listTop, layout.content.width, pageHeight - listTop - bottomHints}, 2,
         actionMenuIndex_,
         [isFav](int index) -> std::string {
           if (index == 0) return tr(STR_VIEW_WORKS);
@@ -1441,7 +1446,7 @@ void AozoraActivity::render(RenderLock&&) {
     const int total = static_cast<int>(indexManager_.activeCount());
 
     if (total == 0) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS));
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_NO_RESULTS), true, centerOffset);
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     } else {
@@ -1453,7 +1458,7 @@ void AozoraActivity::render(RenderLock&&) {
 
       GUI.drawList(
           renderer,
-          Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+          Rect{layout.content.x, contentTop, layout.content.width, pageHeight - contentTop - bottomHints},
           total, selectedIndex_,
           [this](int index) -> std::string {
             const int localIdx = index - dlPageStart_;
@@ -1473,9 +1478,11 @@ void AozoraActivity::render(RenderLock&&) {
     }
 
   } else if (state_ == ERROR) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, tr(STR_ERROR_MSG), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY - lineHeight, tr(STR_ERROR_MSG), true, centerOffset,
+                                    EpdFontFamily::BOLD);
     if (!errorMessage_.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY + metrics.verticalSpacing, errorMessage_.c_str());
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + metrics.verticalSpacing, errorMessage_.c_str(), true,
+                                      centerOffset);
     }
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

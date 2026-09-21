@@ -18,6 +18,7 @@ class AozoraActivity : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
   bool preventAutoSleep() override { return state_ == LOADING || state_ == DOWNLOADING; }
   bool skipLoopDelay() override { return true; }
 
