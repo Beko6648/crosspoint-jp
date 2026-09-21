@@ -111,6 +111,7 @@ class CrossPointSettings {
     UI_INVERTED = 1,
     UI_LANDSCAPE_CW = 2,
     UI_LANDSCAPE_CCW = 3,
+    UI_FOLLOW_READER = 4,
     UI_ORIENTATION_COUNT
   };
 
@@ -269,7 +270,7 @@ class CrossPointSettings {
 
   // CJK-specific settings
   // UI orientation. Activities opt in to landscape while the migration is in progress.
-  uint8_t uiOrientation = UI_PORTRAIT;
+  uint8_t uiOrientation = UI_FOLLOW_READER;
   // Invert images in dark mode (1 = invert, 0 = keep original)
   uint8_t invertImages = 0;
   // Color mode (light/dark) for reader

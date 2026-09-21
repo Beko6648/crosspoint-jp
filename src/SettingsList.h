@@ -127,7 +127,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                         "colorMode", StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(StrId::STR_UI_ORIENTATION, &CrossPointSettings::uiOrientation,
                         {StrId::STR_PORTRAIT, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CW,
-                         StrId::STR_LANDSCAPE_CCW},
+                         StrId::STR_LANDSCAPE_CCW, StrId::STR_FOLLOW_READER_ORIENTATION},
                         "uiOrientation", StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---

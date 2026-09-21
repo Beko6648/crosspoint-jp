@@ -55,6 +55,25 @@ inline void applyOrientation(GfxRenderer& renderer, MappedInputManager& input, c
     }
   } else {
     switch (uiSetting) {
+      case CrossPointSettings::UI_ORIENTATION::UI_FOLLOW_READER:
+        switch (readerSetting) {
+          case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
+            target = activity->supportsUiLandscape() ? GfxRenderer::Orientation::LandscapeCounterClockwise
+                                                     : GfxRenderer::Orientation::Portrait;
+            break;
+          case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
+            target = activity->supportsUiLandscape() ? GfxRenderer::Orientation::LandscapeClockwise
+                                                     : GfxRenderer::Orientation::Portrait;
+            break;
+          case CrossPointSettings::ORIENTATION::INVERTED:
+            target = GfxRenderer::Orientation::PortraitInverted;
+            break;
+          case CrossPointSettings::ORIENTATION::PORTRAIT:
+          default:
+            target = GfxRenderer::Orientation::Portrait;
+            break;
+        }
+        break;
       case CrossPointSettings::UI_ORIENTATION::UI_LANDSCAPE_CW:
         target = activity->supportsUiLandscape() ? GfxRenderer::Orientation::LandscapeCounterClockwise
                                                  : GfxRenderer::Orientation::Portrait;
