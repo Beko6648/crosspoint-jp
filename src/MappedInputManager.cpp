@@ -130,6 +130,24 @@ MappedInputManager::Labels MappedInputManager::mapLabels(const char* back, const
           labelForHardware(HalGPIO::BTN_LEFT), labelForHardware(HalGPIO::BTN_RIGHT)};
 }
 
+StrId MappedInputManager::sideButtonPositionLabel(const Button button) const {
+  const bool isUp = button == Button::Up;
+  const bool isX3 = gpio.deviceIsX3();
+  switch (effectiveOrientation) {
+    case Orientation::LandscapeClockwise:
+      if (isX3) return isUp ? StrId::STR_DIR_UP : StrId::STR_DIR_DOWN;
+      return isUp ? StrId::STR_DIR_RIGHT : StrId::STR_DIR_LEFT;
+    case Orientation::LandscapeCounterClockwise:
+      if (isX3) return isUp ? StrId::STR_DIR_DOWN : StrId::STR_DIR_UP;
+      return isUp ? StrId::STR_DIR_LEFT : StrId::STR_DIR_RIGHT;
+    case Orientation::Portrait:
+    case Orientation::PortraitInverted:
+    default:
+      if (isX3) return isUp ? StrId::STR_DIR_LEFT : StrId::STR_DIR_RIGHT;
+      return isUp ? StrId::STR_DIR_UP : StrId::STR_DIR_DOWN;
+  }
+}
+
 int MappedInputManager::getPressedFrontButton() const {
   // Scan the raw front buttons in hardware order.
   // This bypasses remapping so the remap activity can capture physical presses.
