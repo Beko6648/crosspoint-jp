@@ -5,6 +5,7 @@
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 #include <Logging.h>
 
@@ -17,6 +18,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 
 namespace {
@@ -32,16 +34,17 @@ ParsedText makeSampleLine(const DirectionSettings& settings, const size_t sample
     const char* suffix;
   };
   static constexpr SampleLine kLines[] = {
-      {"一", "だいいちれつ", true, "の本文です。"},   {"二", "", false, "は通常本文です。"},
-      {"三", "だいさんれつ", true,
+      {"一", "だいいちれつ", true, "の本文です。"},   {"二", "", false, "（ABC 12 123ー）です。"},
+      {"三", "", false, "は圏点確認です。"},           {"四", "だいよんれつ", true, "はルビ・圏点併用です。"},
+      {"五", "", false, "は太字確認です。"},           {"六", "", false, "は通常本文です。"},
+      {"七", "だいななれつ", true,
        "の本文です。これは改行位置を確認するための長い文章です。表示設定による行送りと余白も確認します。"},
-      {"四", "", false, "はルビなし本文です。"},
-      {"五", "", false, "は太字確認です。"},            {"六", "", false, "（ABC 12ー）です。"},
-      {"七", "", false, "はルビなし本文です。"},       {"八", "", false, "の本文です。"},
+      {"八", "", false, "はルビなし本文です。"},
       {"九", "", false, "『春夏秋冬』です。"},
   };
   const auto& line = kLines[sampleIndex % (sizeof(kLines) / sizeof(kLines[0]))];
-  ParsedText parsed(settings.hyphenationEnabled != 0, BlockStyle{}, settings.firstLineIndent != 0);
+  ParsedText parsed(settings.hyphenationEnabled != 0, BlockStyle{}, settings.firstLineIndent != 0,
+                    settings.tateChuYokoMaxDigits);
   const auto add = [&parsed](const char* body) { parsed.addWord(body, EpdFontFamily::REGULAR); };
   const auto addBold = [&parsed](const char* body) { parsed.addWord(body, EpdFontFamily::BOLD); };
   const auto addRuby = [&parsed, &add](const char* first, const char* second, const char* third, const char* ruby) {
@@ -53,13 +56,44 @@ ParsedText makeSampleLine(const DirectionSettings& settings, const size_t sample
   };
   if (line.hasRuby) {
     addRuby("第", line.number, "列", line.ruby);
+    if (sampleIndex == 3) parsed.setEmphasisFrom(0, TextEmphasis::FilledSesame);
   } else {
     add("第");
     add(line.number);
     add("列");
   }
+  // Keep two-digit runs as independent words so vertical layout exercises the
+  // same tate-chu-yoko path as EPUB text instead of grouping them with ASCII.
+  if (sampleIndex == 1) {
+    add("（");
+    add("ABC");
+    add(" ");
+    add("12");
+    add(" ");
+    add("123");
+    add("ー");
+    add("）");
+    add("で");
+    add("す");
+    add("。");
+    return parsed;
+  }
+  if (sampleIndex == 2) {
+    add("は");
+    const size_t emphasisStart = parsed.size();
+    add("圏");
+    add("点");
+    add("確");
+    add("認");
+    parsed.setEmphasisFrom(emphasisStart, TextEmphasis::FilledSesame);
+    add("で");
+    add("す");
+    add("。");
+    return parsed;
+  }
+
   // ParsedText expects separate tokens; this is enough for the sample's CJK
-  // layout and still retains the short ASCII/tate-chu-yoko cases as one word.
+  // layout while retaining the remaining short ASCII runs as one word.
   const char* suffix = line.suffix;
   while (*suffix) {
     const unsigned char c = static_cast<unsigned char>(*suffix);
@@ -184,25 +218,59 @@ void ReaderTestViewActivity::adjustRubyOffset(const bool xAxis, const int delta)
 void ReaderTestViewActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  int contentX = layout.content.x;
+  int contentY = layout.content.y;
+  int availableWidth = layout.content.width;
+  int availableHeight = layout.content.height;
+  // Reserve the ruby-adjust strips before the controls appear so horizontal
+  // text keeps the same wrapping and position while adjustment is opened.
+  if (layout.landscape) {
+    if (gpio.deviceIsX3()) {
+      constexpr int sideHintGutter = 54;
+      availableWidth -= sideHintGutter;
+      if (!layout.frontHintsOnLeft) contentX += sideHintGutter;
+    } else {
+      // X4 side keys are shown along a horizontal edge in landscape. Match
+      // Settings instead of consuming the X3-only 54 px vertical strip.
+      const int sideHintGutter = metrics.sideButtonHintsWidth;
+      availableHeight -= sideHintGutter;
+      if (renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+        contentY += sideHintGutter;
+      }
+    }
+  } else {
+    // Portrait X3 places one side-button hint on each edge; X4 stacks both
+    // on the right. Keep the preview and its annotations out of those strips.
+    const int sideHintGutter = metrics.sideButtonHintsWidth;
+    availableWidth -= sideHintGutter;
+    if (gpio.deviceIsX3()) {
+      contentX += sideHintGutter;
+      availableWidth -= sideHintGutter;
+    }
+  }
   char headerValue[24] = {};
   if (rubyAdjustActive) {
     const auto& settings = SETTINGS.getDirectionSettings(vertical);
     snprintf(headerValue, sizeof(headerValue), "X:%+d Y:%+d", rubyOffset(settings.rubyOffsetX),
              rubyOffset(settings.rubyOffsetY));
   }
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_READER_TEST_VIEW),
+  GUI.drawHeader(renderer, Rect{contentX, contentY + metrics.topPadding, availableWidth, metrics.headerHeight},
+                 tr(STR_READER_TEST_VIEW),
                  rubyAdjustActive ? headerValue : (vertical ? tr(STR_WM_VERTICAL) : tr(STR_WM_HORIZONTAL)));
 
-  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int bottom = height - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  const int left = metrics.contentSidePadding;
-  const int contentWidth = width - left * 2;
+  const int top = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int bottom = contentY + availableHeight -
+                     (layout.landscape ? metrics.verticalSpacing : metrics.buttonHintsHeight + metrics.verticalSpacing);
+  const int left = contentX + metrics.contentSidePadding;
+  const int contentWidth = availableWidth - metrics.contentSidePadding * 2;
   const int contentHeight = bottom - top;
   // Loading a reader from the browser normally does this before resolving its
   // font ID. The test view can switch direction in place, so repeat it here.
   ensureSdFontLoaded(vertical);
+  // Match normal EPUB rendering: optional three-digit TateChuYoko uses the
+  // smaller companion font so all three digits fit one vertical body cell.
+  configureSmallFont(vertical);
   const auto& direction = SETTINGS.getDirectionSettings(vertical);
   const int fontId = SETTINGS.getReaderFontId(vertical);
   if (fontId != 0 && contentWidth > 0 && contentHeight > 0) {
@@ -216,9 +284,11 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       // body's compact glyph cache, forcing every body glyph back through
       // the slow on-demand SD path.  Prewarm both sets together once.
       constexpr const char* kPreviewRegularGlyphs =
-          "第一列の本文です。第二列は通常本文です。第三列の本文です。これは改行位置を確認するための長い文章です。"
-          "表示設定による行送りと余白も確認します。第四列はルビなし本文です。第五列は太字確認です。第六列（ABC 12ー）です。"
-          "第七列はルビなし本文です。第八列の本文です。第九列『春夏秋冬』です。だいいちれつだいさんれつ";
+          "第一列の本文です。第二列（ABC 12 123ー）です。第三列は圏点確認です。"
+          "第四列はルビ・圏点併用です。第五列は太字確認です。第六列は通常本文です。"
+          "第七列の本文です。これは改行位置を確認するための長い文章です。"
+          "表示設定による行送りと余白も確認します。第八列はルビなし本文です。第九列『春夏秋冬』です。"
+          "だいいちれつだいよんれつだいななれつ";
       cache->prewarmCache(fontId, kPreviewRegularGlyphs, 0x01);
       // Bold occurs only in the dedicated verification sample, so keep its
       // prewarm small without sacrificing its first-render correctness.
@@ -246,14 +316,14 @@ void ReaderTestViewActivity::render(RenderLock&&) {
                                        return true;
                                      });
         for (const auto& column : columns) {
-          int rubyRightInset = 0;
-          if (column->hasRuby()) {
-            const int overflow = TextBlock::getVerticalRubyRightOverflow(renderer, fontId, columnWidth);
-            // The first column must clear the page edge; configured column
-            // spacing is the baseline for every subsequent column.
-            rubyRightInset = firstColumn ? overflow : std::max(0, overflow - columnSpacing);
+          int annotationRightInset = 0;
+          if (column->hasRuby() || column->hasEmphasis()) {
+            const int overflow = column->annotationRightOverflow(renderer, fontId, columnWidth);
+            // Match normal EPUB layout: the first column clears the page edge,
+            // while later columns reuse the configured inter-column spacing.
+            annotationRightInset = firstColumn ? overflow : std::max(0, overflow - columnSpacing);
           }
-          const int columnX = nextColumnX - rubyRightInset;
+          const int columnX = nextColumnX - annotationRightInset;
           if (columnX < left) break;
           column->render(renderer, fontId, columnX, top, contentWidth, contentHeight, left, top, offsetX, offsetY);
           firstColumn = false;
@@ -279,12 +349,12 @@ void ReaderTestViewActivity::render(RenderLock&&) {
                                        return true;
                                      });
         for (const auto& line : lines) {
-          if (line->hasRuby()) {
-            const int rubyInset = TextBlock::getHorizontalRubyTopInset(renderer, fontId);
+          if (line->hasRuby() || line->hasEmphasis()) {
+            const int annotationInset = line->annotationTopInset(renderer, fontId);
             // The configured line spacing already creates part of this clearance.
             // Add only the missing amount, exactly as normal EPUB page layout does.
             const int existingLeading = std::max(0, lineAdvance - bodyLineHeight);
-            y += (y == top) ? rubyInset : std::max(0, rubyInset - existingLeading);
+            y += (y == top) ? annotationInset : std::max(0, annotationInset - existingLeading);
           }
           if (y + bodyLineHeight > bottom) break;
           line->render(renderer, fontId, left, y, contentWidth, contentHeight, left, top, offsetX, offsetY);
