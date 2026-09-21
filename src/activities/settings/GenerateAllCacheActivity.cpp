@@ -14,6 +14,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/CacheGenerationControls.h"
@@ -253,15 +254,21 @@ std::string GenerateAllCacheActivity::cacheGenerationResultText() const {
 
 void GenerateAllCacheActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  const auto drawCentered = [this, centerOffset](const int y, const char* text, const bool clear = true,
+                                                 const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, y, text, clear, centerOffset, style);
+  };
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_GENERATE_ALL_CACHE));
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 tr(STR_GENERATE_ALL_CACHE));
 
   if (state == CONFIRMING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_GENERATE_CACHE), true);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_GENERATE_CACHE_NOTE), true);
+    drawCentered(pageHeight / 2 - 20, tr(STR_GENERATE_CACHE));
+    drawCentered(pageHeight / 2 + 10, tr(STR_GENERATE_CACHE_NOTE));
 
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_CONFIRM), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -270,17 +277,17 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
   }
 
   if (state == GENERATING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_GENERATING_ALL_CACHE));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+    drawCentered(pageHeight / 2, tr(STR_GENERATING_ALL_CACHE));
+    drawCentered(pageHeight / 2 + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
+    drawCentered(pageHeight / 2 + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
     renderer.displayBuffer();
     return;
   }
 
   if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_CACHE_GENERATED), true, EpdFontFamily::BOLD);
+    drawCentered(pageHeight / 2 - 20, tr(STR_CACHE_GENERATED), true, EpdFontFamily::BOLD);
     std::string resultText = cacheGenerationResultText();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, resultText.c_str());
+    drawCentered(pageHeight / 2 + 10, resultText.c_str());
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -289,9 +296,9 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
   }
 
   if (state == INTERRUPTED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_CACHE_INTERRUPTED), true, EpdFontFamily::BOLD);
+    drawCentered(pageHeight / 2 - 20, tr(STR_CACHE_INTERRUPTED), true, EpdFontFamily::BOLD);
     std::string resultText = cacheGenerationResultText();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, resultText.c_str());
+    drawCentered(pageHeight / 2 + 10, resultText.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -299,8 +306,8 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
   }
 
   if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CACHE_INTERRUPTED));
+    drawCentered(pageHeight / 2 - 20, tr(STR_SD_CARD_ERROR), true, EpdFontFamily::BOLD);
+    drawCentered(pageHeight / 2 + 10, tr(STR_CACHE_INTERRUPTED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();

@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "../../fontIds.h"
 #include "../Activity.h"
@@ -16,7 +17,7 @@ class ConfirmationActivity : public Activity {
   const int fontId = UI_10_FONT_ID;
 
   std::string safeHeading;
-  std::string safeBody;
+  std::vector<std::string> safeBodyLines;
   std::string neverLabel;
   std::string confirmLabel;
   std::string backLabel;
@@ -37,4 +38,5 @@ class ConfirmationActivity : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&& lock) override;
+  bool supportsUiLandscape() const override { return true; }
 };

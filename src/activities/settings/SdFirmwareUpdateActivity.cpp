@@ -11,6 +11,7 @@
 #include "MappedInputManager.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "components/UiLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
@@ -228,19 +229,21 @@ void SdFirmwareUpdateActivity::loop() {
 
 void SdFirmwareUpdateActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto layout = UiLayout::from(renderer);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
 
   renderer.clearScreen();
 
   const char* headerText = recoveryMode ? tr(STR_RECOVERY_MODE) : tr(STR_SD_FIRMWARE_UPDATE);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerText);
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 headerText);
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - lineHeight) / 2;
 
   if (state == State::VALIDATING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_VALIDATING_FIRMWARE));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top, tr(STR_VALIDATING_FIRMWARE), true, centerOffset);
   } else if (state == State::UPDATING) {
     // Throttle redraws to once per percent.
     const unsigned int pct = firmwareSize > 0 ? static_cast<unsigned int>((writtenBytes * 100) / firmwareSize) : 0;
@@ -249,32 +252,37 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     }
     lastRenderedPercent = pct;
 
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top, tr(STR_UPDATING), true, centerOffset, EpdFontFamily::BOLD);
 
     int y = top + lineHeight + metrics.verticalSpacing;
     GUI.drawProgressBar(
         renderer,
-        Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
+        Rect{layout.content.x + metrics.contentSidePadding, y,
+             layout.content.width - metrics.contentSidePadding * 2, metrics.progressBarHeight},
         static_cast<int>(pct), 100);
     y += metrics.progressBarHeight + metrics.verticalSpacing;
     // Percent label is drawn by BaseTheme::drawProgressBar; this slot is left intentionally empty
     // so the do-not-power-off line below stays at the same Y as before.
     y += lineHeight + metrics.verticalSpacing;
-    renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, centerOffset);
   } else if (state == State::SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, centerOffset,
+                                    EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing,
+                                    tr(STR_RESTARTING_HINT), true, centerOffset);
   } else if (state == State::FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, centerOffset,
+                                    EpdFontFamily::BOLD);
     if (!errorMessage.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, errorMessage.c_str());
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, errorMessage.c_str(),
+                                      true, centerOffset);
     }
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
     // PICKING / CONFIRMING: a sub-activity is on top, nothing to draw.
     if (recoveryMode) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT));
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT), true, centerOffset);
     }
   }
 

@@ -15,6 +15,7 @@ class GenerateAllCacheActivity final : public Activity {
   void loop() override;
   bool skipLoopDelay() override { return true; }
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   enum State { CONFIRMING, GENERATING, SUCCESS, INTERRUPTED, FAILED };
