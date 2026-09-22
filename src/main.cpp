@@ -22,7 +22,9 @@
 #include <esp_task_wdt.h>
 #include <sys/time.h>
 
+#include <algorithm>
 #include <cstring>
+#include <cstdlib>
 #include <ctime>
 
 #include "CrossPointSettings.h"
@@ -34,6 +36,9 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#ifdef SIMULATOR
+#include "activities/settings/SettingsActivity.h"
+#endif
 #ifdef GRAYSCALE_TEST_MODE
 #include "activities/util/GrayscaleTestActivity.h"
 #endif
@@ -368,7 +373,38 @@ void setup() {
 
   SETTINGS.loadFromFile();
   I18N.loadSettings();
+#ifdef SIMULATOR
+  if (const char* language = std::getenv("CROSSPOINT_SIM_LANGUAGE")) {
+    if (std::strcmp(language, "ja") == 0) {
+      I18N.setLanguage(Language::JAPANESE);
+    } else if (std::strcmp(language, "en") == 0) {
+      I18N.setLanguage(Language::EN);
+    }
+  }
+#endif
   UITheme::getInstance().reload();
+#ifdef SIMULATOR
+  // Layout QA starts directly on Settings. Apply its requested orientation
+  // before SDL creates the window so screenshot dimensions are deterministic.
+  if (std::getenv("CROSSPOINT_SIM_SETTINGS_CATEGORY")) {
+    GfxRenderer::Orientation qaOrientation = GfxRenderer::Orientation::Portrait;
+    switch (static_cast<CrossPointSettings::UI_ORIENTATION>(SETTINGS.uiOrientation)) {
+      case CrossPointSettings::UI_ORIENTATION::UI_INVERTED:
+        qaOrientation = GfxRenderer::Orientation::PortraitInverted;
+        break;
+      case CrossPointSettings::UI_ORIENTATION::UI_LANDSCAPE_CW:
+        qaOrientation = GfxRenderer::Orientation::LandscapeCounterClockwise;
+        break;
+      case CrossPointSettings::UI_ORIENTATION::UI_LANDSCAPE_CCW:
+        qaOrientation = GfxRenderer::Orientation::LandscapeClockwise;
+        break;
+      default:
+        break;
+    }
+    renderer.setOrientation(qaOrientation);
+    mappedInputManager.setEffectiveOrientation(OrientationHelper::toInputOrientation(qaOrientation));
+  }
+#endif
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   // CJK: External font system
@@ -454,6 +490,13 @@ void setup() {
 
   RECENT_BOOKS.loadFromFile();
 
+#ifdef SIMULATOR
+  if (const char* categoryValue = std::getenv("CROSSPOINT_SIM_SETTINGS_CATEGORY")) {
+    const int category = std::clamp(std::atoi(categoryValue), 0, 4);
+    activityManager.replaceActivity(
+        std::make_unique<SettingsActivity>(renderer, mappedInputManager, nullptr, category, 0));
+  } else
+#endif
   if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
