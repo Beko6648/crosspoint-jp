@@ -159,6 +159,7 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
                            orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   if (isLandscape) {
     const int buttonLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise ? 0 : pageWidth - buttonWidth;
+    const int innerEdge = buttonLeft == 0 ? buttonLeft + buttonWidth - 1 : buttonLeft;
     if (orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
       std::swap(labels[0], labels[3]);
       std::swap(labels[1], labels[2]);
@@ -167,7 +168,9 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       if (labels[i] != nullptr && labels[i][0] != '\0') {
         const int y = buttonPositions[i];
         renderer.fillRect(buttonLeft, y, buttonWidth, buttonHeight, false);
-        renderer.drawRect(buttonLeft, y, buttonWidth, buttonHeight);
+        renderer.fillRect(buttonLeft, y, buttonWidth, 1, true);
+        renderer.fillRect(buttonLeft, y + buttonHeight - 1, buttonWidth, 1, true);
+        renderer.fillRect(innerEdge, y, 1, buttonHeight, true);
         const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 10);
         const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
         renderer.drawText(UI_10_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, label.c_str());
@@ -209,11 +212,16 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
       const int y = orientation == GfxRenderer::Orientation::LandscapeClockwise
                         ? screenHeight - landscapeButtonHeight
                         : 0;
+      const bool openTop = y == 0;
       const char* labels[] = {topBtn, bottomBtn};
       for (int i = 0; i < 2; ++i) {
         if (labels[i] == nullptr || labels[i][0] == '\0') continue;
         const int buttonX = x + i * landscapeButtonWidth;
-        renderer.drawRect(buttonX, y, landscapeButtonWidth, landscapeButtonHeight);
+        renderer.drawLine(buttonX, y, buttonX, y + landscapeButtonHeight - 1);
+        renderer.drawLine(buttonX + landscapeButtonWidth - 1, y, buttonX + landscapeButtonWidth - 1,
+                          y + landscapeButtonHeight - 1);
+        const int horizontalY = openTop ? y + landscapeButtonHeight - 1 : y;
+        renderer.drawLine(buttonX, horizontalY, buttonX + landscapeButtonWidth - 1, horizontalY);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
         renderer.drawText(SMALL_FONT_ID, buttonX + (landscapeButtonWidth - textWidth) / 2,
@@ -227,13 +235,17 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     // Japanese labels such as "縦−" need more room than the narrow portrait
     // side-button strip provides.
     constexpr int landscapeButtonWidth = 54;
-    const int x = frontHintsOnLeft ? screenWidth - buttonMargin - landscapeButtonWidth : buttonMargin;
+    const int x = frontHintsOnLeft ? screenWidth - landscapeButtonWidth : 0;
+    const int innerEdge = x == 0 ? x + landscapeButtonWidth - 1 : x;
     const int y = (screenHeight - buttonHeight * 2) / 2;
     const char* labels[] = {topBtn, bottomBtn};
     for (int i = 0; i < 2; ++i) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
         const int buttonY = y + i * buttonHeight;
-        renderer.drawRect(x, buttonY, landscapeButtonWidth, buttonHeight);
+        renderer.drawLine(x, buttonY, x + landscapeButtonWidth - 1, buttonY);
+        renderer.drawLine(x, buttonY + buttonHeight - 1, x + landscapeButtonWidth - 1,
+                          buttonY + buttonHeight - 1);
+        renderer.drawLine(innerEdge, buttonY, innerEdge, buttonY + buttonHeight - 1);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
         renderer.drawText(SMALL_FONT_ID, x + (landscapeButtonWidth - textWidth) / 2,

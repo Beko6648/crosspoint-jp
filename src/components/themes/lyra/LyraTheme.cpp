@@ -486,6 +486,7 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
                            orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   if (isLandscape) {
     const int buttonLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise ? 0 : pageWidth - buttonWidth;
+    const bool openLeft = buttonLeft == 0;
     if (orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
       std::swap(labels[0], labels[3]);
       std::swap(labels[1], labels[2]);
@@ -493,9 +494,12 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     for (int i = 0; i < 4; ++i) {
       const int y = buttonPositions[i];
       if (labels[i] != nullptr && labels[i][0] != '\0') {
-        renderer.fillRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, cornerRadius, Color::White);
-        renderer.drawRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, 1, cornerRadius, true, true, true, true,
-                                 true);
+        renderer.fillRect(buttonLeft, y, buttonWidth, buttonHeight, false);
+        renderer.drawRoundedRect(buttonLeft, y, buttonWidth, buttonHeight, 1, cornerRadius, !openLeft, openLeft,
+                                 !openLeft, openLeft, true);
+        const int horizontalLeft = openLeft ? buttonLeft : buttonLeft + cornerRadius;
+        renderer.fillRect(horizontalLeft, y, buttonWidth - cornerRadius, 1, true);
+        renderer.fillRect(horizontalLeft, y + buttonHeight - 1, buttonWidth - cornerRadius, 1, true);
         const auto label = renderer.truncatedText(SMALL_FONT_ID, labels[i], buttonWidth - 10);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
         renderer.drawText(SMALL_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, label.c_str());
@@ -544,12 +548,17 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
       const int y = orientation == GfxRenderer::Orientation::LandscapeClockwise
                         ? screenHeight - landscapeButtonHeight
                         : 0;
+      const bool openTop = y == 0;
       const char* labels[] = {topBtn, bottomBtn};
       for (int i = 0; i < 2; ++i) {
         if (labels[i] == nullptr || labels[i][0] == '\0') continue;
         const int buttonX = x + i * landscapeButtonWidth;
-        renderer.drawRoundedRect(buttonX, y, landscapeButtonWidth, landscapeButtonHeight, 1, cornerRadius, true, true,
-                                 true, true, true);
+        renderer.drawRoundedRect(buttonX, y, landscapeButtonWidth, landscapeButtonHeight, 1, cornerRadius, !openTop,
+                                 !openTop, openTop, openTop, true);
+        const int verticalTop = openTop ? y : y + cornerRadius;
+        renderer.fillRect(buttonX, verticalTop, 1, landscapeButtonHeight - cornerRadius, true);
+        renderer.fillRect(buttonX + landscapeButtonWidth - 1, verticalTop, 1,
+                          landscapeButtonHeight - cornerRadius, true);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
         renderer.drawText(SMALL_FONT_ID, buttonX + (landscapeButtonWidth - textWidth) / 2,
@@ -561,13 +570,17 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     // Keep short Japanese labels horizontal and fully visible in landscape.
     constexpr int landscapeButtonWidth = 54;
     const int x = frontHintsOnLeft ? screenWidth - landscapeButtonWidth : buttonMargin;
+    const bool openLeft = x == 0;
     const int y = (screenHeight - buttonHeight * 2) / 2;
     const char* labels[] = {topBtn, bottomBtn};
     for (int i = 0; i < 2; ++i) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
         const int buttonY = y + i * buttonHeight;
-        renderer.drawRoundedRect(x, buttonY, landscapeButtonWidth, buttonHeight, 1, cornerRadius, true, true, true, true,
-                                 true);
+        renderer.drawRoundedRect(x, buttonY, landscapeButtonWidth, buttonHeight, 1, cornerRadius, !openLeft, openLeft,
+                                 !openLeft, openLeft, true);
+        const int horizontalLeft = openLeft ? x : x + cornerRadius;
+        renderer.fillRect(horizontalLeft, buttonY, landscapeButtonWidth - cornerRadius, 1, true);
+        renderer.fillRect(horizontalLeft, buttonY + buttonHeight - 1, landscapeButtonWidth - cornerRadius, 1, true);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
         renderer.drawText(SMALL_FONT_ID, x + (landscapeButtonWidth - textWidth) / 2,

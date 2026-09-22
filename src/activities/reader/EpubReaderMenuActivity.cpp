@@ -212,7 +212,10 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // Front hints and side hints occupy opposite edges in landscape.
   const int contentX = isLandscapeCw ? frontHintGutterWidth : sideHintGutterWidth;
   const int contentWidth = pageWidth - frontHintGutterWidth - sideHintGutterWidth - (isX3Portrait ? 30 : 0);
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
+  // On X4 counter-clockwise landscape, the two side-button hints sit along
+  // the logical top edge. Move the centered reader header below them.
+  const bool hasTopSideHints = !editingValue && !gpio.deviceIsX3() && isLandscapeCcw;
+  const int hintGutterHeight = isPortraitInverted ? 50 : (hasTopSideHints ? 35 : 0);
   const int contentY = hintGutterHeight;
 
   // Title
