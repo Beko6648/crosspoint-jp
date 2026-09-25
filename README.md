@@ -43,6 +43,8 @@ EPUBのCSS・固定レイアウト・段組み・特殊な位置指定を完全�
 
 [ユーザーマニュアル](docs/manual-ja.md)から、読書、表示設定、本の管理、Wi-Fi、診断の各ページへ進めます。
 
+v0.7.7では設定画面を **表示／読書／操作／本体／管理** に整理し、X3の傾きセンサー診断、縦・横・上下逆のUI表示、読書履歴の削除に対応しました。詳しい変更と更新時の注意は[v0.7.7リリースノート](docs/releases/yomuka-v0.7.7.md)を参照してください。
+
 ## リリースと不具合報告
 
 変更内容と更新時の注意は[Releases](https://github.com/ponto1216-ai/crosspoint-jp/releases)、現在の制限と切り分け方は[困ったとき](docs/troubleshooting-ja.md)に掲載しています。不具合は[報告ガイド](docs/reporting-bugs-ja.md)を参照し、[GitHub Issues](https://github.com/ponto1216-ai/crosspoint-jp/issues)へお知らせください。
