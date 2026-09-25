@@ -9,7 +9,9 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 #include "util/BookDataPath.h"
 #include "util/BookmarkUtil.h"
@@ -24,10 +26,15 @@ constexpr int kMaximumRowsPerPage = 12;
 
 EpubReaderBookmarksActivity::EpubReaderBookmarksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                          const std::shared_ptr<Epub>& epub, const std::string& epubPath)
-    : Activity("EpubReaderBookmarks", renderer, mappedInput), epub(epub), epubPath(epubPath) {}
+    : Activity("EpubReaderBookmarks", renderer, mappedInput),
+      epub(epub),
+      epubPath(epubPath),
+      readerOrientation(renderer.getOrientation()) {}
 
 void EpubReaderBookmarksActivity::onEnter() {
   Activity::onEnter();
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
   if (epub) {
     const std::string legacyPath = BookmarkUtil::getBookmarkPath(epubPath);
     uint64_t bookId = 0;
@@ -141,45 +148,58 @@ void EpubReaderBookmarksActivity::loop() {
 
 void EpubReaderBookmarksActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
-  const int footerHeight = UITheme::getInstance().getMetrics().buttonHintsHeight;
-  const int rows = std::max(1, std::min(kMaximumRowsPerPage, (height - 55 - footerHeight - 30) / kLineHeight));
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int titleY = layout.content.y + 15 + topHintGutter;
+  const int listTop = layout.content.y + 55 + topHintGutter;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int deleteHintHeight = renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
+  const int listBottom = layout.content.y + layout.content.height - bottomHints - deleteHintHeight;
+  const int rows = std::max(1, std::min(kMaximumRowsPerPage, (listBottom - listTop) / kLineHeight));
   const int itemCount = static_cast<int>(bookmarks.size()) + 1;  // final item is Delete All
   const int pageCount = std::max(1, (itemCount + rows - 1) / rows);
   const int currentListPage = bookmarks.empty() ? 1 : (selectedIndex / rows) + 1;
   const std::string title = std::string(tr(STR_BOOKMARKS)) + " " + std::to_string(currentListPage) + "/" +
                             std::to_string(pageCount);
-  const int titleWidth = renderer.getTextWidth(UI_12_FONT_ID, title.c_str(), EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, (width - titleWidth) / 2, 15, title.c_str(), true, EpdFontFamily::BOLD);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, titleY, title.c_str(), true, centerOffset, EpdFontFamily::BOLD);
 
   if (bookmarks.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, height / 2, tr(STR_NO_FILES_FOUND));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, layout.content.y + layout.content.height / 2, tr(STR_NO_FILES_FOUND),
+                                    true, centerOffset);
   } else if (deleteMode != DeleteMode::NONE) {
     const bool deleteAll = deleteMode == DeleteMode::ALL;
-    renderer.drawCenteredText(UI_10_FONT_ID, height / 2 - kLineHeight,
-                              deleteAll ? tr(STR_CONFIRM_DELETE_ALL_BOOKMARKS) : tr(STR_CONFIRM_DELETE_BOOKMARK));
-    if (!deleteAll) renderer.drawCenteredText(UI_10_FONT_ID, height / 2, bookmarks.at(selectedIndex).summary.c_str());
+    const int centerY = layout.content.y + layout.content.height / 2;
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY - kLineHeight,
+                                    deleteAll ? tr(STR_CONFIRM_DELETE_ALL_BOOKMARKS) : tr(STR_CONFIRM_DELETE_BOOKMARK),
+                                    true, centerOffset);
+    if (!deleteAll)
+      renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, bookmarks.at(selectedIndex).summary.c_str(), true,
+                                      centerOffset);
   } else {
     const int first = (selectedIndex / rows) * rows;
     for (int i = 0; i < rows && first + i < itemCount; ++i) {
       const int index = first + i;
       const bool selected = index == selectedIndex;
-      const int y = 55 + i * kLineHeight;
-      if (selected) renderer.fillRect(0, y - 3, width - 1, kLineHeight, true);
+      const int y = listTop + i * kLineHeight;
+      if (selected) renderer.fillRect(layout.content.x, y - 3, layout.content.width - 1, kLineHeight, true);
       if (index == static_cast<int>(bookmarks.size())) {
-        renderer.drawText(UI_10_FONT_ID, 15, y + 10, tr(STR_DELETE_ALL_BOOKMARKS), !selected);
+        renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y + 10, tr(STR_DELETE_ALL_BOOKMARKS), !selected);
         continue;
       }
       const auto& bookmark = bookmarks[index];
-      const std::string title = renderer.truncatedText(UI_10_FONT_ID, bookmark.summary.c_str(), width - 30);
+      const std::string title =
+          renderer.truncatedText(UI_10_FONT_ID, bookmark.summary.c_str(), layout.content.width - 30);
       const std::string detail = std::to_string(static_cast<int>(bookmark.percentage * 100.0f + 0.5f)) + "%  " +
                                  std::to_string(bookmark.chapterPage + 1) + "/" +
                                  std::to_string(bookmark.chapterPageCount);
-      renderer.drawText(UI_10_FONT_ID, 15, y, title.c_str(), !selected);
-      renderer.drawText(UI_10_FONT_ID, 15, y + 22, detail.c_str(), !selected);
+      renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y, title.c_str(), !selected);
+      renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y + 22, detail.c_str(), !selected);
     }
-    renderer.drawCenteredText(UI_10_FONT_ID, height - footerHeight - 25, tr(STR_HOLD_OPEN_TO_DELETE));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, listBottom + metrics.verticalSpacing / 2,
+                                    tr(STR_HOLD_OPEN_TO_DELETE), true, centerOffset);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), deleteMode != DeleteMode::NONE ? tr(STR_DELETE) : tr(STR_SELECT),
                                             tr(STR_DIR_UP), tr(STR_DIR_DOWN));

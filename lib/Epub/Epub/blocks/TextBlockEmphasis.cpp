@@ -77,12 +77,38 @@ uint64_t fontMark(GfxRenderer& renderer, int fontId, uint32_t cp, int size) {
 }
 }  // namespace
 
+bool TextBlock::tokenHasEmphasis(size_t index) const {
+  if (index >= words.size() || index >= emphasis.size() || emphasis[index] == TextEmphasis::None ||
+      !textEmphasis::valid(static_cast<uint8_t>(emphasis[index])))
+    return false;
+  auto* p = reinterpret_cast<const unsigned char*>(words[index].c_str());
+  while (uint32_t cp = utf8NextCodepoint(&p))
+    if (textEmphasis::eligible(cp)) return true;
+  return false;
+}
+
+bool TextBlock::rubyBaseHasEmphasis(size_t start) const {
+  if (start >= words.size() || start >= rubyTexts.size() || rubyTexts[start].empty() ||
+      isRubyContinuation(rubyTexts[start]))
+    return false;
+  // Only the start token and its continuation tokens belong to this ruby.
+  size_t i = start;
+  do {
+    if (tokenHasEmphasis(i)) return true;
+    ++i;
+  } while (i < words.size() && i < rubyTexts.size() && isRubyContinuation(rubyTexts[i]));
+  return false;
+}
+
+bool TextBlock::hasEmphasizedRuby() const {
+  for (size_t i = 0; i < rubyTexts.size() && i < words.size(); ++i)
+    if (rubyBaseHasEmphasis(i)) return true;
+  return false;
+}
+
 bool TextBlock::hasEmphasis() const {
   for (size_t i = 0; i < emphasis.size() && i < words.size(); ++i) {
-    if (emphasis[i] == TextEmphasis::None) continue;
-    auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
-    while (uint32_t cp = utf8NextCodepoint(&p))
-      if (textEmphasis::eligible(cp)) return true;
+    if (tokenHasEmphasis(i)) return true;
   }
   return false;
 }
@@ -97,7 +123,7 @@ int TextBlock::annotationRightOverflow(const GfxRenderer& renderer, int fontId, 
   int bodyWidth = renderer.getTextAdvanceX(fontId, "\xe4\xb8\x80", EpdFontFamily::REGULAR);
   if (bodyWidth <= 0) bodyWidth = renderer.getLineHeight(fontId);
   const int occupied = bodyWidth + 2 + emphasisSize(renderer, fontId) +
-                       (hasRuby() && rubyFontId != 0 ? 2 + renderer.getLineHeight(rubyFontId) : 0);
+                       (rubyFontId != 0 && hasEmphasizedRuby() ? 2 + renderer.getLineHeight(rubyFontId) : 0);
   return std::max(ruby, std::max(0, occupied - columnWidth));
 }
 
@@ -105,7 +131,7 @@ int TextBlock::annotationTopInset(const GfxRenderer& renderer, int fontId) const
   const int ruby = hasRuby() ? getHorizontalRubyTopInset(renderer, fontId) : 0;
   if (!hasEmphasis()) return ruby;
   return std::max(ruby, emphasisSize(renderer, fontId) + 2 +
-                            (hasRuby() && rubyFontId != 0 ? 2 + renderer.getLineHeight(rubyFontId) : 0));
+                            (rubyFontId != 0 && hasEmphasizedRuby() ? 2 + renderer.getLineHeight(rubyFontId) : 0));
 }
 
 void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) const {
@@ -156,29 +182,46 @@ void TextBlock::renderEmphasis(GfxRenderer& renderer, int fontId, int x, int y) 
         // A sideways Latin run occupies the column along its horizontal text
         // advance. CSS text-emphasis applies to each eligible character, not
         // to the run as one oversized glyph.
+        // Match drawTextSideways(), which shifts the rotated body down by one
+        // third of the ascender. Without this, sesame marks sit visibly above
+        // the centers of their Latin glyphs.
+        const int sidewaysShift = renderer.getFontAscenderSize(fontId) / 3;
         p = reinterpret_cast<const unsigned char*>(words[i].c_str());
         std::string prefix;
         prefix.reserve(words[i].size());
+        int runningAdvance = 0;
+        const bool useLinearAdvance = renderer.isSdCardFont(fontId);
         while (*p) {
           const auto* start = p;
           const uint32_t cp = utf8NextCodepoint(&p);
-          const int before = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
-          prefix.append(reinterpret_cast<const char*>(start), p - start);
-          const int after = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          const int before =
+              useLinearAdvance ? runningAdvance : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          const std::string character(reinterpret_cast<const char*>(start), p - start);
+          prefix.append(character);
+          const int after = useLinearAdvance
+                                ? before + renderer.getTextAdvanceX(fontId, character.c_str(), wordStyles[i])
+                                : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+          runningAdvance = after;
           if (textEmphasis::eligible(cp)) {
-            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + (before + after) / 2);
+            draw(x + wordXpos[i] + bodyWidth + 2 + size / 2, y + wordYpos[i] + sidewaysShift + (before + after) / 2);
           }
         }
       }
     } else {
       std::string prefix;
       prefix.reserve(words[i].size());
+      int runningAdvance = 0;
+      const bool useLinearAdvance = renderer.isSdCardFont(fontId);
       while (*p) {
         const auto* start = p;
         const uint32_t cp = utf8NextCodepoint(&p);
-        const int before = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
-        prefix.append(reinterpret_cast<const char*>(start), p - start);
-        const int after = renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        const int before =
+            useLinearAdvance ? runningAdvance : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        const std::string character(reinterpret_cast<const char*>(start), p - start);
+        prefix.append(character);
+        const int after = useLinearAdvance ? before + renderer.getTextAdvanceX(fontId, character.c_str(), wordStyles[i])
+                                           : renderer.getTextAdvanceX(fontId, prefix.c_str(), wordStyles[i]);
+        runningAdvance = after;
         if (textEmphasis::eligible(cp)) draw(x + wordXpos[i] + (before + after) / 2, y - 2 - (size + 1) / 2);
       }
     }

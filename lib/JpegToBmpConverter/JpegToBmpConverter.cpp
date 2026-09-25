@@ -1,5 +1,6 @@
 #include "JpegToBmpConverter.h"
 
+#include <BuildScratch.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <JPEGDEC.h>
@@ -163,7 +164,7 @@ namespace {
 // Max MCU height supported by any JPEG (4:2:0 chroma = 16 rows, 4:4:4 = 8 rows)
 constexpr int MAX_MCU_HEIGHT = 16;
 constexpr size_t JPEG_DECODER_SIZE = 20 * 1024;
-constexpr size_t MIN_FREE_HEAP = JPEG_DECODER_SIZE + 32 * 1024;
+constexpr size_t MIN_FREE_HEAP = JPEG_DECODER_SIZE + 8 * 1024;
 constexpr size_t BMP_WRITE_BUFFER_SIZE = 4096;
 
 // JPEG conversion emits one small BMP row at a time.  Writing every row
@@ -286,6 +287,7 @@ struct BmpConvertCtx {
   // Accumulates one MCU row (up to MAX_MCU_HEIGHT source rows × srcWidth pixels)
   // Filled column-by-column as JPEGDEC callbacks arrive for the same MCU row
   uint8_t* mcuBuf;
+  uint8_t* mcuScratch;
 
   // Y-axis area averaging accumulators (needsScaling only)
   int currentOutY;
@@ -617,7 +619,10 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
       delete[] ctx.rowAccum;
       delete[] ctx.rowCount;
       delete ctx.atkinson1BitDitherer;
-      free(ctx.mcuBuf);
+      if (ctx.mcuScratch)
+        buildscratch::release(ctx.mcuScratch);
+      else
+        free(ctx.mcuBuf);
       free(ctx.bmpRow);
 
       if (jpeg) {
@@ -630,12 +635,15 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   } cleanup{ctx, jpeg};
 
   // MCU row buffer: MAX_MCU_HEIGHT rows × srcWidth columns of grayscale
-  ctx.mcuBuf = static_cast<uint8_t*>(malloc(MAX_MCU_HEIGHT * srcWidth));
+  const size_t mcuBytes = static_cast<size_t>(MAX_MCU_HEIGHT) * ctx.srcWidth;
+  ctx.mcuScratch = buildscratch::claim(mcuBytes);
+  ctx.mcuBuf = ctx.mcuScratch ? ctx.mcuScratch : static_cast<uint8_t*>(malloc(mcuBytes));
   if (!ctx.mcuBuf) {
-    LOG_ERR("JPG", "Failed to allocate MCU buffer (%d bytes)", MAX_MCU_HEIGHT * srcWidth);
+    LOG_ERR("JPG", "Failed to allocate MCU buffer (%u bytes, free=%u, maxAlloc=%u)", static_cast<unsigned>(mcuBytes),
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return false;
   }
-  memset(ctx.mcuBuf, 0, MAX_MCU_HEIGHT * srcWidth);
+  memset(ctx.mcuBuf, 0, mcuBytes);
 
   ctx.bmpRow = static_cast<uint8_t*>(malloc(bytesPerRow));
   if (!ctx.bmpRow) {

@@ -1,5 +1,14 @@
 # 圏点の回帰確認（Issue #33）
 
+## Issue #41 追加回帰
+
+本番の `TextBlock::render()` もリンクし、縦横・通常/BIZ UD相当の寸法で、
+ルビのみ、圏点のみ、別tokenの混在、同じbase spanの先頭/継続tokenの圏点を確認する。
+描画座標、注釈領域、複数文字の中央寄せ、rubyOffset、ページ端clampを検証する。
+Section cache versionは127から128へ更新。実フォントとXHTML token化は実機で別途確認する。
+生成EPUBの先頭章に比較用ケースを追加した。X3/X4で最小余白、先頭行/右端列、
+複数フォント、ルビ位置調整、キャッシュ再表示を比較する。
+
 ## 自動テスト
 
 `py -3 test/run_text_emphasis_test.py --compiler <C++コンパイラのパス>`

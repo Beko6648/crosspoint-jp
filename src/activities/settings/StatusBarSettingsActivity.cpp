@@ -3,12 +3,13 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include <cstring>
 #include <algorithm>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -147,19 +148,23 @@ void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool
 void StatusBarSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  auto metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
+  const auto metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
   const auto pageHeight = renderer.getScreenHeight();
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight},
+  const int headerY = layout.content.y + metrics.topPadding + hintGutterHeight;
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
                  tr(STR_CUSTOMISE_STATUS_BAR));
 
-  const int contentTop = metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  const int contentTop = headerY + metrics.headerHeight + metrics.verticalSpacing;
+  const int previewPadding = layout.landscape ? metrics.verticalSpacing : verticalPreviewPadding;
+  const int previewTextY =
+      pageHeight - UITheme::getInstance().getStatusBarHeight() - previewPadding - verticalPreviewTextPadding;
+  const int contentHeight = previewTextY - contentTop - metrics.verticalSpacing;
   GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(MENU_ITEMS),
+      renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight}, static_cast<int>(MENU_ITEMS),
       static_cast<int>(selectedIndex), [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr,
       nullptr,
       [this](int index) {
@@ -197,20 +202,19 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     title = tr(STR_EXAMPLE_CHAPTER);
   }
 
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding);
+  const int previewInsetLeft = layout.content.x;
+  const int previewInsetRight = renderer.getScreenWidth() - layout.content.x - layout.content.width;
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, previewPadding, 0, false, false, previewInsetLeft, previewInsetRight);
 
   // Show a page-turn arrow in the preview when the option is enabled, matching
   // how the reader flashes it on each page turn (vertical RTL → left-pointing).
   // Position clears the battery cluster exactly as in the reader (isPageBookmarked
   // is false in this preview).
   if (SETTINGS.statusBarPageTurn) {
-    GUI.drawPageTurnIndicator(renderer, true, verticalPreviewPadding);
+    GUI.drawPageTurnIndicator(renderer, true, previewPadding);
   }
 
-  renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding,
-                    renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -
-                        verticalPreviewTextPadding,
-                    tr(STR_PREVIEW));
+  renderer.drawText(UI_10_FONT_ID, layout.content.x + metrics.contentSidePadding, previewTextY, tr(STR_PREVIEW));
 
   renderer.displayBuffer();
 }

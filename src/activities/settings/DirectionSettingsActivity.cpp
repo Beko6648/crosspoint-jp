@@ -13,6 +13,7 @@
 #include "MappedInputManager.h"
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 DirectionSettingsActivity::DirectionSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -243,24 +244,29 @@ void DirectionSettingsActivity::loop() {
 
 void DirectionSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
   const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
   const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
 
   // Header
   const char* title = isVertical ? tr(STR_VERTICAL_SETTINGS) : tr(STR_HORIZONTAL_SETTINGS);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight}, title, "");
+  GUI.drawHeader(renderer,
+                 Rect{layout.content.x, layout.content.y + metrics.topPadding + hintGutterHeight, layout.content.width,
+                      metrics.headerHeight},
+                 title, "");
 
   const int itemCount = static_cast<int>(items.size());
   const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
-  const int listTop = metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.verticalSpacing;
-  const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - helpTextHeight;
+  const int listTop =
+      layout.content.y + metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.verticalSpacing;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight;
+  const int listBottom =
+      layout.content.y + layout.content.height - bottomHints - metrics.verticalSpacing * 2 - helpTextHeight;
 
   // List
   GUI.drawList(
-      renderer, Rect{0, listTop, pageWidth, listBottom - listTop}, itemCount, selectedIndex,
+      renderer, Rect{layout.content.x, listTop, layout.content.width, listBottom - listTop}, itemCount, selectedIndex,
       [this](int index) { return std::string(I18N.get(items[index].nameId)); }, nullptr, nullptr,
       [this](int i) -> std::string {
         const auto& item = items[i];
@@ -317,7 +323,8 @@ void DirectionSettingsActivity::render(RenderLock&&) {
       },
       editingValue);
 
-  GUI.drawHelpText(renderer, Rect{0, listBottom + metrics.verticalSpacing, pageWidth, helpTextHeight},
+  GUI.drawHelpText(renderer,
+                   Rect{layout.content.x, listBottom + metrics.verticalSpacing, layout.content.width, helpTextHeight},
                    currentItemDescription());
 
   // Button hints identify whether the selected item is being edited.

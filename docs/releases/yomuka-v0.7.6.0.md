@@ -10,6 +10,7 @@
   - X3/X4で縦書き・横書き、Regular／Bold、通常読書、大規模キャッシュ生成を確認しました。
 - 表、上付き／下付き、ルビなどの小さい日本語を読みやすくしました。
   - CJKフォントでは10pt専用のフォントデータを使用し、本文サイズからの縮小で細い画が途切れる問題を軽減します。
+  - BIZ UD Gothic、BIZ UD Mincho、Noto Sans JP、Noto Serif JP、Zen Maru Gothicの10ptフォントデータを再生成し、SDカードフォント配布を更新しました。
   - 縦書きの`H₂O`や`10³`などで、添字を含む文字列の位置を修正しました。
 - 縦書きの表示を改善しました。
   - 「縦中横の数字」で「2桁まで」「3桁まで」を選択できます。通常設定、読書設定プロファイル、この本の設定に保存されます。
@@ -21,7 +22,7 @@
 
 - 通常の更新では、書籍・設定・SDカードフォントを削除する必要はありません。
 - EPUB組版キャッシュの形式を更新しています。初回に本を開くと、必要な章のキャッシュを自動的に再生成します。
-- Zen Maru Gothicのメモリ改善を利用するには、ファームウェア公開後に配布される最新版のZen Maru Gothicも導入してください。端末のフォントダウンロード画面で「アップデート」と表示される場合は更新できます。
+- 10pt表示とSDフォントのメモリ改善を反映するため、端末のフォントダウンロード画面で「アップデート」と表示される日本語フォントを更新してください。BIZ UD Gothic、BIZ UD Mincho、Noto Sans JP、Noto Serif JP、Zen Maru Gothicの最新版を配布しています。
 - 日本語を収録しないOpenDyslexicは従来のフォント選択を維持します。
 
 ### 更新方法
@@ -34,4 +35,4 @@
 
 `bootloader.bin` と `partitions.bin` は初回書き込み・復旧用、`SHA256SUMS.txt` はダウンロードした配布物の検証用です。通常のSDカード更新では `firmware.bin` を使用します。
 
-詳しい操作は [基本操作・設定・不具合の確認](https://github.com/ponto1216-ai/crosspoint-jp/blob/main/docs/basic-operations-ja.md)、フォント導入は [日本語フォントの導入](https://github.com/ponto1216-ai/crosspoint-jp/blob/main/docs/cjk-fonts.md) を参照してください。
+詳しい操作は [ユーザーマニュアル](https://github.com/ponto1216-ai/crosspoint-jp/blob/main/docs/manual-ja.md)、フォント導入は [日本語フォントの導入](https://github.com/ponto1216-ai/crosspoint-jp/blob/main/docs/cjk-fonts.md) を参照してください。

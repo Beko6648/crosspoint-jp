@@ -54,6 +54,7 @@ struct ThemeMetrics {
   int homeMenuTopOffset;
 
   int buttonHintsHeight;
+  int landscapeButtonHintsWidth;
   int sideButtonHintsWidth;
 
   int progressBarHeight;
@@ -119,6 +120,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .homeContinueReadingInMenu = false,
                                  .homeMenuTopOffset = 10,
                                  .buttonHintsHeight = 40,
+                                 .landscapeButtonHintsWidth = 106,
                                  .sideButtonHintsWidth = 30,
                                  .progressBarHeight = 16,
                                  .progressBarMarginTop = 1,
@@ -162,8 +164,14 @@ class BaseTheme {
                              const char* rightLabel = nullptr) const;
   virtual void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                           bool selected) const;
+  virtual int getHomeRecentBooksCount(const GfxRenderer& renderer) const;
+  virtual int getHomeCoverHeight(const GfxRenderer& renderer) const;
+  virtual int getHomeLandscapeCoverPercent() const { return 60; }
+  virtual int getHomeLandscapeMenuOffset() const { return 20; }
+  virtual int getHomeLandscapeMenuInset() const { return 0; }
+  virtual int getHomePortraitMenuTop(const GfxRenderer& renderer) const;
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                   const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                   const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                    bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                    std::function<bool()> storeCoverBuffer) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
@@ -177,7 +185,8 @@ class BaseTheme {
   virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                              const int pageCount, std::string title, const int paddingBottom = 0,
                              const int textYOffset = 0, const bool rtlProgress = false,
-                             const bool isPageBookmarked = false) const;
+                             const bool isPageBookmarked = false, const int previewInsetLeft = 0,
+                             const int previewInsetRight = 0) const;
   // Draw a compact direction arrow in the status-bar band to signal a page turn
   // was accepted. pointingLeft=true draws "◀" (left), false draws "▶" (right),
   // matching the actual page-turn direction. Positioned after the battery /

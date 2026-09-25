@@ -34,6 +34,7 @@ class SdFirmwareUpdateActivity : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
   bool preventAutoSleep() override { return state == State::UPDATING || state == State::VALIDATING; }
   bool skipLoopDelay() override { return state == State::UPDATING; }
 

@@ -42,6 +42,8 @@ class HalDisplay {
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;
+  uint8_t* lendFrameBufferStorage(uint32_t* sizeOut);
+  void returnFrameBufferStorage();
 
   void copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer);
   void copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer);

@@ -45,6 +45,7 @@ class ParsedText {
   bool hyphenationEnabled;
   uint8_t tateChuYokoMaxDigits;
   bool layoutFailed_ = false;
+  bool hasHeapForToken();
   bool admitLayout(size_t bytes, const char* stage);
   void consumePrefix(size_t count);
   std::shared_ptr<TextBlock> prepareBlock(size_t start, size_t end, bool vertical);

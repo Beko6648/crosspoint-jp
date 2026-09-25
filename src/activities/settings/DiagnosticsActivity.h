@@ -24,6 +24,7 @@ class DiagnosticsActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   enum class Page : uint8_t { Overview, Logs, Details };

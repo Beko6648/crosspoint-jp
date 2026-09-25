@@ -431,7 +431,9 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
     spineLutPositions[i] = finalWriter.position();
     finalWriter.writeString(spineEntry.href);
-    finalWriter.writePod(spineEntry.cumulativeSize);
+    // The on-disk cache format uses 32-bit offsets on ESP32. Keep the same
+    // layout in the 64-bit desktop simulator, where size_t is wider.
+    finalWriter.writePod(static_cast<uint32_t>(spineEntry.cumulativeSize));
     finalWriter.writePod(spineEntry.tocIndex);
   }
   finalWriter.flush();
@@ -655,15 +657,17 @@ bool BookMetadataCache::tryGetSpineEntry(const int index, SpineEntry& entry) {
   const size_t fileSize = bookFile.size();
   const size_t lutEntryPos = lutOffset + sizeof(uint32_t) * static_cast<size_t>(index);
   uint32_t spineEntryPos = 0;
+  uint32_t cumulativeSize = 0;
   SpineEntry candidate;
   if (fileSize == 0 || lutEntryPos > fileSize || sizeof(spineEntryPos) > fileSize - lutEntryPos ||
       !bookFile.seek(lutEntryPos) || !readPodChecked(bookFile, spineEntryPos) || spineEntryPos >= fileSize ||
       !bookFile.seek(spineEntryPos) || !readMetadataString(bookFile, candidate.href, fileSize) ||
-      !readPodChecked(bookFile, candidate.cumulativeSize) || !readPodChecked(bookFile, candidate.tocIndex)) {
+      !readPodChecked(bookFile, cumulativeSize) || !readPodChecked(bookFile, candidate.tocIndex)) {
     LOG_ERR("BMC", "Failed to read spine entry %d", index);
     return false;
   }
 
+  candidate.cumulativeSize = cumulativeSize;
   entry = std::move(candidate);
   return true;
 }

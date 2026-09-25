@@ -15,6 +15,8 @@ class EpubReaderBookmarksActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool isReaderActivity() const override { return true; }
+  bool supportsLandscape() const override { return true; }
 
  private:
   static constexpr size_t MAX_BOOKMARKS = 24;
@@ -23,6 +25,7 @@ class EpubReaderBookmarksActivity final : public Activity {
   std::vector<BookmarkEntry> bookmarks;
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
+  GfxRenderer::Orientation readerOrientation;
   enum class DeleteMode : uint8_t { NONE, ONE, ALL };
   DeleteMode deleteMode = DeleteMode::NONE;
   bool ignoreDeleteOpeningRelease = false;

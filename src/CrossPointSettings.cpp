@@ -246,7 +246,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     readAndValidate(inputFile, embeddedStyle, BOOK_STYLE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     // CJK-specific fields appended at end for backward compatibility
-    serialization::readPod(inputFile, uiOrientation);
+    readAndValidate(inputFile, uiOrientation, UI_ORIENTATION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, horizontal.firstLineIndent);
     vertical.firstLineIndent = horizontal.firstLineIndent;

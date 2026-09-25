@@ -19,6 +19,7 @@ class LineSpacingSelectionActivity final : public ActivityWithSubactivity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   int value = 100;

@@ -21,6 +21,7 @@
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
 #include "ReadingHistoryStore.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "XtcReaderMenuActivity.h"
@@ -473,12 +474,18 @@ void XtcReaderActivity::renderPage() {
 }
 
 void XtcReaderActivity::saveProgress(bool isFinished) const {
-  uint8_t data[5];
+  uint8_t data[6];
   data[0] = currentPage & 0xFF;
   data[1] = (currentPage >> 8) & 0xFF;
   data[2] = (currentPage >> 16) & 0xFF;
   data[3] = (currentPage >> 24) & 0xFF;
   data[4] = isFinished ? 1 : 0;
+  data[5] = xtc->getPageCount() > 0
+                ? static_cast<uint8_t>(
+                      (static_cast<uint64_t>(std::min<uint32_t>(currentPage + 1, xtc->getPageCount())) * 100) /
+                      xtc->getPageCount())
+                : ReadingProgress::PERCENT_UNKNOWN;
+  if (isFinished) data[5] = 100;
   if (!ProgressFile::writeAtomic(xtc->getCachePath(), data, sizeof(data))) {
     LOG_ERR("XTR", "Could not save progress");
   }
@@ -487,7 +494,7 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
 void XtcReaderActivity::loadProgress() {
   FsFile f;
   if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[5] = {0};
+    uint8_t data[6] = {0};
     const int bytesRead = f.read(data, sizeof(data));
     if (bytesRead >= 4) {
       currentPage = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |

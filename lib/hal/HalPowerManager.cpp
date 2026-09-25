@@ -10,6 +10,49 @@
 
 #include "HalGPIO.h"
 
+#ifndef X3_BATTERY_DIAGNOSTICS
+#define X3_BATTERY_DIAGNOSTICS (LOG_LEVEL >= 2)
+#endif
+
+#if FREEINK_MCU_C3
+namespace {
+// BQ27220 TRM SLUUBD4A, standard commands (read-only, little endian).
+constexpr uint8_t BQ27220_REMAINING_CAPACITY_REG = 0x10;
+constexpr uint8_t BQ27220_FULL_CHARGE_CAPACITY_REG = 0x12;
+
+bool readBatteryWord(uint8_t reg, uint16_t& value) {
+  Wire.beginTransmission(I2C_ADDR_BQ27220);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  Wire.requestFrom(I2C_ADDR_BQ27220, static_cast<uint8_t>(2));
+  if (Wire.available() < 2) return false;
+  const uint8_t lo = Wire.read();
+  const uint8_t hi = Wire.read();
+  value = (static_cast<uint16_t>(hi) << 8) | lo;
+  return true;
+}
+
+void logBatterySample(unsigned long pollMs, int oldSoc, uint16_t soc, bool jump) {
+  uint16_t voltage = 0, current = 0, remaining = 0, full = 0;
+  // Sequential reads in the same poll, not an atomic gauge snapshot. Failure
+  // of one diagnostic register must not discard the other measurements or SOC.
+  const bool voltageOk = readBatteryWord(BQ27220_VOLT_REG, voltage);
+  const bool currentOk = readBatteryWord(BQ27220_CUR_REG, current);
+  const bool remainingOk = readBatteryWord(BQ27220_REMAINING_CAPACITY_REG, remaining);
+  const bool fullOk = readBatteryWord(BQ27220_FULL_CHARGE_CAPACITY_REG, full);
+  const unsigned valid = voltageOk | (currentOk << 1) | (remainingOk << 2) | (fullOk << 3);
+  // Use a value outside signed 16-bit range for an unavailable current.
+  const int signedCurrent = currentOk ? (current >= 0x8000 ? static_cast<int>(current) - 0x10000 : current) : -32769;
+  LOG_INF("BAT",
+          "X3 %s poll_ms=%lu old_soc=%d soc=%u voltage_mV=%d current_mA=%d remaining_mAh=%d full_mAh=%d "
+          "valid=0x%X read_ms=%lu",
+          jump ? "SOC_JUMP" : "SAMPLE", pollMs, oldSoc, static_cast<unsigned>(soc),
+          voltageOk ? static_cast<int>(voltage) : -1, signedCurrent, remainingOk ? static_cast<int>(remaining) : -1,
+          fullOk ? static_cast<int>(full) : -1, valid, millis() - pollMs);
+}
+}  // namespace
+#endif
+
 HalPowerManager powerManager;  // Singleton instance
 
 void HalPowerManager::begin() {
@@ -78,6 +121,27 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool useFullPowerOff) const 
   // FreeInkのレール停止を実行する。
   if (useFullPowerOff) {
     freeink::PowerManager::powerDownRailsForSleep();
+#if FREEINK_MCU_C3
+    if (gpio.deviceIsX4()) {
+      // The C3 X4's GPIO13 is a battery-hold latch, not a peripheral rail.
+      // BoardConfig asserts it HIGH at boot, while powerDownRailsForSleep()
+      // intentionally handles only display/SD/touch/mic enables. Release the
+      // latch here for the RTC-off full-power-off path; otherwise the X4 stays
+      // powered in ESP deep sleep and can lose substantial charge overnight.
+      const int8_t latch = BoardConfig::ACTIVE.power.latch0;
+      if (latch >= 0 && !BoardConfig::latchConflictsWithBus(latch)) {
+        const auto latchGpio = static_cast<gpio_num_t>(latch);
+        gpio_hold_dis(latchGpio);
+        pinMode(latch, OUTPUT);
+        digitalWrite(latch, LOW);
+        gpio_hold_en(latchGpio);
+        LOG_INF("PWR", "X4 battery latch released on GPIO%d", latch);
+        delay(20);
+      } else {
+        LOG_ERR("PWR", "X4 battery latch unavailable; using deep sleep");
+      }
+    }
+#endif
   }
 
   // The SDK uses the active BoardConfig profile for both the power button and
@@ -96,20 +160,19 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
       return _batteryCachedPercent;
     }
 
-    Wire.beginTransmission(I2C_ADDR_BQ27220);
-    Wire.write(BQ27220_SOC_REG);
-    if (Wire.endTransmission(false) != 0) {
+    uint16_t soc = 0;
+    if (!readBatteryWord(BQ27220_SOC_REG, soc)) {
+      LOG_DBG("BAT", "X3 SOC_READ_FAILED poll_ms=%lu cached_percent=%d", now, _batteryCachedPercent);
       _batteryLastPollMs = now;
       return _batteryCachedPercent;
     }
-    Wire.requestFrom(I2C_ADDR_BQ27220, static_cast<uint8_t>(2));
-    if (Wire.available() < 2) {
-      _batteryLastPollMs = now;
-      return _batteryCachedPercent;
+    const int delta = static_cast<int>(soc) - static_cast<int>(_batteryLastRawSoc);
+    const bool jump = _batterySocValid && (delta >= BATTERY_SOC_JUMP_THRESHOLD || delta <= -BATTERY_SOC_JUMP_THRESHOLD);
+    if (jump || X3_BATTERY_DIAGNOSTICS) {
+      logBatterySample(now, _batterySocValid ? static_cast<int>(_batteryLastRawSoc) : -1, soc, jump);
     }
-    const uint8_t lo = Wire.read();
-    const uint8_t hi = Wire.read();
-    const uint16_t soc = (hi << 8) | lo;
+    _batteryLastRawSoc = soc;
+    _batterySocValid = true;
     _batteryCachedPercent = soc > 100 ? 100 : soc;
     _batteryLastPollMs = now;
     return _batteryCachedPercent;

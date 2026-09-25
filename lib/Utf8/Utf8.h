@@ -5,10 +5,16 @@
 #define REPLACEMENT_GLYPH 0xFFFD
 
 uint32_t utf8NextCodepoint(const unsigned char** string);
+// Appends a Unicode codepoint to a std::string in UTF-8 encoding.
+void utf8AppendCodepoint(uint32_t cp, std::string& out);
 // Remove the last UTF-8 codepoint from a std::string and return the new size.
 size_t utf8RemoveLastChar(std::string& str);
 // Truncate string by removing N UTF-8 codepoints from the end.
 void utf8TruncateChars(std::string& str, size_t numChars);
+
+// Canonical composition for Latin and Vietnamese text. Device fonts do not
+// position standalone combining marks, so compose them before layout.
+std::string utf8ComposeNfc(const std::string& in);
 
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the

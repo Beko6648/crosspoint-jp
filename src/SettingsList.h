@@ -126,7 +126,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       SettingInfo::Enum(StrId::STR_COLOR_MODE, &CrossPointSettings::colorMode, {StrId::STR_LIGHT, StrId::STR_DARK},
                         "colorMode", StrId::STR_CAT_DISPLAY),
       SettingInfo::Enum(StrId::STR_UI_ORIENTATION, &CrossPointSettings::uiOrientation,
-                        {StrId::STR_PORTRAIT, StrId::STR_INVERTED}, "uiOrientation", StrId::STR_CAT_DISPLAY),
+                        {StrId::STR_PORTRAIT, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CW, StrId::STR_LANDSCAPE_CCW,
+                         StrId::STR_FOLLOW_READER_ORIENTATION},
+                        "uiOrientation", StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---
       SettingInfo::Enum(StrId::STR_BOOK_STYLE, &CrossPointSettings::embeddedStyle,
@@ -188,9 +190,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   if (halTiltSensor.isAvailable()) {
     for (auto it = v.begin(); it != v.end(); ++it) {
       if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
-        v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                                           {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
-                                           "tiltPageTurn", StrId::STR_CAT_CONTROLS));
+        const auto insertIndex = static_cast<size_t>(std::distance(v.begin(), it)) + 1;
+        v.insert(v.begin() + insertIndex,
+                 SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
+                                   {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED}, "tiltPageTurn",
+                                   StrId::STR_CAT_CONTROLS));
         break;
       }
     }

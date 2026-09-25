@@ -3,30 +3,41 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
+
+namespace {
+constexpr int kTitleY = 15;
+constexpr int kListY = 60;
+constexpr int kLineHeight = 30;
+}  // namespace
 
 int EpubReaderChapterSelectionActivity::getTotalItems() const { return epub->getTocItemsCount(); }
 
 int EpubReaderChapterSelectionActivity::getPageItems() const {
-  // Layout constants used in renderScreen
-  constexpr int lineHeight = 30;
-
-  const int screenHeight = renderer.getScreenHeight();
-  const auto orientation = renderer.getOrientation();
-  // In inverted portrait, the button hints are drawn near the logical top.
-  // Reserve vertical space so list items do not collide with the hints.
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int startY = 60 + hintGutterHeight;
-  const int availableHeight = screenHeight - startY - lineHeight;
-  // Clamp to at least one item to avoid division by zero and empty paging.
-  return std::max(1, availableHeight / lineHeight);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int listTop = layout.content.y + kListY + topHintGutter;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int listBottom = layout.content.y + layout.content.height - bottomHints;
+  return std::max(1, (listBottom - listTop) / kLineHeight);
 }
 
 void EpubReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
+
+  // A per-book orientation can differ from the persisted global reader
+  // orientation. ActivityManager applies the global value before onEnter(),
+  // so restore the orientation captured from the active reader.
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
 
   if (!epub) {
     return;
@@ -89,46 +100,37 @@ void EpubReaderChapterSelectionActivity::loop() {
 void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto orientation = renderer.getOrientation();
-  // Landscape orientation: reserve a horizontal gutter for button hints.
-  const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
-  const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  // Inverted portrait: reserve vertical space for hints at the top.
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  constexpr int landscapeHintGutterWidth = 100;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
-  // Landscape CW places hints on the left edge; CCW keeps them on the right.
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int contentY = hintGutterHeight;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int titleY = layout.content.y + kTitleY + topHintGutter;
+  const int listY = layout.content.y + kListY + topHintGutter;
   const int pageItems = getPageItems();
   const int totalItems = getTotalItems();
 
-  // Manual centering to honor content gutters.
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_SELECT_CHAPTER), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_SELECT_CHAPTER), true, EpdFontFamily::BOLD);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, titleY, tr(STR_SELECT_CHAPTER), true, centerOffset,
+                                  EpdFontFamily::BOLD);
 
   const auto pageStartIndex = selectorIndex / pageItems * pageItems;
-  // Highlight only the content area, not the hint gutters.
-  renderer.fillRect(contentX, 60 + contentY + (selectorIndex % pageItems) * 30 - 2, contentWidth - 1, 30);
+  renderer.fillRect(layout.content.x, listY + (selectorIndex % pageItems) * kLineHeight - 2, layout.content.width - 1,
+                    kLineHeight);
 
   for (int i = 0; i < pageItems; i++) {
     int itemIndex = pageStartIndex + i;
     if (itemIndex >= totalItems) break;
-    const int displayY = 60 + contentY + i * 30;
+    const int displayY = listY + i * kLineHeight;
     const bool isSelected = (itemIndex == selectorIndex);
 
     auto item = epub->getTocItem(itemIndex);
 
-    // Indent per TOC level while keeping content within the gutter-safe region.
-    const int indentSize = contentX + 20 + (item.level - 1) * 15;
-    const std::string chapterName =
-        renderer.truncatedText(UI_10_FONT_ID, item.title.c_str(), contentWidth - 40 - indentSize);
+    const int indent = 20 + std::max(0, item.level - 1) * 15;
+    const int textX = layout.content.x + indent;
+    const int maxWidth = std::max(1, layout.content.width - indent - 20);
+    const std::string chapterName = renderer.truncatedText(UI_10_FONT_ID, item.title.c_str(), maxWidth);
 
-    renderer.drawText(UI_10_FONT_ID, indentSize, displayY, chapterName.c_str(), !isSelected);
+    renderer.drawText(UI_10_FONT_ID, textX, displayY, chapterName.c_str(), !isSelected);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

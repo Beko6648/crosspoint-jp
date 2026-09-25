@@ -26,6 +26,7 @@ enum class SettingAction {
   HorizontalSettings,
   VerticalSettings,
   Diagnostics,
+  TiltDiagnostics,
   ReaderProfiles,
   SettingsBackup,
   ReaderTestView,
@@ -160,6 +161,7 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> readerSettings;
   std::vector<SettingInfo> controlsSettings;
   std::vector<SettingInfo> systemSettings;
+  std::vector<SettingInfo> managementSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
   const std::function<void()> onGoHome;
@@ -168,7 +170,7 @@ class SettingsActivity final : public Activity {
   bool skipNextButtonCheck = false;
   bool editingValue = false;
 
-  static constexpr int MAX_CATEGORIES = 4;
+  static constexpr int MAX_CATEGORIES = 5;
   static const StrId categoryNames[MAX_CATEGORIES];
   int categoryCount = MAX_CATEGORIES;
 
@@ -190,4 +192,5 @@ class SettingsActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 };

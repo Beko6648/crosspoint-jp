@@ -14,6 +14,7 @@ class ClearCacheActivity final : public Activity {
   void loop() override;
   bool skipLoopDelay() override { return true; }  // Prevent power-saving mode
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 
  private:
   enum State { WARNING, CLEARING, SUCCESS, FAILED };

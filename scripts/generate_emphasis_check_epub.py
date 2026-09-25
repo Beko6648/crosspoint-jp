@@ -8,6 +8,13 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
+    ('Issue 41 ルビと圏点の範囲', '''<p><ruby>春風<rt>はるかぜ</rt></ruby>を待つ。</p>
+<p><span class="sesame">春風</span>を待つ。</p>
+<p><ruby>春風<rt>はるかぜ</rt></ruby>と<span class="sesame">光</span>。</p>
+<p><span class="sesame">光</span>と<ruby>春風<rt>はるかぜ</rt></ruby>。</p>
+<p><ruby class="sesame">春風<rt>はるかぜ</rt></ruby>を待つ。</p>
+<p><ruby>春<span class="sesame">風</span><rt>はるかぜ</rt></ruby>を待つ。</p>
+<p>別の文字の圏点ではルビの位置が変わらず、同じ親文字の圏点だけルビを外へ押し出します。</p>'''),
     ('確認方法', '''<p>圏点の表示確認用に作成した文章です。書籍のスタイルを有効にして確認してください。</p>
 <p>縦書きは本文の右、横書きは本文の上に圏点が出ます。黒と白の違いを確認してください。</p>
 <p>ルビを無効にしても圏点は残ります。ルビと圏点がある場合、ルビは圏点より外側に出ます。</p>

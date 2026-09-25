@@ -12,10 +12,13 @@
 #include <vector>
 
 #include "BookIdentity.h"
+#include "BookmarkEntry.h"
 #include "Epub.h"
+#include "JsonSettingsIO.h"
 #include "ReadingHistoryStore.h"
 #include "activities/reader/ProgressFile.h"
 #include "util/BookDataPath.h"
+#include "util/BookmarkUtil.h"
 
 namespace {
 
@@ -45,24 +48,41 @@ bool getCacheEntryName(const std::string& filepath, std::string& entryName, bool
   return true;
 }
 
-ReadingStatus readProgress(const std::string& progressPath, bool isEpub) {
-  if (!Storage.exists(progressPath.c_str())) return ReadingStatus::Unread;
+ReadingProgress readProgress(const std::string& progressPath, bool isEpub) {
+  ReadingProgress result;
+  if (!Storage.exists(progressPath.c_str())) return result;
 
   FsFile file;
   if (!Storage.openFileForRead("RSH", progressPath, file)) {
-    return ReadingStatus::Unread;
+    return result;
   }
 
-  uint8_t data[7];
+  uint8_t data[8];
   const int bytesRead = file.read(data, sizeof(data));
   file.close();
 
   if (bytesRead <= 0) {
-    return ReadingStatus::Unread;
+    return result;
   }
 
   const int flagOffset = isEpub ? 6 : 4;
-  return bytesRead > flagOffset && data[flagOffset] == 1 ? ReadingStatus::Finished : ReadingStatus::Reading;
+  const int percentOffset = isEpub ? 7 : 5;
+  result.status = bytesRead > flagOffset && data[flagOffset] == 1 ? ReadingStatus::Finished : ReadingStatus::Reading;
+  if (bytesRead > percentOffset && data[percentOffset] <= 100) {
+    result.percent = data[percentOffset];
+  } else if (result.status == ReadingStatus::Finished) {
+    result.percent = 100;
+  }
+  return result;
+}
+
+bool bookmarkFileHasEntries(const std::string& path) {
+  BookmarkUtil::recoverBookmarkFile(path);
+  if (!Storage.exists(path.c_str())) return false;
+  const String json = Storage.readFile(path.c_str());
+  if (json.isEmpty()) return false;
+  std::vector<BookmarkEntry> bookmarks;
+  return JsonSettingsIO::loadBookmarks(bookmarks, json.c_str(), 1) && !bookmarks.empty();
 }
 
 bool isValidReadingStatus(const uint8_t value) { return value <= static_cast<uint8_t>(ReadingStatus::Finished); }
@@ -236,23 +256,51 @@ bool saveBookListStatusIndex(const std::string& cacheDir, const std::vector<Book
 ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir, const uint64_t bookId) {
   std::string cacheEntryName;
   bool isEpub;
-  if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) {
-    return ReadingStatus::Unread;
-  }
+  if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) return ReadingStatus::Unread;
 
   if (isEpub) {
-    // Recent/history records created before BookId support have no stored ID.
-    // The path index is a cheap bridge in that case; it lets those records
-    // find their canonical progress without opening the EPUB on the Home UI.
     uint64_t resolvedBookId = bookId;
     if (resolvedBookId == 0) BookIdentity::getLastArchiveId(filepath, resolvedBookId);
     if (resolvedBookId != 0) {
       const std::string canonicalPath = BookDataPath::getProgressPath(resolvedBookId);
-      if (Storage.exists(canonicalPath.c_str())) return readProgress(canonicalPath, true);
+      if (Storage.exists(canonicalPath.c_str())) return readProgress(canonicalPath, true).status;
     }
   }
 
-  return readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub);
+  return readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub).status;
+}
+
+ReadingProgress getReadingProgress(const std::string& filepath, const std::string& cacheDir, const uint64_t bookId) {
+  std::string cacheEntryName;
+  bool isEpub;
+  if (!getCacheEntryName(filepath, cacheEntryName, isEpub)) {
+    return {};
+  }
+
+  ReadingProgress result;
+  uint64_t resolvedBookId = bookId;
+  if (isEpub) {
+    // Recent/history records created before BookId support have no stored ID.
+    // The path index is a cheap bridge in that case; it lets those records
+    // find their canonical progress without opening the EPUB on the Home UI.
+    if (resolvedBookId == 0) BookIdentity::getLastArchiveId(filepath, resolvedBookId);
+    if (resolvedBookId != 0) {
+      const std::string canonicalPath = BookDataPath::getProgressPath(resolvedBookId);
+      if (Storage.exists(canonicalPath.c_str())) {
+        result = readProgress(canonicalPath, true);
+      } else {
+        result = readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", true);
+      }
+      result.hasBookmarks = bookmarkFileHasEntries(BookDataPath::getBookmarkPath(resolvedBookId));
+      if (!result.hasBookmarks) result.hasBookmarks = bookmarkFileHasEntries(BookmarkUtil::getBookmarkPath(filepath));
+      return result;
+    }
+    result.hasBookmarks = bookmarkFileHasEntries(BookmarkUtil::getBookmarkPath(filepath));
+  }
+
+  ReadingProgress progress = readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub);
+  progress.hasBookmarks = result.hasBookmarks;
+  return progress;
 }
 
 void getReadingStatusCacheEntries(const std::string& cacheDir, std::vector<std::string>& cacheEntries) {
@@ -300,7 +348,7 @@ bool getReadingStatusFromCacheEntries(const std::string& filepath, const std::st
     return false;
   }
 
-  status = readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub);
+  status = readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", isEpub).status;
   return true;
 }
 
@@ -355,12 +403,13 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   const bool hasBookId = isEpub && Epub(filepath, cacheDir).getSourceFingerprint(&bookId);
   const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId) : legacyProgressPath;
 
-  // EPUB=7, XTC/TXT=5
-  const size_t recordSize = isEpub ? 7 : 5;
+  // Append a whole-book percentage while retaining the existing offsets.
+  const size_t recordSize = isEpub ? 8 : 6;
   const size_t flagOffset = isEpub ? 6 : 4;
+  const size_t percentOffset = isEpub ? 7 : 5;
 
   // 既存progress.binを読み込んで読書位置を保持する（なければゼロ初期化）
-  uint8_t data[7] = {0};
+  uint8_t data[8] = {0};
   const std::string sourcePath = Storage.exists(progressPath.c_str()) ? progressPath : legacyProgressPath;
   FsFile rf;
   if (Storage.openFileForRead("RSH", sourcePath, rf)) {
@@ -368,6 +417,7 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
     rf.close();
   }
   data[flagOffset] = 1;
+  data[percentOffset] = 100;
 
   if (hasBookId && (!BookDataPath::ensureDirectory(bookId) || !BookIdentity::recordArchiveId(filepath, bookId)))
     return false;

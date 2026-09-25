@@ -12,6 +12,7 @@
 #include "I18n.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
+#include "components/icons/bookmark24.h"
 #include "fontIds.h"
 
 // Internal constants
@@ -158,6 +159,7 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
                            orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   if (isLandscape) {
     const int buttonLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise ? 0 : pageWidth - buttonWidth;
+    const int innerEdge = buttonLeft == 0 ? buttonLeft + buttonWidth - 1 : buttonLeft;
     if (orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
       std::swap(labels[0], labels[3]);
       std::swap(labels[1], labels[2]);
@@ -166,7 +168,9 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       if (labels[i] != nullptr && labels[i][0] != '\0') {
         const int y = buttonPositions[i];
         renderer.fillRect(buttonLeft, y, buttonWidth, buttonHeight, false);
-        renderer.drawRect(buttonLeft, y, buttonWidth, buttonHeight);
+        renderer.fillRect(buttonLeft, y, buttonWidth, 1, true);
+        renderer.fillRect(buttonLeft, y + buttonHeight - 1, buttonWidth, 1, true);
+        renderer.fillRect(innerEdge, y, 1, buttonHeight, true);
         const auto label = renderer.truncatedText(UI_10_FONT_ID, labels[i], buttonWidth - 10);
         const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
         renderer.drawText(UI_10_FONT_ID, buttonLeft + (buttonWidth - textWidth) / 2, y + textYOffset, label.c_str());
@@ -200,19 +204,46 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   const auto orientation = renderer.getOrientation();
   if (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
       orientation == GfxRenderer::Orientation::LandscapeCounterClockwise) {
+    if (!gpio.deviceIsX3()) {
+      constexpr int landscapeButtonHeight = BaseMetrics::values.sideButtonHintsWidth;
+      constexpr int landscapeButtonWidth = 80;
+      const int groupWidth = landscapeButtonWidth * 2;
+      const int x = (screenWidth - groupWidth) / 2;
+      const int y =
+          orientation == GfxRenderer::Orientation::LandscapeClockwise ? screenHeight - landscapeButtonHeight : 0;
+      const bool openTop = y == 0;
+      const char* labels[] = {topBtn, bottomBtn};
+      for (int i = 0; i < 2; ++i) {
+        if (labels[i] == nullptr || labels[i][0] == '\0') continue;
+        const int buttonX = x + i * landscapeButtonWidth;
+        renderer.drawLine(buttonX, y, buttonX, y + landscapeButtonHeight - 1);
+        renderer.drawLine(buttonX + landscapeButtonWidth - 1, y, buttonX + landscapeButtonWidth - 1,
+                          y + landscapeButtonHeight - 1);
+        const int horizontalY = openTop ? y + landscapeButtonHeight - 1 : y;
+        renderer.drawLine(buttonX, horizontalY, buttonX + landscapeButtonWidth - 1, horizontalY);
+        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+        const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
+        renderer.drawText(SMALL_FONT_ID, buttonX + (landscapeButtonWidth - textWidth) / 2,
+                          y + (landscapeButtonHeight - textHeight) / 2, labels[i]);
+      }
+      return;
+    }
     // In landscape the front-button hints occupy one vertical edge.  Keep the
     // side-button hints on the opposite edge so six ruby-adjust controls never overlap.
     const bool frontHintsOnLeft = orientation == GfxRenderer::Orientation::LandscapeClockwise;
     // Japanese labels such as "縦−" need more room than the narrow portrait
     // side-button strip provides.
     constexpr int landscapeButtonWidth = 54;
-    const int x = frontHintsOnLeft ? screenWidth - buttonMargin - landscapeButtonWidth : buttonMargin;
+    const int x = frontHintsOnLeft ? screenWidth - landscapeButtonWidth : 0;
+    const int innerEdge = x == 0 ? x + landscapeButtonWidth - 1 : x;
     const int y = (screenHeight - buttonHeight * 2) / 2;
     const char* labels[] = {topBtn, bottomBtn};
     for (int i = 0; i < 2; ++i) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
         const int buttonY = y + i * buttonHeight;
-        renderer.drawRect(x, buttonY, landscapeButtonWidth, buttonHeight);
+        renderer.drawLine(x, buttonY, x + landscapeButtonWidth - 1, buttonY);
+        renderer.drawLine(x, buttonY + buttonHeight - 1, x + landscapeButtonWidth - 1, buttonY + buttonHeight - 1);
+        renderer.drawLine(innerEdge, buttonY, innerEdge, buttonY + buttonHeight - 1);
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         const int textHeight = renderer.getTextHeight(SMALL_FONT_ID);
         renderer.drawText(SMALL_FONT_ID, x + (landscapeButtonWidth - textWidth) / 2,
@@ -224,7 +255,7 @@ void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 
   if (gpio.deviceIsX3()) {
     // X3 layout: Up on left side, Down on right side, positioned higher
-    constexpr int x3ButtonY = 155;
+    const int x3ButtonY = orientation == GfxRenderer::Orientation::PortraitInverted ? 205 : 155;
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
       const int leftX = buttonMargin;
@@ -464,11 +495,24 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 
 // Draw the "Recent Book" cover card on the home screen
 // TODO: Refactor method to make it cleaner, split into smaller methods
+int BaseTheme::getHomeRecentBooksCount(const GfxRenderer& /*renderer*/) const {
+  return UITheme::getInstance().getMetrics().homeRecentBooksCount;
+}
+
+int BaseTheme::getHomeCoverHeight(const GfxRenderer& /*renderer*/) const {
+  return UITheme::getInstance().getMetrics().homeCoverHeight;
+}
+
+int BaseTheme::getHomePortraitMenuTop(const GfxRenderer& /*renderer*/) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing;
+}
+
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                    const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                     std::function<bool()> storeCoverBuffer) const {
-  (void)bookStatuses;
+  (void)bookProgress;
   const bool hasContinueReading = !recentBooks.empty();
   const bool bookSelected = hasContinueReading && selectorIndex == 0;
 
@@ -511,13 +555,19 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   }
 
   if (!hasCoverImage) {
-    // No cover: use half screen size
-    bookWidth = rect.width / 2;
+    // No cover: use a stable book-like aspect ratio instead of stretching to
+    // half of the available landscape column.
+    bookWidth = std::min(baseHeight * 2 / 3, static_cast<int>(rect.width * 0.9f));
   }
 
   bookX = rect.x + (rect.width - bookWidth) / 2;
   const int bookY = rect.y;
   const int bookHeight = baseHeight;
+  const auto drawCenteredInBook = [&renderer, bookX, bookWidth](const int fontId, const int y, const char* text,
+                                                                const bool color = true) {
+    const int textWidth = renderer.getTextWidth(fontId, text);
+    renderer.drawText(fontId, bookX + (bookWidth - textWidth) / 2, y, text, color);
+  };
 
   // Bookmark dimensions (used in multiple places)
   const int bookmarkWidth = bookWidth / 8;
@@ -666,7 +716,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
       const int boxWidth = maxTextWidth + boxPadding * 2;
       const int boxHeight = totalTextHeight + boxPadding * 2;
-      const int boxX = rect.x + (rect.width - boxWidth) / 2;
+      const int boxX = bookX + (bookWidth - boxWidth) / 2;
       const int boxY = titleYStart - boxPadding;
 
       // Draw box (inverted when selected: black box instead of white)
@@ -676,13 +726,13 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     for (const auto& line : lines) {
-      renderer.drawCenteredText(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected);
+      drawCenteredInBook(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected);
       titleYStart += renderer.getLineHeight(UI_12_FONT_ID);
     }
 
     if (!truncatedAuthor.empty()) {
       titleYStart += renderer.getLineHeight(UI_10_FONT_ID) / 2;
-      renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, truncatedAuthor.c_str(), !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, titleYStart, truncatedAuthor.c_str(), !bookSelected);
     }
 
     // "Continue Reading" label at the bottom
@@ -694,20 +744,20 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       constexpr int continuePadding = 6;
       const int continueBoxWidth = continueTextWidth + continuePadding * 2;
       const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
-      const int continueBoxX = rect.x + (rect.width - continueBoxWidth) / 2;
+      const int continueBoxX = bookX + (bookWidth - continueBoxWidth) / 2;
       const int continueBoxY = continueY - continuePadding / 2;
       renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
       renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, continueY, continueText, !bookSelected);
     } else {
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);
+      drawCenteredInBook(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);
     }
   } else {
     // No book to continue reading
     const int y =
         bookY + (bookHeight - renderer.getLineHeight(UI_12_FONT_ID) - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-    renderer.drawCenteredText(UI_12_FONT_ID, y, "No open book");
-    renderer.drawCenteredText(UI_10_FONT_ID, y + renderer.getLineHeight(UI_12_FONT_ID), "Start reading below");
+    drawCenteredInBook(UI_12_FONT_ID, y, "No open book");
+    drawCenteredInBook(UI_10_FONT_ID, y + renderer.getLineHeight(UI_12_FONT_ID), "Start reading below");
   }
 }
 
@@ -814,11 +864,14 @@ void BaseTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& lay
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool rtlProgress, const bool isPageBookmarked) const {
+                              const bool rtlProgress, const bool isPageBookmarked, const int previewInsetLeft,
+                              const int previewInsetRight) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
+  orientedMarginLeft += previewInsetLeft;
+  orientedMarginRight += previewInsetRight;
 
   // Draw Progress Text
   const auto screenHeight = renderer.getScreenHeight();
@@ -880,15 +933,12 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                         showBatteryPercentage);
   }
 
-  // Keep the bookmark mark deliberately simple so it also works with every
-  // orientation and does not consume a font glyph.
-  const int bookmarkWidth = 8;
+  constexpr int bookmarkSize = 16;
+  const int bookmarkWidth = bookmarkSize;
   if (isPageBookmarked) {
     constexpr int bookmarkGap = 6;
     const int x = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + batteryClusterWidth + bookmarkGap;
-    renderer.drawRect(x, textY, bookmarkWidth, 12);
-    renderer.drawLine(x, textY + 11, x + bookmarkWidth / 2, textY + 7);
-    renderer.drawLine(x + bookmarkWidth, textY + 11, x + bookmarkWidth / 2, textY + 7);
+    renderer.drawIcon(Bookmark16Icon, x, textY - 2, bookmarkSize, bookmarkSize);
   }
 
   // Draw Title

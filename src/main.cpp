@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <BatteryMonitor.h>
 #include <BoardConfig.h>
 #include <Epub.h>
 #include <Epub/blocks/TextBlock.h>
@@ -22,6 +23,8 @@
 #include <esp_task_wdt.h>
 #include <sys/time.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -34,6 +37,9 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#ifdef SIMULATOR
+#include "activities/settings/SettingsActivity.h"
+#endif
 #ifdef GRAYSCALE_TEST_MODE
 #include "activities/util/GrayscaleTestActivity.h"
 #endif
@@ -54,6 +60,9 @@ SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 
 void logX3DisplayProbeDiag() {
+#ifdef SIMULATOR
+  return;
+#else
   if (!gpio.deviceIsX3()) return;
 
   const auto& diag = freeink::getXteinkDisplayProbeDiag();
@@ -75,6 +84,7 @@ void logX3DisplayProbeDiag() {
     LOG_INF("XTDET", "MTP key=%02X product=%02X %02X %02X LUT=%02X %02X %02X %02X", diag.mtp[0], diag.mtp[0x17],
             diag.mtp[0x18], diag.mtp[0x19], diag.mtp[0x1A], diag.mtp[0x1B], diag.mtp[0x1C], diag.mtp[0x1D]);
   }
+#endif
 }
 
 // Fonts
@@ -125,22 +135,40 @@ void waitForPowerRelease() {
   }
 }
 
+static const char* wakeupReasonName(const HalGPIO::WakeupReason reason) {
+  switch (reason) {
+    case HalGPIO::WakeupReason::PowerButton:
+      return "power_button";
+    case HalGPIO::WakeupReason::AfterFlash:
+      return "after_flash";
+    case HalGPIO::WakeupReason::AfterUSBPower:
+      return "after_usb";
+    case HalGPIO::WakeupReason::Other:
+    default:
+      return "other";
+  }
+}
+
 // デバッグ表示有効時、バッテリーログをSDカードに追記（/.crosspoint/power_log.txt）
-static void appendPowerLog(const char* event) {
+static void appendPowerLog(const char* event, const char* wakeReason = "-") {
   if (!SETTINGS.debugDisplay) return;
   const time_t now = time(nullptr);
   struct tm ti;
   localtime_r(&now, &ti);
 
-  // BQ27220から電圧(mV)と電流(mA)を読み取り（X3のみ）
-  uint16_t voltageMv = 0;
-  int16_t currentMa = 0;
+  int rawAdc = -1;
+  int voltageMv = -1;
+  int voltagePercent = -1;
+  int currentMa = -32769;
   if (gpio.deviceIsX3()) {
+    // BQ27220から電圧(mV)と電流(mA)を読み取り。
+    uint16_t gaugeVoltageMv = 0;
     Wire.beginTransmission(0x55);
     Wire.write(0x08);  // BQ27220_VOLT_REG
     if (Wire.endTransmission(false) == 0 &&
         Wire.requestFrom(static_cast<uint8_t>(0x55), static_cast<uint8_t>(2)) == 2) {
-      voltageMv = Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8);
+      gaugeVoltageMv = Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8);
+      voltageMv = gaugeVoltageMv;
     }
     Wire.beginTransmission(0x55);
     Wire.write(0x0C);  // BQ27220_CUR_REG
@@ -148,12 +176,25 @@ static void appendPowerLog(const char* event) {
         Wire.requestFrom(static_cast<uint8_t>(0x55), static_cast<uint8_t>(2)) == 2) {
       currentMa = static_cast<int16_t>(Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8));
     }
+  } else {
+    // X4 has no fuel gauge. Preserve both the raw ADC reading and calibrated
+    // battery voltage so percentage-table errors can be separated from real drain.
+    rawAdc = analogRead(BAT_GPIO0);
+    const BatteryMonitor battery;
+    voltageMv = battery.readMillivolts();
+    if (voltageMv > 0) voltagePercent = BatteryMonitor::percentageFromMillivolts(voltageMv);
   }
 
-  char line[128];
-  snprintf(line, sizeof(line), "%04d/%02d/%02d %02d:%02d:%02d %s %d%% %dmV %dmA RTC:%s\n", ti.tm_year + 1900,
-           ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, powerManager.getBatteryPercentage(),
-           voltageMv, currentMa, SETTINGS.rtcEnabled ? "ON" : "OFF");
+  const int displayedPercent = powerManager.getBatteryPercentage();
+  const bool usbConnected = gpio.isUsbConnected();
+  char line[256];
+  snprintf(line, sizeof(line),
+           "%04d/%02d/%02d %02d:%02d:%02d event=%s uptime_ms=%lu device=%s ui_pct=%d voltage_pct=%d "
+           "raw_adc=%d voltage_mV=%d current_mA=%d usb=%d wake=%s rtc=%s\n",
+           ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, millis(),
+           gpio.deviceIsX3() ? "X3" : "X4", displayedPercent, voltagePercent, rawAdc, voltageMv, currentMa,
+           usbConnected ? 1 : 0, wakeReason, SETTINGS.rtcEnabled ? "ON" : "OFF");
+  LOG_INF("BAT", "%s", line);
   auto file = Storage.open("/.crosspoint/power_log.txt", O_WRONLY | O_CREAT | O_APPEND);
   if (file) {
     file.write(line, strlen(line));
@@ -172,7 +213,9 @@ void enterDeepSleep() {
 
   // Native SDMMC boards must unmount and release their host before the sleep
   // power rails are isolated.  The SDK keeps this a no-op on X3/X4 SPI cards.
+#ifndef SIMULATOR
   Storage.shutdown();
+#endif
 
   halTiltSensor.deepSleep();
   display.deepSleep();
@@ -368,7 +411,38 @@ void setup() {
 
   SETTINGS.loadFromFile();
   I18N.loadSettings();
+#ifdef SIMULATOR
+  if (const char* language = std::getenv("CROSSPOINT_SIM_LANGUAGE")) {
+    if (std::strcmp(language, "ja") == 0) {
+      I18N.setLanguage(Language::JAPANESE);
+    } else if (std::strcmp(language, "en") == 0) {
+      I18N.setLanguage(Language::EN);
+    }
+  }
+#endif
   UITheme::getInstance().reload();
+#ifdef SIMULATOR
+  // Layout QA starts directly on Settings. Apply its requested orientation
+  // before SDL creates the window so screenshot dimensions are deterministic.
+  if (std::getenv("CROSSPOINT_SIM_SETTINGS_CATEGORY")) {
+    GfxRenderer::Orientation qaOrientation = GfxRenderer::Orientation::Portrait;
+    switch (static_cast<CrossPointSettings::UI_ORIENTATION>(SETTINGS.uiOrientation)) {
+      case CrossPointSettings::UI_ORIENTATION::UI_INVERTED:
+        qaOrientation = GfxRenderer::Orientation::PortraitInverted;
+        break;
+      case CrossPointSettings::UI_ORIENTATION::UI_LANDSCAPE_CW:
+        qaOrientation = GfxRenderer::Orientation::LandscapeCounterClockwise;
+        break;
+      case CrossPointSettings::UI_ORIENTATION::UI_LANDSCAPE_CCW:
+        qaOrientation = GfxRenderer::Orientation::LandscapeClockwise;
+        break;
+      default:
+        break;
+    }
+    renderer.setOrientation(qaOrientation);
+    mappedInputManager.setEffectiveOrientation(OrientationHelper::toInputOrientation(qaOrientation));
+  }
+#endif
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   // CJK: External font system
@@ -383,9 +457,14 @@ void setup() {
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
+#ifdef SIMULATOR
+      gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
+                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+#else
       gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                    SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
                                    !SETTINGS.rtcEnabled || !halRTC.isAvailable());
+#endif
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
@@ -445,11 +524,18 @@ void setup() {
     }
   }
 
-  appendPowerLog("WAKE ");
+  appendPowerLog("WAKE", wakeupReasonName(wakeupReason));
 
   RECENT_BOOKS.loadFromFile();
 
-  if (HalSystem::isRebootFromPanic()) {
+#ifdef SIMULATOR
+  if (const char* categoryValue = std::getenv("CROSSPOINT_SIM_SETTINGS_CATEGORY")) {
+    const int category = std::clamp(std::atoi(categoryValue), 0, 4);
+    activityManager.replaceActivity(
+        std::make_unique<SettingsActivity>(renderer, mappedInputManager, nullptr, category, 0));
+  } else
+#endif
+      if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||

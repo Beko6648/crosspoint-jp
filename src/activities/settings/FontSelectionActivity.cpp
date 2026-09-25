@@ -6,6 +6,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 FontSelectionActivity::FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -95,14 +96,20 @@ void FontSelectionActivity::handleSelection() {
 void FontSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FONT_FAMILY));
+  GUI.drawHeader(renderer,
+                 Rect{layout.content.x, layout.content.y + metrics.topPadding + topHintGutter, layout.content.width,
+                      metrics.headerHeight},
+                 tr(STR_FONT_FAMILY));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const int contentTop =
+      layout.content.y + metrics.topPadding + topHintGutter + metrics.headerHeight + metrics.verticalSpacing;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int contentHeight = layout.content.y + layout.content.height - contentTop - bottomHints;
 
   // Determine which font index is currently active (to mark as "Selected")
   int currentFontIndex = 0;
@@ -119,8 +126,9 @@ void FontSelectionActivity::render(RenderLock&&) {
   }
 
   GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(fonts_.size()), selectedIndex_,
-      [this](int index) { return fonts_[index].name; }, nullptr, nullptr,
+      renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight},
+      static_cast<int>(fonts_.size()), selectedIndex_, [this](int index) { return fonts_[index].name; }, nullptr,
+      nullptr,
       [this, currentFontIndex](int index) -> std::string { return index == currentFontIndex ? tr(STR_SELECTED) : ""; },
       true);
 

@@ -3,11 +3,14 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "BookReaderSettings.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/settings/ReaderTestViewActivity.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -197,23 +200,39 @@ void BookReaderSettingsActivity::loop() {
 
 void BookReaderSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const int width = renderer.getScreenWidth();
-  const int top = 15;
-  renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_BOOK_READER_SETTINGS), true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(UI_10_FONT_ID, top + 30, tr(STR_BOOK_SETTINGS_NOTE));
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int headerY = layout.content.y + metrics.topPadding + topHintGutter;
+  GUI.drawHeader(renderer, Rect{layout.content.x, headerY, layout.content.width, metrics.headerHeight},
+                 tr(STR_BOOK_READER_SETTINGS));
+
+  const int noteHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int noteY = headerY + metrics.headerHeight + metrics.verticalSpacing;
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  renderer.drawCenteredTextOffset(UI_10_FONT_ID, noteY, tr(STR_BOOK_SETTINGS_NOTE), true, centerOffset);
+
   const int visibleItemCount = itemCount();
-  for (int index = 0; index < visibleItemCount; ++index) {
-    const int y = top + 58 + index * 34;
-    const bool selected = index == selectedIndex;
-    if (selected) renderer.fillRect(0, y, width - 1, 34, true);
-    const Item item = itemAtIndex(index);
-    renderer.drawText(UI_10_FONT_ID, 20, y + 3, I18N.get(itemLabel(item)), !selected);
-    const char* state = item == Item::TestView
-                            ? tr(STR_BOOK_SETTINGS_PREVIEW)
-                            : (isOverridden(item) ? tr(STR_BOOK_SETTINGS_THIS_BOOK) : tr(STR_BOOK_SETTINGS_GLOBAL));
-    renderer.drawText(UI_10_FONT_ID, width - 95, y + 3, state, !selected);
-  }
-  if (resultText) renderer.drawCenteredText(UI_10_FONT_ID, top + 58 + visibleItemCount * 34, resultText);
+  const int listTop = noteY + noteHeight + metrics.verticalSpacing;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int resultHeight = resultText ? noteHeight + metrics.verticalSpacing : 0;
+  const int listBottom =
+      layout.content.y + layout.content.height - bottomHints - metrics.verticalSpacing - resultHeight;
+  GUI.drawList(
+      renderer, Rect{layout.content.x, listTop, layout.content.width, std::max(0, listBottom - listTop)},
+      visibleItemCount, selectedIndex,
+      [this](const int index) { return std::string(I18N.get(itemLabel(itemAtIndex(index)))); }, nullptr, nullptr,
+      [this](const int index) {
+        const Item item = itemAtIndex(index);
+        return std::string(item == Item::TestView
+                               ? tr(STR_BOOK_SETTINGS_PREVIEW)
+                               : (isOverridden(item) ? tr(STR_BOOK_SETTINGS_THIS_BOOK) : tr(STR_BOOK_SETTINGS_GLOBAL)));
+      },
+      false);
+  if (resultText)
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, listBottom + metrics.verticalSpacing, resultText, true,
+                                    centerOffset);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

@@ -3,8 +3,66 @@
 #include <I18n.h>
 
 #include "../../components/UITheme.h"
+#include "../../components/UiLayout.h"
 #include "../ActivityResult.h"
 #include "HalDisplay.h"
+#include "Utf8.h"
+
+namespace {
+
+bool isPreferredWrapBreak(const std::string& character) {
+  return character == " " || character == "\t" || character == "、" || character == "。" || character == "！" ||
+         character == "？";
+}
+
+void trimLeadingSpaces(std::string& text) {
+  while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.erase(text.begin());
+}
+
+std::vector<std::string> wrapConfirmationText(const GfxRenderer& renderer, const int fontId, const std::string& text,
+                                              const int maxWidth, const int maxLines) {
+  std::vector<std::string> lines;
+  std::string current;
+  size_t preferredBreak = std::string::npos;
+  const auto* cursor = reinterpret_cast<const unsigned char*>(text.c_str());
+
+  while (*cursor != '\0') {
+    const auto* characterStart = cursor;
+    utf8NextCodepoint(&cursor);
+    const std::string character(reinterpret_cast<const char*>(characterStart),
+                                static_cast<size_t>(cursor - characterStart));
+    if (character == "\n") {
+      if (!current.empty()) lines.push_back(current);
+      current.clear();
+      preferredBreak = std::string::npos;
+      continue;
+    }
+    const std::string candidate = current + character;
+    if (!current.empty() && renderer.getTextWidth(fontId, candidate.c_str(), EpdFontFamily::REGULAR) > maxWidth) {
+      if (preferredBreak != std::string::npos) {
+        lines.push_back(current.substr(0, preferredBreak));
+        current.erase(0, preferredBreak);
+        trimLeadingSpaces(current);
+      } else {
+        lines.push_back(current);
+        current.clear();
+      }
+      if (static_cast<int>(lines.size()) == maxLines - 1) {
+        const std::string remainder = current + character + reinterpret_cast<const char*>(cursor);
+        lines.push_back(renderer.truncatedText(fontId, remainder.c_str(), maxWidth, EpdFontFamily::REGULAR));
+        return lines;
+      }
+      preferredBreak = std::string::npos;
+    }
+    current += character;
+    if (isPreferredWrapBreak(character)) preferredBreak = current.size();
+  }
+
+  if (!current.empty() && static_cast<int>(lines.size()) < maxLines) lines.push_back(current);
+  return lines;
+}
+
+}  // namespace
 
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& heading, const std::string& body,
@@ -22,21 +80,23 @@ void ConfirmationActivity::onEnter() {
   Activity::onEnter();
 
   lineHeight = renderer.getLineHeight(fontId);
-  const int maxWidth = renderer.getScreenWidth() - (margin * 2);
+  const auto layout = UiLayout::from(renderer);
+  const int maxWidth = layout.content.width - (margin * 2);
 
   if (!heading.empty()) {
     safeHeading = renderer.truncatedText(fontId, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
   }
+  safeBodyLines.clear();
   if (!body.empty()) {
-    safeBody = renderer.truncatedText(fontId, body.c_str(), maxWidth, EpdFontFamily::REGULAR);
+    safeBodyLines = wrapConfirmationText(renderer, fontId, body, maxWidth, 6);
   }
 
   int totalHeight = 0;
   if (!safeHeading.empty()) totalHeight += lineHeight;
-  if (!safeBody.empty()) totalHeight += lineHeight;
-  if (!safeHeading.empty() && !safeBody.empty()) totalHeight += spacing;
+  if (!safeBodyLines.empty()) totalHeight += lineHeight * safeBodyLines.size();
+  if (!safeHeading.empty() && !safeBodyLines.empty()) totalHeight += spacing;
 
-  startY = (renderer.getScreenHeight() - totalHeight) / 2;
+  startY = layout.content.y + (layout.content.height - totalHeight) / 2;
 
   requestUpdate(true);
 }
@@ -46,15 +106,18 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 
   int currentY = startY;
   LOG_DBG("CONF", "currentY: %d", currentY);
+  const auto layout = UiLayout::from(renderer);
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
   // Draw Heading
   if (!safeHeading.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeHeading.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredTextOffset(fontId, currentY, safeHeading.c_str(), true, centerOffset, EpdFontFamily::BOLD);
     currentY += lineHeight + spacing;
   }
 
   // Draw Body
-  if (!safeBody.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeBody.c_str(), true, EpdFontFamily::REGULAR);
+  for (const auto& line : safeBodyLines) {
+    renderer.drawCenteredTextOffset(fontId, currentY, line.c_str(), true, centerOffset, EpdFontFamily::REGULAR);
+    currentY += lineHeight;
   }
 
   // Draw UI Elements

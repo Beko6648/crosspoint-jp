@@ -55,6 +55,7 @@ class GfxRenderer {
   mutable std::map<int, SdCardFont*> sdCardFonts_;
   mutable uint32_t sdCardAdvanceBuildCalls_ = 0;
   mutable uint32_t sdCardAdvanceBuildMs_ = 0;
+  mutable bool measureOnly_ = false;
   std::map<int, uint16_t> sdCardFontScales_;  // fontId → 8.8固定小数点スケール (256=1.0x)
 
   // Mutable because drawText() is const but needs to delegate scan-mode
@@ -269,6 +270,37 @@ class GfxRenderer {
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
+
+  void releaseFrameBufferForBuild();
+  bool restoreFrameBufferAfterBuild();
+  bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+
+  class FrameBufferLoan {
+   public:
+    explicit FrameBufferLoan(GfxRenderer& renderer);
+    ~FrameBufferLoan() { end(); }
+    void end();
+    FrameBufferLoan(const FrameBufferLoan&) = delete;
+    FrameBufferLoan& operator=(const FrameBufferLoan&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    bool active_ = false;
+  };
+
+  class MeasureOnlyScope {
+   public:
+    explicit MeasureOnlyScope(const GfxRenderer& renderer) : renderer_(renderer), previous_(renderer.measureOnly_) {
+      renderer_.measureOnly_ = true;
+    }
+    ~MeasureOnlyScope() { renderer_.measureOnly_ = previous_; }
+    MeasureOnlyScope(const MeasureOnlyScope&) = delete;
+    MeasureOnlyScope& operator=(const MeasureOnlyScope&) = delete;
+
+   private:
+    const GfxRenderer& renderer_;
+    bool previous_;
+  };
 
   // Low level functions
   uint8_t* getFrameBuffer() const;

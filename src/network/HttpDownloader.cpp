@@ -19,6 +19,16 @@
 int HttpDownloader::lastHttpCode = 0;
 
 namespace {
+#ifdef SIMULATOR
+using HttpResponseStream = Stream;
+constexpr int kHttpPartialContent = 206;
+bool responseConnected(HttpResponseStream&, HTTPClient& http) { return http.connected(); }
+#else
+using HttpResponseStream = NetworkClient;
+constexpr int kHttpPartialContent = HTTP_CODE_PARTIAL_CONTENT;
+bool responseConnected(HttpResponseStream& stream, HTTPClient&) { return stream.connected(); }
+#endif
+
 void logHttpFailure(const char* operation, const std::string& url, int errorCode) {
   const String localIp = WiFi.localIP().toString();
   const String errorText = HTTPClient::errorToString(errorCode);
@@ -78,7 +88,7 @@ class FileWriteStream final : public Stream {
 constexpr size_t HTTP_STREAM_BUFFER_SIZE = 512;
 constexpr unsigned long HTTP_STREAM_IDLE_TIMEOUT_MS = 30000;
 
-bool copyResponseBytes(NetworkClient& client, FileWriteStream& output, size_t remaining,
+bool copyResponseBytes(HttpResponseStream& client, HTTPClient& http, FileWriteStream& output, size_t remaining,
                        unsigned long streamIdleTimeoutMs) {
   uint8_t buffer[HTTP_STREAM_BUFFER_SIZE];
   unsigned long lastDataAt = millis();
@@ -90,7 +100,7 @@ bool copyResponseBytes(NetworkClient& client, FileWriteStream& output, size_t re
       // A TLS socket may report disconnected while it still has unread bytes
       // buffered locally. Check available() first; only fail once both the
       // buffer is empty and the connection has closed.
-      if (!client.connected()) {
+      if (!responseConnected(client, http)) {
         LOG_ERR("HTTP", "Response stream closed (remaining=%zu)", remaining);
         return false;
       }
@@ -119,7 +129,7 @@ bool copyResponseBytes(NetworkClient& client, FileWriteStream& output, size_t re
   return true;
 }
 
-bool readChunkSize(NetworkClient& client, size_t& chunkSize) {
+bool readChunkSize(HttpResponseStream& client, size_t& chunkSize) {
   char line[24] = {};
   size_t length = 0;
   while (length < sizeof(line) - 1) {
@@ -138,12 +148,12 @@ bool readChunkSize(NetworkClient& client, size_t& chunkSize) {
 }
 
 bool streamHttpResponse(HTTPClient& http, FileWriteStream& output, unsigned long streamIdleTimeoutMs) {
-  NetworkClient* client = http.getStreamPtr();
+  HttpResponseStream* client = http.getStreamPtr();
   if (!client) return false;
 
   const int64_t contentLength = http.getSize();
   if (contentLength >= 0) {
-    return copyResponseBytes(*client, output, static_cast<size_t>(contentLength), streamIdleTimeoutMs);
+    return copyResponseBytes(*client, http, output, static_cast<size_t>(contentLength), streamIdleTimeoutMs);
   }
 
   // HTTPClient normally allocates a 4 KB buffer to decode chunks. Keep the
@@ -152,7 +162,7 @@ bool streamHttpResponse(HTTPClient& http, FileWriteStream& output, unsigned long
     size_t chunkSize = 0;
     if (!readChunkSize(*client, chunkSize)) return false;
     if (chunkSize == 0) return true;
-    if (!copyResponseBytes(*client, output, chunkSize, streamIdleTimeoutMs)) return false;
+    if (!copyResponseBytes(*client, http, output, chunkSize, streamIdleTimeoutMs)) return false;
 
     uint8_t trailing[2] = {};
     if (client->readBytes(trailing, sizeof(trailing)) != sizeof(trailing) || trailing[0] != '\r' ||
@@ -248,7 +258,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
 
   // Read body in small chunks to avoid large single allocation.
   // TLS buffers (~40KB) are held during the connection, leaving limited heap.
-  NetworkClient* stream = http.getStreamPtr();
+  HttpResponseStream* stream = http.getStreamPtr();
   const int contentLen = http.getSize();
   outContent.clear();
   if (contentLen > 0) {
@@ -256,7 +266,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
   }
 
   char buf[512];
-  while (stream->available() || stream->connected()) {
+  while (stream->available() || responseConnected(*stream, http)) {
     int avail = stream->available();
     if (avail <= 0) {
       delay(1);
@@ -325,7 +335,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   const int httpCode = http.GET();
   lastHttpCode = httpCode;
-  const bool resuming = resumeRequested && httpCode == HTTP_CODE_PARTIAL_CONTENT;
+  const bool resuming = resumeRequested && httpCode == kHttpPartialContent;
   if (httpCode != HTTP_CODE_OK && !resuming) {
     logHttpFailure("Download", url, httpCode);
     http.end();

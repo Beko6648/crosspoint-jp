@@ -22,6 +22,7 @@
 #include "RecentBooksStore.h"
 #include "components/CacheStatusIcon.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -395,8 +396,13 @@ void FileBrowserActivity::loop() {
     return;
   }
 
-  const int pathReserved = renderer.getLineHeight(SMALL_FONT_ID) + UITheme::getInstance().getMetrics().verticalSpacing;
-  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, pathReserved);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const int pathReserved = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int contentHeight = renderer.getScreenHeight() - contentTop - bottomHints - pathReserved;
+  const int pageItems = std::max(1, contentHeight / metrics.listRowHeight);
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (lockNextConfirmRelease) {
@@ -657,20 +663,22 @@ void FileBrowserActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
 
   std::string folderName = (mode == Mode::PickFirmware)
                                ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
                                : ((basepath == "/") ? std::string(tr(STR_SD_CARD))
                                                     : basepath.substr(basepath.rfind('/') + 1));
   utf8NfcNormalizeKana(folderName);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 folderName.c_str());
   const unsigned long headerMs = millis() - renderStartedAt;
 
   const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight =
-      pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int contentHeight = pageHeight - contentTop - bottomHints - pathReserved;
   const bool hasFirmwareFile =
       mode != Mode::PickFirmware || std::any_of(files.begin(), files.end(), [](const std::string& entry) {
         return !entry.empty() && entry.back() != '/';
@@ -725,11 +733,11 @@ void FileBrowserActivity::render(RenderLock&&) {
   const unsigned long listStartedAt = millis();
   unsigned long filenameNormalizeUs = 0;
   if (files.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20,
+    renderer.drawText(UI_10_FONT_ID, layout.content.x + metrics.contentSidePadding, contentTop + 20,
                       mode == Mode::PickFirmware ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND));
   } else {
     GUI.drawList(
-        renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
+        renderer, Rect{layout.content.x, contentTop, layout.content.width, contentHeight}, files.size(), selectorIndex,
         [this, &filenameNormalizeUs](int index) {
           const unsigned long startedAt = micros();
           std::string filename = getFileName(files[index]);
@@ -757,7 +765,8 @@ void FileBrowserActivity::render(RenderLock&&) {
       const int pageStart = (selectorIndex / pageItems) * pageItems;
       // Keep the circle inside Lyra's rounded selection background and leave
       // a clear gap after the extension text.
-      const int iconCenterX = pageWidth - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
+      const int iconCenterX =
+          layout.content.x + layout.content.width - metrics.contentSidePadding - CACHE_STATUS_ICON_RADIUS - 10;
       for (int index = pageStart; index < static_cast<int>(files.size()) && index < pageStart + pageItems; ++index) {
         if (!FsHelpers::hasEpubExtension(files[index])) continue;
         const int iconCenterY = contentTop + (index - pageStart) * rowHeight + rowHeight / 2;
@@ -772,14 +781,14 @@ void FileBrowserActivity::render(RenderLock&&) {
   // Full path display
   const unsigned long footerStartedAt = millis();
   {
-    const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
+    const int pathY = pageHeight - bottomHints - pathLineHeight;
     const int separatorY = pathY - metrics.verticalSpacing / 2;
     if (!statusMessage.empty() || !hasFirmwareFile) {
       const char* message = statusMessage.empty() ? tr(STR_NO_BIN_FILES) : statusMessage.c_str();
       renderer.drawCenteredText(SMALL_FONT_ID, separatorY - pathLineHeight - 3, message, true);
     }
-    renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
-    const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+    renderer.drawLine(layout.content.x, separatorY, layout.content.x + layout.content.width - 1, separatorY, 3, true);
+    const int pathMaxWidth = layout.content.width - metrics.contentSidePadding * 2;
     // Left-truncate so the deepest directory is always visible
     const char* pathStr = basepath.c_str();
     const char* pathDisplay = pathStr;
@@ -798,7 +807,7 @@ void FileBrowserActivity::render(RenderLock&&) {
       snprintf(leftTruncBuf, sizeof(leftTruncBuf), "%s%s", ellipsis, p);
       pathDisplay = leftTruncBuf;
     }
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, pathDisplay);
+    renderer.drawText(SMALL_FONT_ID, layout.content.x + metrics.contentSidePadding, pathY, pathDisplay);
   }
 
   // Help text

@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -55,6 +56,9 @@ const char* deviceName() {
 std::string deviceDescription() { return std::string(deviceName()) + " (" + displayControllerName() + ")"; }
 
 const char* inputStyleName() {
+#ifdef SIMULATOR
+  return "simulated_buttons";
+#else
   switch (BoardConfig::ACTIVE.inputStyle) {
     case BoardConfig::InputStyle::XteinkAdcLadder:
       return "xteink_adc_ladder";
@@ -63,6 +67,7 @@ const char* inputStyleName() {
     default:
       return "other";
   }
+#endif
 }
 
 const char* sdTransportName() {
@@ -209,8 +214,13 @@ void DiagnosticsActivity::collectSnapshot() {
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
+#ifdef SIMULATOR
+  sdTotalBytes = 0;
+  sdUsedBytes = 0;
+#else
   sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
   sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
+#endif
   if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
   const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
   cacheDirectoryCount = cacheUsage.directoryCount;
@@ -243,6 +253,11 @@ void DiagnosticsActivity::collectSnapshot() {
 }
 
 bool DiagnosticsActivity::saveReport() {
+#ifdef SIMULATOR
+  // Report persistence depends on hardware-only storage and PSRAM metrics.
+  // The screen and its state transitions remain available for UI testing.
+  return false;
+#else
   if (!sdReady || !Storage.ensureDirectoryExists(kDiagnosticsDirectory)) return false;
 
   savedReportPath = makeReportPath();
@@ -294,6 +309,7 @@ bool DiagnosticsActivity::saveReport() {
   file.close();
   LOG_INF("DIAG", "Saved diagnostics report: %s", savedReportPath.c_str());
   return true;
+#endif
 }
 
 void DiagnosticsActivity::loop() {
@@ -388,13 +404,14 @@ void DiagnosticsActivity::renderDetails(const int x, int y, const int contentWid
 
 void DiagnosticsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int x = metrics.contentSidePadding;
-  const int contentWidth = pageWidth - 2 * x;
+  const auto layout = UiLayout::from(renderer);
+  const int x = layout.content.x + metrics.contentSidePadding;
+  const int contentWidth = layout.content.width - 2 * metrics.contentSidePadding;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DIAGNOSTICS));
+  GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                 tr(STR_DIAGNOSTICS));
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const char* pageTitle = page == Page::Overview ? tr(STR_DIAGNOSTICS_OVERVIEW)
                           : page == Page::Logs   ? tr(STR_DIAGNOSTICS_RECENT_LOGS)

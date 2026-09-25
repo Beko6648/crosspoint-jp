@@ -78,6 +78,11 @@ class ReadingHistoryStore {
   // The previous archive data is retained elsewhere during the 0.7.x period,
   // while history records are rewritten to the current archive identity.
   void migrateBookId(uint64_t previousBookId, uint64_t currentBookId);
+  // Remove one book from book-level history and rankings. Aggregate time and
+  // daily totals remain unchanged because older records are not book-attributed.
+  bool removeBook(const std::string& path, uint64_t bookId = 0);
+  // Remove all book-level and aggregate reading history.
+  bool clearAll();
   ReadingHistorySummary getSummary();
   const std::vector<ReadingHistoryBook>& getBooks();
 };

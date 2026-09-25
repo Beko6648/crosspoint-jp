@@ -14,8 +14,9 @@ output = root / 'build' / 'text_emphasis'
 output.mkdir(parents=True, exist_ok=True)
 exe = output / ('TextEmphasisTest.exe' if os.name == 'nt' else 'TextEmphasisTest')
 sources = ['test/text_emphasis/TextEmphasisTest.cpp', 'lib/Epub/Epub/blocks/TextBlockEmphasis.cpp',
+           'lib/Epub/Epub/blocks/TextBlock.cpp',
            'lib/Epub/Epub/css/CssParser.cpp', 'lib/Epub/Epub/css/CssSelectorUsage.cpp', 'lib/Utf8/Utf8.cpp']
-includes = ['test/text_emphasis/stubs', 'lib/Epub', 'lib/Utf8', 'lib/GfxRenderer']
+includes = ['test/text_emphasis/stubs', 'lib/Epub', 'lib/Utf8', 'lib/GfxRenderer', 'lib/Serialization']
 command = [args.compiler] + (['c++', '-Wno-nullability-completeness'] if args.zig else [])
 command += ['-std=c++20', '-O0', '-g']
 command += [f'-I{root / p}' for p in includes]

@@ -6,11 +6,15 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "components/UITheme.h"
+#include "components/UiLayout.h"
 #include "fontIds.h"
 
 void EpubReaderFootnotesActivity::onEnter() {
   Activity::onEnter();
+  renderer.setOrientation(readerOrientation);
+  mappedInput.setEffectiveOrientation(OrientationHelper::toInputOrientation(readerOrientation));
   selectedIndex = 0;
   requestUpdate();
 }
@@ -52,28 +56,19 @@ void EpubReaderFootnotesActivity::loop() {
 void EpubReaderFootnotesActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto orientation = renderer.getOrientation();
-  // Landscape orientation: reserve a horizontal gutter for button hints.
-  const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
-  const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  // Inverted portrait: reserve vertical space for hints at the top.
-  const bool isPortraitInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
-  constexpr int landscapeHintGutterWidth = 100;
-  const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? landscapeHintGutterWidth : 0;
-  // Landscape CW places hints on the left edge; CCW keeps them on the right.
-  const int contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int contentWidth = pageWidth - hintGutterWidth;
-  const int hintGutterHeight = isPortraitInverted ? 50 : 0;
-  const int contentY = hintGutterHeight;
-
-  // Manual centering to honor content gutters.
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_FOOTNOTES), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_FOOTNOTES), true, EpdFontFamily::BOLD);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto layout = UiLayout::from(renderer);
+  const bool portraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int topHintGutter = portraitInverted ? metrics.buttonHintsHeight + metrics.verticalSpacing : 0;
+  const int titleY = layout.content.y + 15 + topHintGutter;
+  const int listTop = layout.content.y + 60 + topHintGutter;
+  const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int listBottom = layout.content.y + layout.content.height - bottomHints;
+  const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+  renderer.drawCenteredTextOffset(UI_12_FONT_ID, titleY, tr(STR_FOOTNOTES), true, centerOffset, EpdFontFamily::BOLD);
 
   if (footnotes.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, 90 + contentY, tr(STR_NO_FOOTNOTES));
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, listTop + 30, tr(STR_NO_FOOTNOTES), true, centerOffset);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -81,19 +76,18 @@ void EpubReaderFootnotesActivity::render(RenderLock&&) {
   }
 
   constexpr int lineHeight = 36;
-  const int screenWidth = renderer.getScreenWidth();
-  const int marginLeft = contentX + 20;
+  const int marginLeft = layout.content.x + 20;
 
-  const int visibleCount = std::max(1, (renderer.getScreenHeight() - contentY) / lineHeight);
+  const int visibleCount = std::max(1, (listBottom - listTop) / lineHeight);
   if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
   if (selectedIndex >= scrollOffset + visibleCount) scrollOffset = selectedIndex - visibleCount + 1;
 
   for (int i = scrollOffset; i < static_cast<int>(footnotes.size()) && i < scrollOffset + visibleCount; i++) {
-    const int y = 60 + contentY + (i - scrollOffset) * lineHeight;
+    const int y = listTop + (i - scrollOffset) * lineHeight;
     const bool isSelected = (i == selectedIndex);
 
     if (isSelected) {
-      renderer.fillRect(0, y, screenWidth, lineHeight, true);
+      renderer.fillRect(layout.content.x, y, layout.content.width - 1, lineHeight, true);
     }
 
     // Show footnote number and abbreviated href

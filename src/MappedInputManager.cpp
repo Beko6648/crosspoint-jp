@@ -29,8 +29,12 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   const bool landscapeCW = effectiveOrientation == Orientation::LandscapeClockwise;
   const bool landscapeCCW = effectiveOrientation == Orientation::LandscapeCounterClockwise;
 
-  const ButtonIndex sideFirst = inverted ? sideHw.second : sideHw.first;
-  const ButtonIndex sideSecond = inverted ? sideHw.first : sideHw.second;
+  // Rotate the physical side-button pair so screen-up/left remains Previous
+  // and screen-down/right remains Next in landscape.
+  const bool reverseLandscapeSidePair = isX3 ? landscapeCCW : landscapeCW;
+  const bool reverseSidePair = inverted || reverseLandscapeSidePair;
+  const ButtonIndex sideFirst = reverseSidePair ? sideHw.second : sideHw.first;
+  const ButtonIndex sideSecond = reverseSidePair ? sideHw.first : sideHw.second;
   const ButtonIndex sideIncrease = isX3 ? sideHw.second : sideHw.first;
   const ButtonIndex sideDecrease = isX3 ? sideHw.first : sideHw.second;
   const bool prevNext = sideLayout == CrossPointSettings::PREV_NEXT;
@@ -124,6 +128,24 @@ MappedInputManager::Labels MappedInputManager::mapLabels(const char* back, const
 
   return {labelForHardware(HalGPIO::BTN_BACK), labelForHardware(HalGPIO::BTN_CONFIRM),
           labelForHardware(HalGPIO::BTN_LEFT), labelForHardware(HalGPIO::BTN_RIGHT)};
+}
+
+StrId MappedInputManager::sideButtonPositionLabel(const Button button) const {
+  const bool isUp = button == Button::Up;
+  const bool isX3 = gpio.deviceIsX3();
+  switch (effectiveOrientation) {
+    case Orientation::LandscapeClockwise:
+      if (isX3) return isUp ? StrId::STR_DIR_UP : StrId::STR_DIR_DOWN;
+      return isUp ? StrId::STR_DIR_RIGHT : StrId::STR_DIR_LEFT;
+    case Orientation::LandscapeCounterClockwise:
+      if (isX3) return isUp ? StrId::STR_DIR_DOWN : StrId::STR_DIR_UP;
+      return isUp ? StrId::STR_DIR_LEFT : StrId::STR_DIR_RIGHT;
+    case Orientation::Portrait:
+    case Orientation::PortraitInverted:
+    default:
+      if (isX3) return isUp ? StrId::STR_DIR_LEFT : StrId::STR_DIR_RIGHT;
+      return isUp ? StrId::STR_DIR_UP : StrId::STR_DIR_DOWN;
+  }
 }
 
 int MappedInputManager::getPressedFrontButton() const {

@@ -26,4 +26,5 @@ class ReaderTestViewActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool supportsUiLandscape() const override { return true; }
 };

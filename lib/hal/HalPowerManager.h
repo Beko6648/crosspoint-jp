@@ -23,6 +23,10 @@ class HalPowerManager {
   bool _batteryUseI2C = false;
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
+#if FREEINK_MCU_C3
+  mutable bool _batterySocValid = false;
+  mutable uint16_t _batteryLastRawSoc = 0;
+#endif
 
   enum LockMode { None, NormalSpeed };
   LockMode currentLockMode = None;
@@ -33,6 +37,7 @@ class HalPowerManager {
   static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
   static constexpr unsigned long BATTERY_POLL_MS = 1500;       // ms
   static constexpr unsigned long BATTERY_ADC_POLL_MS = 60000;  // ms
+  static constexpr int BATTERY_SOC_JUMP_THRESHOLD = 15;        // Percentage points, either direction
 
   void begin();
 
