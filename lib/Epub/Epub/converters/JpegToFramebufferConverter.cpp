@@ -14,6 +14,7 @@
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "ImageDecodeDiagnostics.h"
+#include "LoanedDecoder.h"
 #include "PixelCache.h"
 
 namespace {
@@ -395,10 +396,26 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
 bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
   ImageDecodeDiagnostics diagnostics("JPG", config, sizeof(JPEGDEC), renderer);
-  if (!diagnostics.admit(MIN_FREE_HEAP_FOR_JPEG)) return false;
-
-  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
+  if (!config.writeToFramebuffer && config.cachePath.empty()) return diagnostics.fail("gate");
+  const bool canLoan = !config.writeToFramebuffer && !config.cachePath.empty() && config.framebufferInvalidated;
+  bool forceLoan = false;
+#if defined(JPEG_FRAMEBUFFER_LOAN_TEST)
+  forceLoan = canLoan;  // dedicated diagnostic build only; does not consume heap
+#endif
+  LoanedDecoder<JPEGDEC> jpeg;
+  if (!forceLoan && ESP.getFreeHeap() >= MIN_FREE_HEAP_FOR_JPEG && ESP.getMaxAllocHeap() >= sizeof(JPEGDEC)) {
+    jpeg.tryHeap();
+  }
+  // The decoder is outside heap on this path. Keep the historical 16 KiB
+  // reserve for file state and band allocation (which is checked separately).
+  if (!jpeg && canLoan && ESP.getFreeHeap() >= 16 * 1024) {
+    jpeg.tryLoan(renderer, *config.framebufferInvalidated);
+  }
+  if (!jpeg && !diagnostics.admit(MIN_FREE_HEAP_FOR_JPEG)) return false;
   if (!jpeg) return diagnostics.fail("decoder-allocation");
+  LOG_DBG("IMEM", "JPG storage=%s decoder=%u scratch=%u free=%u maxAlloc=%u forced=%d",
+          jpeg.usesScratch() ? "framebuffer" : "heap", (unsigned)sizeof(JPEGDEC), (unsigned)jpeg.capacity(),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap(), forceLoan);
 
   JpegContext ctx;
   ctx.renderer = &renderer;

@@ -19,7 +19,10 @@ struct RenderConfig {
   bool useDithering = true;
   bool performanceMode = false;
   bool useExactDimensions = false;  // If true, use maxWidth/maxHeight as exact output size (no recalculation)
-  bool writeToFramebuffer = true;  // Cache-only generation keeps the progress UI intact
+  bool writeToFramebuffer = true;   // Suppress pixel writes for cache-only generation
+  // Explicit opt-in for cache-only callers that can redraw the entire UI.
+  // Set true if a local framebuffer loan was acquired, even on decode failure.
+  bool* framebufferInvalidated = nullptr;
   std::string cachePath;            // If non-empty, decoder will write pixel cache to this path
 };
 

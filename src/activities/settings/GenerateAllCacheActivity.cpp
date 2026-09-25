@@ -74,25 +74,29 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
   return true;
 }
 
-int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset,
+                           bool& framebufferInvalidated) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset,
+                                    &framebufferInvalidated))
+      generated++;
   }
   return generated;
 }
 
 int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
-                                            const int yOffset, int& pagesScanned) {
+                                            const int yOffset, int& pagesScanned, bool& framebufferInvalidated) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
     if (!page) continue;
     ++pagesScanned;
-    if (page->hasImages()) generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset);
+    if (page->hasImages())
+      generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset, framebufferInvalidated);
   }
   return generated;
 }
@@ -360,6 +364,27 @@ void GenerateAllCacheActivity::generateAllCaches() {
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  bool framebufferInvalidated = false;
+  const auto restoreProgress = [&] {
+    if (!framebufferInvalidated) return;
+    const uint32_t startedAt = millis();
+    renderer.clearScreen();
+    const auto layout = UiLayout::from(renderer);
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                   tr(STR_GENERATE_ALL_CACHE));
+    const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+    const int centerY = renderer.getScreenHeight() / 2;
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_GENERATING_ALL_CACHE), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2), true, centerOffset);
+    popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
+    progressDisplayMs += millis() - startedAt;
+    framebufferInvalidated = false;
+    LOG_DBG("IMEM", "Restored progress UI after JPEG framebuffer loan");
+  };
+
   bool cancelled = false;
   bool storageFailure = false;
 
@@ -506,9 +531,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPixelPageScan) {
           const uint32_t pixelStartedAt = millis();
-          generatedPixelCaches +=
-              pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned);
+          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(
+              sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned, framebufferInvalidated);
           pixelCacheMs += millis() - pixelStartedAt;
+          restoreProgress();
         }
       } else {
         const uint32_t sectionStartedAt = millis();
@@ -521,10 +547,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
                 viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
                 SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
                 SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-                [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                [this, &generatedPixelCaches, &pixelCacheMs, &framebufferInvalidated, &restoreProgress, bmLeft,
+                 bmTop](const Page& page) {
                   const uint32_t pixelStartedAt = millis();
-                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop, framebufferInvalidated);
                   pixelCacheMs += millis() - pixelStartedAt;
+                  restoreProgress();
                 },
                 [&controls, this] { return controls.shouldCancel(renderer); })) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());

@@ -133,12 +133,13 @@ std::string getPixelCachePath(const std::string& imagePath) {
 
 }  // namespace
 
-bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const int y) const {
-  return ensurePixelCache(renderer, x, y, true) == CacheResult::Generated;
+bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const int y,
+                                       bool* framebufferInvalidated) const {
+  return ensurePixelCache(renderer, x, y, true, framebufferInvalidated) == CacheResult::Generated;
 }
 
 ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, const int x, const int y,
-                                                     bool releaseFontCaches) const {
+                                                     bool releaseFontCaches, bool* framebufferInvalidated) const {
   if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > renderer.getScreenWidth() ||
       y + height > renderer.getScreenHeight())
     return CacheResult::Failed;
@@ -168,6 +169,7 @@ ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, cons
   config.useDithering = true;
   config.useExactDimensions = true;
   config.writeToFramebuffer = false;
+  config.framebufferInvalidated = framebufferInvalidated;
   config.cachePath = cachePath;
 
   LOG_DBG("IMG", "Pregenerating image pixel cache: %s (%dx%d at %d,%d)", imagePath.c_str(), width, height, x, y);

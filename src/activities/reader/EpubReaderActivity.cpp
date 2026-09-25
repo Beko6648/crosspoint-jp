@@ -109,13 +109,16 @@ ProgressRange getBookmarkPageRange(const std::shared_ptr<Epub>& epub, const int 
           epub->calculateProgress(spineIndex, std::min(1.0f, anchor + step * 0.5f))};
 }
 
-int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset,
+                           bool& framebufferInvalidated) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset,
+                                    &framebufferInvalidated))
+      generated++;
   }
   return generated;
 }
@@ -186,6 +189,22 @@ void EpubReaderActivity::pregenerateCache() {
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  bool framebufferInvalidated = false;
+  const auto restoreProgress = [&] {
+    if (!framebufferInvalidated) return;
+    const uint32_t startedAt = millis();
+    renderer.clearScreen();
+    const int centerY = renderer.getScreenHeight() / 2;
+    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_GENERATING_CACHE));
+    renderer.drawCenteredText(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
+    renderer.drawCenteredText(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+    popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
+    progressDisplayMs += millis() - startedAt;
+    framebufferInvalidated = false;
+    LOG_DBG("IMEM", "Restored progress UI after JPEG framebuffer loan");
+  };
+
   bool cancelled = false;
 
   for (int i = 0; i < spineCount; i++) {
@@ -225,10 +244,13 @@ void EpubReaderActivity::pregenerateCache() {
           viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
           SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
           SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-          [this, &generatedPixelCaches, &pixelCacheMs, orientedMarginLeft, orientedMarginTop](const Page& page) {
+          [this, &generatedPixelCaches, &pixelCacheMs, &framebufferInvalidated, &restoreProgress, orientedMarginLeft,
+           orientedMarginTop](const Page& page) {
             const uint32_t pixelStartedAt = millis();
-            generatedPixelCaches += pregeneratePixelCaches(page, renderer, orientedMarginLeft, orientedMarginTop);
+            generatedPixelCaches +=
+                pregeneratePixelCaches(page, renderer, orientedMarginLeft, orientedMarginTop, framebufferInvalidated);
             pixelCacheMs += millis() - pixelStartedAt;
+            restoreProgress();
           },
           [&cancelledDuringSection, &controls, this] {
             cancelledDuringSection = controls.shouldCancel(renderer);
