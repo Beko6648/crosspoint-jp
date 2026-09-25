@@ -6,6 +6,7 @@
 #include <FontManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <ImageRenderDiagnostics.h>
 #include <ImageRenderBudget.h>
 #include <utility>
 #include <HalPowerManager.h>
@@ -1581,6 +1582,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                           (verticalMode ? 0 : horizontalRubyBaseShift);
   const int rubyOffsetY = static_cast<int>(std::min<uint8_t>(directionSettings.rubyOffsetY, 80)) - 16;
   const auto t0 = millis();
+#if defined(IMAGE_RENDER_MEMORY_DIAGNOSTICS)
+  imagerenderdiag::PageScope imageMemory(page->hasImages(), currentSpineIndex, section->currentPage);
+#endif
 
   // Section generation may release optional vertical substitution data to
   // recover the contiguous ZIP-stream buffer on ESP32-C3. Load it only once
@@ -1644,11 +1648,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     if (bookmarkNotice == BookmarkNotice::LIMIT) message = tr(STR_BOOKMARK_LIMIT);
     GUI.drawPopup(renderer, message);
   }
+  imagerenderdiag::mark("bw-render-after");
   const auto tBwRender = millis();
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   bookmarkNotice = BookmarkNotice::NONE;
   const auto tDisplay = millis();
+  imagerenderdiag::mark("bw-display-after");
 
   // Illustration caches store four real pixel levels, but the normal BW pass
   // intentionally draws every non-white level as black. Re-render only images
@@ -1663,11 +1669,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   if (hasImages) {
     // Text and UI pixels are already drawn. Only images are rendered below,
     // so optional font caches may be reclaimed without changing this page.
+    imagerenderdiag::mark("font-budget-before");
     const auto heapBefore = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const unsigned released = imagerenderbudget::recover(
         renderer.getBufferSize(), fcm,
         [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); },
         [](unsigned stage) {
+          imagerenderdiag::mark(stage == 1 ? "font-glyphs-released" : "font-tables-released");
         });
     const auto heapAfter = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const bool low = imagerenderbudget::needsRecovery(renderer.getBufferSize(), heapAfter.first, heapAfter.second);
@@ -1675,6 +1683,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
             (unsigned)heapBefore.first, (unsigned)heapAfter.first, (unsigned)heapBefore.second,
             (unsigned)heapAfter.second, (unsigned)renderer.getBufferSize(),
             (unsigned)imagerenderbudget::EXTRA_BYTES, low);
+    imagerenderdiag::mark("font-budget-after", released);
     // The estimate cannot guarantee all chunks fit; preserve the existing
     // checked allocation/failure path even when recovery cannot meet it.
     bwStored = renderer.storeBwBuffer();
@@ -1682,16 +1691,21 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.clearScreen(0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      imagerenderdiag::mark("lsb-render-after");
       renderer.copyGrayscaleLsbBuffers();
+      imagerenderdiag::mark("lsb-copy-after");
       tGrayLsb = millis();
 
       renderer.clearScreen(0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
       page->renderImages(renderer, readerFontId, orientedMarginLeft, orientedMarginTop, viewportWidth);
+      imagerenderdiag::mark("msb-render-after");
       renderer.copyGrayscaleMsbBuffers();
+      imagerenderdiag::mark("msb-copy-after");
       tGrayMsb = millis();
 
       renderer.displayGrayBuffer();
+      imagerenderdiag::mark("gray-display-after");
       tGrayDisplay = millis();
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();

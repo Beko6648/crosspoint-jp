@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <ImageRenderDiagnostics.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -40,11 +41,13 @@ struct ImageRenderScope {
 
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
                      int expectedHeight) {
+  imagerenderdiag::CacheScope cacheTrace(static_cast<unsigned>(renderer.getRenderMode()));
   FsFile cacheFile;
   if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) {
     return false;
   }
 
+  imagerenderdiag::mark("cache-open");
   ImageCacheValidation::PixelCacheInfo cacheInfo;
   if (!ImageCacheValidation::validatePixelCache(cacheFile, expectedWidth, expectedHeight, &cacheInfo)) {
     cacheFile.close();
@@ -52,6 +55,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     Storage.remove(cachePath.c_str());
     return false;
   }
+  imagerenderdiag::mark("cache-validated");
   const uint16_t cachedWidth = cacheInfo.width;
   const uint16_t cachedHeight = cacheInfo.height;
 
@@ -70,9 +74,11 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   int rowsPerRead = 4096 / bytesPerRow;
   if (rowsPerRead < 1) rowsPerRead = 1;
   if (rowsPerRead > cachedHeight) rowsPerRead = cachedHeight;
+  imagerenderdiag::mark("read-alloc-before", (size_t)rowsPerRead * bytesPerRow);
   uint8_t* readBuffer = (uint8_t*)malloc((size_t)rowsPerRead * bytesPerRow);
   if (!readBuffer) {
     // Fall back to a single-row buffer under memory pressure.
+    imagerenderdiag::mark("read-alloc-fallback", bytesPerRow);
     rowsPerRead = 1;
     readBuffer = (uint8_t*)malloc(bytesPerRow);
   }
@@ -81,6 +87,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     return false;
   }
 
+  imagerenderdiag::mark("read-allocated", (size_t)rowsPerRead * bytesPerRow);
   DirectPixelWriter pw;
   pw.init(renderer);
 
@@ -92,7 +99,9 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
       const size_t bytes = (size_t)toRead * bytesPerRow;
       if (cacheFile.read(readBuffer, bytes) != static_cast<int>(bytes)) {
         LOG_ERR("IMG", "Cache read error at row %d", row);
+        imagerenderdiag::mark("read-error");
         free(readBuffer);
+        imagerenderdiag::mark("read-freed-error");
         return false;
       }
       rowsInBuffer = toRead;
@@ -117,7 +126,9 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     }
   }
 
+  imagerenderdiag::mark("read-complete");
   free(readBuffer);
+  imagerenderdiag::mark("read-freed");
   LOG_DBG("IMG", "Cache render complete");
   return true;
 }
