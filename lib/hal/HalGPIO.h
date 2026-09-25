@@ -44,6 +44,9 @@ class HalGPIO {
 #endif
 
   bool lastUsbConnected = false;
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  bool deferInputUpdate = false;
+#endif
   bool usbStateChanged = false;
 
  public:
@@ -67,6 +70,10 @@ class HalGPIO {
 
   // Button input methods
   void update();
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  // Main-task only: retain a detected edge for the next normal loop update.
+  bool pollIdleInput();
+#endif
   bool isPressed(uint8_t buttonIndex) const;
   bool wasPressed(uint8_t buttonIndex) const;
   bool wasAnyPressed() const;

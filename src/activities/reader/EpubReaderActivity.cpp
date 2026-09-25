@@ -6,6 +6,9 @@
 #include <FontManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <ImageRenderBudget.h>
+#include <utility>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Issue18Diagnostics.h>
@@ -490,6 +493,9 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) idleLastInput = millis();
+#endif
   READING_HISTORY.tick();
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) READING_HISTORY.noteInteraction();
   if (!epub) {
@@ -628,6 +634,9 @@ void EpubReaderActivity::loop() {
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, reverseFrontButtons);
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+    prefetchIdleImage();
+#endif
     return;
   }
 
@@ -1159,6 +1168,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  idleRenderReady.store(0);
+#endif
   if (!epub) {
     return;
   }
@@ -1458,6 +1470,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     pendingScreenshot = false;
     ScreenshotUtil::takeScreenshot(renderer);
   }
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  idleRenderEpoch.fetch_add(1);
+  idleRenderReady.store(millis());
+#endif
 }
 
 void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportWidth, const uint16_t viewportHeight) {
@@ -1645,6 +1661,22 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   auto tGrayDisplay = tDisplay;
   auto tBwRestore = tDisplay;
   if (hasImages) {
+    // Text and UI pixels are already drawn. Only images are rendered below,
+    // so optional font caches may be reclaimed without changing this page.
+    const auto heapBefore = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    const unsigned released = imagerenderbudget::recover(
+        renderer.getBufferSize(), fcm,
+        [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); },
+        [](unsigned stage) {
+        });
+    const auto heapAfter = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    const bool low = imagerenderbudget::needsRecovery(renderer.getBufferSize(), heapAfter.first, heapAfter.second);
+    LOG_DBG("IRB", "release=%u free=%u->%u maxAlloc=%u->%u frame=%u extra=%u low=%d", released,
+            (unsigned)heapBefore.first, (unsigned)heapAfter.first, (unsigned)heapBefore.second,
+            (unsigned)heapAfter.second, (unsigned)renderer.getBufferSize(),
+            (unsigned)imagerenderbudget::EXTRA_BYTES, low);
+    // The estimate cannot guarantee all chunks fit; preserve the existing
+    // checked allocation/failure path even when recovery cannot meet it.
     bwStored = renderer.storeBwBuffer();
     if (bwStored) {
       renderer.clearScreen(0x00);
@@ -1925,3 +1957,74 @@ void EpubReaderActivity::restoreSavedPosition() {
   }
   requestUpdate();
 }
+
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+void EpubReaderActivity::prefetchIdleImage() {
+  const uint32_t ready = idleRenderReady.load();
+  if (!ready || millis() - ready < 1000 || millis() - idleLastInput < 1000 || automaticPageTurnActive ||
+      rubyAdjustActive || SETTINGS.tiltPageTurn || RenderLock::peek())
+    return;
+  for (uint8_t b = 0; b <= HalGPIO::BTN_POWER; ++b)
+    if (gpio.isPressed(b)) return;
+  RenderLock lock(*this);
+  if (idleRenderReady.load() != ready || !epub || !section || !renderer.hasFrameBuffer()) return;
+  const uint32_t epoch = idleRenderEpoch.load();
+  if (idleSeenEpoch != epoch) {
+    idleSeenEpoch = epoch;
+    idleElement = 0;
+    idlePageDone = false;
+  }
+  if (idlePageDone) return;
+  const int next = section->currentPage + 1;
+  if (next >= section->pageCount) {
+    idlePageDone = true;
+    return;
+  }
+  // Do not evict fonts or borrow the framebuffer for speculative work.
+  if (ESP.getFreeHeap() < 72 * 1024 || ESP.getMaxAllocHeap() < 20 * 1024) {
+    idlePageDone = true;
+    LOG_DBG("IPF", "Skipped low heap free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return;
+  }
+  HalPowerManager::Lock powerLock;
+  if (gpio.pollIdleInput()) {
+    idleLastInput = millis();
+    return;
+  }
+  auto page = section->loadPageFromSectionFile(next);
+  if (!page) {
+    idlePageDone = true;
+    return;
+  }
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const auto margin = SETTINGS.getDirectionSettings(verticalMode).screenMargin;
+  top += margin;
+  left += margin;
+  for (; idleElement < page->elements.size();) {
+    const auto& e = page->elements[idleElement++];
+    if (e->getTag() != TAG_PageImage) continue;
+    const auto& image = static_cast<const PageImage&>(*e);
+    uint32_t lastPoll = 0;
+    DecodeCancellation cancel;
+    cancel.context = &lastPoll;
+    cancel.requested = [](void* context) {
+      auto& last = *static_cast<uint32_t*>(context);
+      if (millis() - last < 5) return false;
+      last = millis();
+      return gpio.pollIdleInput();
+    };
+    const uint32_t started = millis();
+    LOG_DBG("IPF", "Start spine=%d next=%d element=%u free=%u maxAlloc=%u", currentSpineIndex, next,
+            (unsigned)(idleElement - 1), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    const auto result =
+        image.getImageBlock().ensurePixelCache(renderer, image.xPos + left, image.yPos + top, false, nullptr, &cancel, 32 * 1024);
+    LOG_DBG("IPF", "End result=%d cancelled=%d time=%lu free=%u maxAlloc=%u", (int)result, cancel.cancelled,
+            millis() - started, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    // Throttle subsequent images. A failed/cancelled image is not retried on this view.
+    idleLastInput = millis();
+    return;
+  }
+  idlePageDone = true;
+}
+#endif

@@ -16,6 +16,7 @@
 #include "DitherUtils.h"
 #include "ImageDecodeDiagnostics.h"
 #include "PixelCache.h"
+#include "PngDecodeBudget.h"
 
 namespace {
 
@@ -209,6 +210,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
 
+  if (ctx->config->cancellation && ctx->config->cancellation->poll()) return 0;
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
 
   int srcY = pDraw->y;
@@ -327,6 +329,21 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
   ImageDecodeDiagnostics diagnostics("PNG", config, sizeof(PNG), renderer);
+  const size_t reserve = config.writeToFramebuffer ? 0 : config.pngHeapReserveBytes;
+  if (reserve) {
+    // IHDR probing closes its file before the large decoder allocation.
+    ImageDimensions dims;
+    if (!getDimensionsStatic(imagePath, dims)) return false;
+    const size_t band = PixelCache::requiredBytes(config.maxWidth, config.maxHeight, 1);
+    const size_t freeBytes = ESP.getFreeHeap();
+    const size_t largest = ESP.getMaxAllocHeap();
+    if (!band || !pngbudget::admits(freeBytes, largest, sizeof(PNG), dims.width, band, reserve)) {
+      LOG_DBG("IPF", "PNG deferred stage=budget free=%u maxAlloc=%u decoder=%u gray=%u band=%u reserve=%u overhead=%u",
+              (unsigned)freeBytes, (unsigned)largest, (unsigned)sizeof(PNG), (unsigned)dims.width,
+              (unsigned)band, (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
+      return false;
+    }
+  }
   if (!diagnostics.admit(MIN_FREE_HEAP_FOR_PNG)) return false;
 
   std::unique_ptr<PNG> png(new (std::nothrow) PNG());
@@ -433,6 +450,16 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     }
   }
 
+  // Recheck actual headroom after open/line/cache allocations. A rejected
+  // attempt removes its partial file before returning to the reader.
+  if (reserve && ESP.getFreeHeap() < reserve + pngbudget::OVERHEAD_BYTES) {
+    LOG_DBG("IPF", "PNG deferred stage=allocated free=%u reserve=%u overhead=%u", ESP.getFreeHeap(),
+            (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
+    ctx.cache.abort();
+    free(ctx.grayLineBuffer);
+    return false;
+  }
+
   unsigned long decodeStart = millis();
   ctx.lastYieldMs = decodeStart;
   rc = png->decode(&ctx, 0);
@@ -440,6 +467,12 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   free(ctx.grayLineBuffer);
   ctx.grayLineBuffer = nullptr;
+
+  if (config.cancellation && config.cancellation->cancelled) {
+    ctx.cache.abort();
+    LOG_DBG("PNG", "Cache-only decode cancelled; partial cache discarded");
+    return false;
+  }
 
 if (rc != PNG_SUCCESS) {
   LOG_ERR("PNG", "Decode failed: %d", rc);

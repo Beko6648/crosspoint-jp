@@ -139,7 +139,9 @@ bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const
 }
 
 ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, const int x, const int y,
-                                                     bool releaseFontCaches, bool* framebufferInvalidated) const {
+                                                     bool releaseFontCaches, bool* framebufferInvalidated,
+                                                     DecodeCancellation* cancellation, size_t pngHeapReserveBytes) const {
+  if (cancellation && cancellation->poll()) return CacheResult::Failed;
   if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > renderer.getScreenWidth() ||
       y + height > renderer.getScreenHeight())
     return CacheResult::Failed;
@@ -170,6 +172,8 @@ ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, cons
   config.useExactDimensions = true;
   config.writeToFramebuffer = false;
   config.framebufferInvalidated = framebufferInvalidated;
+  config.cancellation = cancellation;
+  config.pngHeapReserveBytes = pngHeapReserveBytes;
   config.cachePath = cachePath;
 
   LOG_DBG("IMG", "Pregenerating image pixel cache: %s (%dx%d at %d,%d)", imagePath.c_str(), width, height, x, y);

@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+#include "DecodeCancellation.h"
+
 class GfxRenderer;
 
 struct ImageDimensions {
@@ -23,6 +25,9 @@ struct RenderConfig {
   // Explicit opt-in for cache-only callers that can redraw the entire UI.
   // Set true if a local framebuffer loan was acquired, even on decode failure.
   bool* framebufferInvalidated = nullptr;
+  DecodeCancellation* cancellation = nullptr;
+  // Optional PNG cache-only headroom. Zero preserves foreground/batch behavior.
+  size_t pngHeapReserveBytes = 0;
   std::string cachePath;            // If non-empty, decoder will write pixel cache to this path
 };
 

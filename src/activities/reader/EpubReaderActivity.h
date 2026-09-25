@@ -3,6 +3,7 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -12,6 +13,15 @@
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  std::atomic<uint32_t> idleRenderReady{0};
+  std::atomic<uint32_t> idleRenderEpoch{0};
+  uint32_t idleSeenEpoch = 0;
+  uint32_t idleLastInput = 0;
+  size_t idleElement = 0;
+  bool idlePageDone = false;
+  void prefetchIdleImage();
+#endif
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
@@ -98,6 +108,12 @@ class EpubReaderActivity final : public Activity {
         epub(std::move(epub)),
         restoreGlobalReaderSettingsOnExit(restoreGlobalReaderSettingsOnExit),
         activeBookFingerprint(activeBookFingerprint) {}
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  void requestUpdate(bool immediate = false) override {
+    idleRenderReady.store(0);
+    Activity::requestUpdate(immediate);
+  }
+#endif
   void onEnter() override;
   void onExit() override;
   void loop() override;
