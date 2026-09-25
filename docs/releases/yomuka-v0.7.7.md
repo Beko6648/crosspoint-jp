@@ -1,8 +1,6 @@
-## CrossPoint Yomuka v0.7.7（リリース候補）
+## CrossPoint Yomuka v0.7.7
 
 > CrossPoint Yomuka は CrossPoint Reader / CrossPoint JP を基にした非公式コミュニティフォークです。
-
-この文書は実機確認中のリリース候補です。X4のスリープ時消費確認と、最終ビルドが完了するまで公開用の確定版にはしません。
 
 ### 主な変更
 
