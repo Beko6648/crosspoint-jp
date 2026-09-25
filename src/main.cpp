@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <BatteryMonitor.h>
 #include <BoardConfig.h>
 #include <Epub.h>
 #include <Epub/blocks/TextBlock.h>
@@ -134,22 +135,40 @@ void waitForPowerRelease() {
   }
 }
 
+static const char* wakeupReasonName(const HalGPIO::WakeupReason reason) {
+  switch (reason) {
+    case HalGPIO::WakeupReason::PowerButton:
+      return "power_button";
+    case HalGPIO::WakeupReason::AfterFlash:
+      return "after_flash";
+    case HalGPIO::WakeupReason::AfterUSBPower:
+      return "after_usb";
+    case HalGPIO::WakeupReason::Other:
+    default:
+      return "other";
+  }
+}
+
 // デバッグ表示有効時、バッテリーログをSDカードに追記（/.crosspoint/power_log.txt）
-static void appendPowerLog(const char* event) {
+static void appendPowerLog(const char* event, const char* wakeReason = "-") {
   if (!SETTINGS.debugDisplay) return;
   const time_t now = time(nullptr);
   struct tm ti;
   localtime_r(&now, &ti);
 
-  // BQ27220から電圧(mV)と電流(mA)を読み取り（X3のみ）
-  uint16_t voltageMv = 0;
-  int16_t currentMa = 0;
+  int rawAdc = -1;
+  int voltageMv = -1;
+  int voltagePercent = -1;
+  int currentMa = -32769;
   if (gpio.deviceIsX3()) {
+    // BQ27220から電圧(mV)と電流(mA)を読み取り。
+    uint16_t gaugeVoltageMv = 0;
     Wire.beginTransmission(0x55);
     Wire.write(0x08);  // BQ27220_VOLT_REG
     if (Wire.endTransmission(false) == 0 &&
         Wire.requestFrom(static_cast<uint8_t>(0x55), static_cast<uint8_t>(2)) == 2) {
-      voltageMv = Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8);
+      gaugeVoltageMv = Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8);
+      voltageMv = gaugeVoltageMv;
     }
     Wire.beginTransmission(0x55);
     Wire.write(0x0C);  // BQ27220_CUR_REG
@@ -157,12 +176,25 @@ static void appendPowerLog(const char* event) {
         Wire.requestFrom(static_cast<uint8_t>(0x55), static_cast<uint8_t>(2)) == 2) {
       currentMa = static_cast<int16_t>(Wire.read() | (static_cast<uint16_t>(Wire.read()) << 8));
     }
+  } else {
+    // X4 has no fuel gauge. Preserve both the raw ADC reading and calibrated
+    // battery voltage so percentage-table errors can be separated from real drain.
+    rawAdc = analogRead(BAT_GPIO0);
+    const BatteryMonitor battery;
+    voltageMv = battery.readMillivolts();
+    if (voltageMv > 0) voltagePercent = BatteryMonitor::percentageFromMillivolts(voltageMv);
   }
 
-  char line[128];
-  snprintf(line, sizeof(line), "%04d/%02d/%02d %02d:%02d:%02d %s %d%% %dmV %dmA RTC:%s\n", ti.tm_year + 1900,
-           ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, powerManager.getBatteryPercentage(),
-           voltageMv, currentMa, SETTINGS.rtcEnabled ? "ON" : "OFF");
+  const int displayedPercent = powerManager.getBatteryPercentage();
+  const bool usbConnected = gpio.isUsbConnected();
+  char line[256];
+  snprintf(line, sizeof(line),
+           "%04d/%02d/%02d %02d:%02d:%02d event=%s uptime_ms=%lu device=%s ui_pct=%d voltage_pct=%d "
+           "raw_adc=%d voltage_mV=%d current_mA=%d usb=%d wake=%s rtc=%s\n",
+           ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, millis(),
+           gpio.deviceIsX3() ? "X3" : "X4", displayedPercent, voltagePercent, rawAdc, voltageMv, currentMa,
+           usbConnected ? 1 : 0, wakeReason, SETTINGS.rtcEnabled ? "ON" : "OFF");
+  LOG_INF("BAT", "%s", line);
   auto file = Storage.open("/.crosspoint/power_log.txt", O_WRONLY | O_CREAT | O_APPEND);
   if (file) {
     file.write(line, strlen(line));
@@ -486,7 +518,7 @@ void setup() {
     }
   }
 
-  appendPowerLog("WAKE ");
+  appendPowerLog("WAKE", wakeupReasonName(wakeupReason));
 
   RECENT_BOOKS.loadFromFile();
 

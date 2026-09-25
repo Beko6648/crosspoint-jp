@@ -121,6 +121,27 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, bool useFullPowerOff) const 
   // FreeInkのレール停止を実行する。
   if (useFullPowerOff) {
     freeink::PowerManager::powerDownRailsForSleep();
+#if FREEINK_MCU_C3
+    if (gpio.deviceIsX4()) {
+      // The C3 X4's GPIO13 is a battery-hold latch, not a peripheral rail.
+      // BoardConfig asserts it HIGH at boot, while powerDownRailsForSleep()
+      // intentionally handles only display/SD/touch/mic enables. Release the
+      // latch here for the RTC-off full-power-off path; otherwise the X4 stays
+      // powered in ESP deep sleep and can lose substantial charge overnight.
+      const int8_t latch = BoardConfig::ACTIVE.power.latch0;
+      if (latch >= 0 && !BoardConfig::latchConflictsWithBus(latch)) {
+        const auto latchGpio = static_cast<gpio_num_t>(latch);
+        gpio_hold_dis(latchGpio);
+        pinMode(latch, OUTPUT);
+        digitalWrite(latch, LOW);
+        gpio_hold_en(latchGpio);
+        LOG_INF("PWR", "X4 battery latch released on GPIO%d", latch);
+        delay(20);
+      } else {
+        LOG_ERR("PWR", "X4 battery latch unavailable; using deep sleep");
+      }
+    }
+#endif
   }
 
   // The SDK uses the active BoardConfig profile for both the power button and
