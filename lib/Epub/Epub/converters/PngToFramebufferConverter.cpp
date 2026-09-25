@@ -11,6 +11,7 @@
 #include <memory>
 #include <new>
 
+#include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
@@ -44,7 +45,8 @@ struct PngContext {
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();
+  FsFile* f = new (std::nothrow) FsFile();
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
     delete f;
     return nullptr;
@@ -291,7 +293,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
   // Width and height are fixed fields in the PNG IHDR chunk. Reading them
-  // directly avoids allocating the ~44KB PNG decoder while section pages and
+  // directly avoids allocating the PNG decoder while section pages and
   // font metrics are already resident in the constrained ESP32-C3 heap.
   FsFile file;
   if (!Storage.openFileForRead("PNG", imagePath, file)) {
@@ -357,6 +359,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
                      pngDrawCallback);
+  DecoderFileScope<PNG> fileScope(*png);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
     return false;
@@ -388,6 +391,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     ctx.dstWidth = (int)(ctx.srcWidth * ctx.scale);
     ctx.dstHeight = (int)(ctx.srcHeight * ctx.scale);
   }
+  if (ctx.dstWidth <= 0 || ctx.dstHeight <= 0) return false;
   ctx.lastDstY = -1;  // Reset row tracking
 
   LOG_DBG("PNG", "PNG %dx%d -> %dx%d (scale %.2f), bpp: %d", ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight,
@@ -431,14 +435,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   // Stream the pixel cache to disk. PNGdec delivers source scanlines top to
   // bottom and we emit at most one (downscaled) output row per callback, so the
   // band only needs a single row. Streaming keeps the working set tiny, so
-  // unlike the old full-image buffer it neither competes with the ~44KB decoder
+  // unlike the old full-image buffer it neither competes with the large decoder
   // nor forces larger images to skip caching - which previously meant a full
   // re-decode on every one of an image page's ~14 render passes.
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
     if (!ctx.cache.begin(config.cachePath, ctx.dstWidth, ctx.dstHeight, config.x, config.y, 1)) {
-      LOG_ERR("PNG", "Failed to start cache stream, continuing without caching");
       ctx.caching = false;
+      if (!config.writeToFramebuffer) {
+        free(ctx.grayLineBuffer);
+        return false;
+      }
     }
   }
 
@@ -453,19 +460,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 if (rc != PNG_SUCCESS) {
   LOG_ERR("PNG", "Decode failed: %d", rc);
   if (ctx.caching) ctx.cache.abort();
-  png->close();
   return false;
 }
 
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
   // Finalize the streamed cache (caching may have been cleared on a flush error).
-  if (ctx.caching) {
-    ctx.cache.finalize();
+  bool cacheComplete = false;
+  if (!config.cachePath.empty()) {
+    cacheComplete = ctx.cache.finalize();
   }
-
-  png->close();
-  return true;
+  return config.writeToFramebuffer || cacheComplete;
 }
 
 bool PngToFramebufferConverter::supportsFormat(const std::string& extension) {

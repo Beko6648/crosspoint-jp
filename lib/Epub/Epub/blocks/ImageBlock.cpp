@@ -134,22 +134,30 @@ std::string getPixelCachePath(const std::string& imagePath) {
 }  // namespace
 
 bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const int y) const {
-  if (!FsHelpers::hasPngExtension(imagePath) && !FsHelpers::hasJpgExtension(imagePath)) return false;
+  return ensurePixelCache(renderer, x, y, true) == CacheResult::Generated;
+}
+
+ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, const int x, const int y,
+                                                     bool releaseFontCaches) const {
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > renderer.getScreenWidth() ||
+      y + height > renderer.getScreenHeight())
+    return CacheResult::Failed;
+  if (!FsHelpers::hasPngExtension(imagePath) && !FsHelpers::hasJpgExtension(imagePath)) return CacheResult::Failed;
 
   const std::string cachePath = getPixelCachePath(imagePath);
   if (Storage.exists(cachePath.c_str())) {
-    if (ImageCacheValidation::validatePixelCacheFile(cachePath, width, height)) return false;
+    if (ImageCacheValidation::validatePixelCacheFile(cachePath, width, height)) return CacheResult::AlreadyValid;
     LOG_ERR("IMG", "Removing invalid image pixel cache before pregeneration: %s", cachePath.c_str());
-    Storage.remove(cachePath.c_str());
+    if (!Storage.remove(cachePath.c_str())) return CacheResult::Failed;
   }
 
-  if (auto* fcm = renderer.getFontCacheManager()) {
+  if (auto* fcm = releaseFontCaches ? renderer.getFontCacheManager() : nullptr) {
     fcm->clearCache();
     fcm->freeKernLigatureData();
   }
 
   ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
-  if (!decoder) return false;
+  if (!decoder) return CacheResult::Failed;
 
   RenderConfig config;
   config.x = x;
@@ -163,9 +171,10 @@ bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const
   config.cachePath = cachePath;
 
   LOG_DBG("IMG", "Pregenerating image pixel cache: %s (%dx%d at %d,%d)", imagePath.c_str(), width, height, x, y);
-  if (!decoder->decodeToFramebuffer(imagePath, renderer, config)) return false;
+  if (!decoder->decodeToFramebuffer(imagePath, renderer, config)) return CacheResult::Failed;
   const bool valid = ImageCacheValidation::validatePixelCacheFile(cachePath, width, height);
-  return valid;
+  if (!valid) Storage.remove(cachePath.c_str());
+  return valid ? CacheResult::Generated : CacheResult::Failed;
 }
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {

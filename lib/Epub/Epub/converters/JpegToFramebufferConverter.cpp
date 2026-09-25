@@ -10,6 +10,7 @@
 #include <memory>
 #include <new>
 
+#include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
@@ -47,7 +48,8 @@ struct JpegContext {
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* jpegOpen(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();
+  FsFile* f = new (std::nothrow) FsFile();
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
     delete f;
     return nullptr;
@@ -374,7 +376,8 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
   }
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
- 
+  DecoderFileScope<JPEGDEC> fileScope(*jpeg);
+
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;
@@ -411,10 +414,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.screenHeight = renderer.getScreenHeight();
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
+  DecoderFileScope<JPEGDEC> fileScope(*jpeg);
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    jpeg->close();
     return false;
   }
 
@@ -495,8 +498,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   if (ctx.caching) {
     const int maxBlockDstRows = (int)(((int64_t)16 * ctx.fineScaleFPY) >> FP_SHIFT) + 2;
     if (!ctx.cache.begin(config.cachePath, destWidth, destHeight, config.x, config.y, maxBlockDstRows)) {
-      LOG_ERR("JPG", "Failed to start cache stream, continuing without caching");
       ctx.caching = false;
+      if (!config.writeToFramebuffer) {
+        return false;
+      }
     }
   }
 
@@ -515,11 +520,11 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   // Finalize the streamed cache file. Note: a flush failure mid-decode clears
   // ctx.caching (the partial file is dropped), so re-read the flag here.
-  if (ctx.caching) {
-    ctx.cache.finalize();
+  bool cacheComplete = false;
+  if (!config.cachePath.empty()) {
+    cacheComplete = ctx.cache.finalize();
   }
-  jpeg->close();
-  return true;
+  return config.writeToFramebuffer || cacheComplete;
 }
 
 bool JpegToFramebufferConverter::supportsFormat(const std::string& extension) {

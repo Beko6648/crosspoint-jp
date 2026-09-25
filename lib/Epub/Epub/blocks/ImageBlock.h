@@ -20,6 +20,9 @@ class ImageBlock final : public Block {
   bool imageExists() const;
   // Build a missing raster-image pixel cache without drawing into the current framebuffer.
   // The page position is used to preserve the rendered Bayer dither pattern.
+  enum class CacheResult { AlreadyValid, Generated, Failed };
+  // No font eviction by default and no framebuffer writes. Caller owns scheduling/loans.
+  CacheResult ensurePixelCache(GfxRenderer& renderer, int x, int y, bool releaseFontCaches = false) const;
   bool pregeneratePixelCache(GfxRenderer& renderer, int x, int y) const;
 
   BlockType getType() override { return IMAGE_BLOCK; }
