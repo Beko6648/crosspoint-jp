@@ -14,6 +14,7 @@
 #include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
+#include "ImageDecodeDiagnostics.h"
 #include "PixelCache.h"
 
 namespace {
@@ -75,12 +76,11 @@ int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
   return f->seek(pos);
 }
 
-// The PNG decoder (PNGdec) is ~42 KB due to internal zlib decompression buffers.
-// We heap-allocate it on demand rather than using a static instance, so this memory
-// is only consumed while actually decoding/querying PNG images. This is critical on
-// the ESP32-C3 where total RAM is ~320 KB.
-constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;                          // ~42 KB + overhead
-constexpr size_t MIN_FREE_HEAP_FOR_PNG = PNG_DECODER_APPROX_SIZE + 16 * 1024;  // decoder + 16 KB headroom
+// Preserve the existing total-heap admission floor. It is not an estimate of
+// decoder size: PNGdec 1.1.6 with our scanline setting is 58,464 bytes on C3.
+// The shared gate separately checks sizeof(PNG) against the largest free block;
+// gray-line and band allocations are checked individually after open().
+constexpr size_t MIN_FREE_HEAP_FOR_PNG = 60 * 1024;
 
 // PNGdec keeps TWO scanlines in its internal ucPixels buffer (current + previous)
 // and each scanline includes a leading filter byte.
@@ -326,30 +326,11 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
-  LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
+  ImageDecodeDiagnostics diagnostics("PNG", config, sizeof(PNG), renderer);
+  if (!diagnostics.admit(MIN_FREE_HEAP_FOR_PNG)) return false;
 
-  const size_t freeHeap = ESP.getFreeHeap();
-  const size_t maxAllocHeap = ESP.getMaxAllocHeap();
-  const size_t decoderSize = sizeof(PNG);
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
-    return false;
-  }
-
-  if (maxAllocHeap < decoderSize) {
-    LOG_ERR("PNG", "PNG decoder needs %u contiguous bytes, only %u available (%u free)", decoderSize, maxAllocHeap,
-            freeHeap);
-    return false;
-  }
-
-  // Heap-allocate the decoder only for the duration of this decode.  Its fixed
-  // zlib and scanline buffers require one contiguous allocation.
   std::unique_ptr<PNG> png(new (std::nothrow) PNG());
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder (%u bytes, maxAlloc=%u, free=%u)", decoderSize, maxAllocHeap,
-            freeHeap);
-    return false;
-  }
+  if (!png) return diagnostics.fail("decoder-allocation");
 
   PngContext ctx;
   ctx.renderer = &renderer;
@@ -362,7 +343,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   DecoderFileScope<PNG> fileScope(*png);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
-    return false;
+    return diagnostics.fail("open");
   }
 
   ImageDimensions sourceDimensions;
@@ -391,7 +372,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     ctx.dstWidth = (int)(ctx.srcWidth * ctx.scale);
     ctx.dstHeight = (int)(ctx.srcHeight * ctx.scale);
   }
-  if (ctx.dstWidth <= 0 || ctx.dstHeight <= 0) return false;
+  if (ctx.dstWidth <= 0 || ctx.dstHeight <= 0) return diagnostics.fail("dimensions");
   ctx.lastDstY = -1;  // Reset row tracking
 
   LOG_DBG("PNG", "PNG %dx%d -> %dx%d (scale %.2f), bpp: %d", ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight,
@@ -426,10 +407,12 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     return false;
   }
 
+  diagnostics.scratch(ctx.srcWidth, ctx.srcHeight, grayBufSize,
+                      PixelCache::requiredBytes(ctx.dstWidth, ctx.dstHeight, 1));
   ctx.grayLineBuffer = static_cast<uint8_t*>(malloc(grayBufSize));
   if (!ctx.grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
-    return false;
+    return diagnostics.fail("line-buffer");
   }
 
   // Stream the pixel cache to disk. PNGdec delivers source scanlines top to
@@ -442,6 +425,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   if (ctx.caching) {
     if (!ctx.cache.begin(config.cachePath, ctx.dstWidth, ctx.dstHeight, config.x, config.y, 1)) {
       ctx.caching = false;
+      diagnostics.fail("cache-begin");
       if (!config.writeToFramebuffer) {
         free(ctx.grayLineBuffer);
         return false;
@@ -460,7 +444,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 if (rc != PNG_SUCCESS) {
   LOG_ERR("PNG", "Decode failed: %d", rc);
   if (ctx.caching) ctx.cache.abort();
-  return false;
+  return diagnostics.fail("decode");
 }
 
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
@@ -468,7 +452,9 @@ if (rc != PNG_SUCCESS) {
   // Finalize the streamed cache (caching may have been cleared on a flush error).
   bool cacheComplete = false;
   if (!config.cachePath.empty()) {
+    const bool cacheStarted = ctx.cache.started();
     cacheComplete = ctx.cache.finalize();
+    if (!cacheComplete && cacheStarted) diagnostics.fail("finalize");
   }
   return config.writeToFramebuffer || cacheComplete;
 }

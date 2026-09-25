@@ -39,4 +39,5 @@ uint8_t* claim(const size_t minimumLength, size_t* lengthOut) {
 void release(const uint8_t* buffer) {
   if (buffer && buffer == block) claimed.store(false);
 }
+size_t available() { return block && !claimed.load() ? blockLength : 0; }
 }  // namespace buildscratch

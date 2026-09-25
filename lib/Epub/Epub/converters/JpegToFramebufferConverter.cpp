@@ -13,6 +13,7 @@
 #include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
+#include "ImageDecodeDiagnostics.h"
 #include "PixelCache.h"
 
 namespace {
@@ -393,19 +394,11 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
 
 bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
-  LOG_DBG("JPG", "Decoding JPEG: %s", imagePath.c_str());
-
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_JPEG) {
-    LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_JPEG);
-    return false;
-  }
+  ImageDecodeDiagnostics diagnostics("JPG", config, sizeof(JPEGDEC), renderer);
+  if (!diagnostics.admit(MIN_FREE_HEAP_FOR_JPEG)) return false;
 
   std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
-  if (!jpeg) {
-    LOG_ERR("JPG", "Failed to allocate JPEG decoder");
-    return false;
-  }
+  if (!jpeg) return diagnostics.fail("decoder-allocation");
 
   JpegContext ctx;
   ctx.renderer = &renderer;
@@ -418,7 +411,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    return false;
+    return diagnostics.fail("open");
   }
 
   ImageDimensions sourceDimensions;
@@ -497,8 +490,10 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
     const int maxBlockDstRows = (int)(((int64_t)16 * ctx.fineScaleFPY) >> FP_SHIFT) + 2;
+    diagnostics.scratch(srcWidth, srcHeight, 0, PixelCache::requiredBytes(destWidth, destHeight, maxBlockDstRows));
     if (!ctx.cache.begin(config.cachePath, destWidth, destHeight, config.x, config.y, maxBlockDstRows)) {
       ctx.caching = false;
+      diagnostics.fail("cache-begin");
       if (!config.writeToFramebuffer) {
         return false;
       }
@@ -513,7 +508,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    return false;
+    return diagnostics.fail("decode");
   }
 
   LOG_DBG("JPG", "JPEG decoding complete - render time: %lu ms", decodeTime);
@@ -522,7 +517,9 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   // ctx.caching (the partial file is dropped), so re-read the flag here.
   bool cacheComplete = false;
   if (!config.cachePath.empty()) {
+    const bool cacheStarted = ctx.cache.started();
     cacheComplete = ctx.cache.finalize();
+    if (!cacheComplete && cacheStarted) diagnostics.fail("finalize");
   }
   return config.writeToFramebuffer || cacheComplete;
 }
