@@ -4,7 +4,9 @@
 
 ブランチ feat/v0.7.8-idle-image-prefetch。基点8eff8b3c。上流#3675の調査時head 3ddb78fを参考にした限定実装。
 
-- default / gh_release / debug: idle先読みは無効。画像表示前の条件付きフォント解放は有効。
+- default / gh_release: idle先読みを有効化。詳細診断は無効。画像表示前の条件付きフォント解放も有効。
+- debug: 比較用にidle先読みは無効のまま。
+- idle_image_acceptance: defaultを継承する通常版相当の確認環境。
 - idle_image_test: 同一章の次ページ画像の先読みを有効化。
 - image_render_memory_test: 上記に加えてIRMの区間メモリ診断を有効化。
 - PXC6形式、画像の配置・dither、Home縮小表紙、次章生成は変更しない。先読み中のFrameBufferLoanは使用しない。
@@ -50,4 +52,10 @@ default / gh_release / image_render_memory_testは実機配布前の8eff8b3c-dir
 
 早めくり時の軽い引っかかりは既知。診断ログ、再読込み、画像後のrefreshの寄与は個別に断定しない。
 X3日本語PNG①で1回3076msを観測。同一データPNG②は1078ms、以前は1067～1165ms。開始heap/MaxAllocは同じで、遅延中の省電力移行記録なし。SD I/O/タスク待ちの内訳は未計測。単発・原因未確定として追加修正しない。
-通常版でのidle有効化、全4方向・混在ページ・長時間断片化の網羅試験、PNGdecoder分割、次章incremental生成は未実施。
+混在ページ・長時間断片化・全方向/全フォントの組合せの網羅試験、PNGdecoder分割、次章incremental生成は未実施。
+
+## 通常版への有効化
+
+詳細診断を外したidle_image_acceptance（eb2361d7-dirty-12107467）をX3/X4最終確認用として配布。日本語画像前後、戻る/メニュー、早めくり、章移動・再開、代表ページの4方向とSDフォントなしの確認を依頼し、ユーザーから「OKでした」と回答を受領。今回ログは必須とせず目視・操作確認として扱う。通常版への有効化を承認された範囲で実施する。
+
+default / gh_releaseに既存IDLE_IMAGE_PREFETCH_TESTフラグを追加。名称は歴史的なものだが、同一の先読みと入力引継ぎコードを有効化する機能スイッチとして使用する。実機確認後に実装の書き換えは行わない。debugはOFF比較用として維持。v0.7.8のタグ・リリース・pushはこの変更には含まない。
