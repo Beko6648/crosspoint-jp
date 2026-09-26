@@ -44,7 +44,10 @@ def extract_codepoints_from_header(header_path):
     codepoints = set()
     with open(header_path, "r", encoding="utf-8") as f:
         content = f.read()
-    for match in re.finditer(r"0x([0-9A-Fa-f]{4})", content):
+    table = re.search(r"CJK_UI_CODEPOINTS\[\].*?\{(.*?)\};", content, re.S)
+    if not table:
+        return codepoints
+    for match in re.finditer(r"0x([0-9A-Fa-f]{4})", table.group(1)):
         codepoints.add(int(match.group(1), 16))
     return codepoints
 
@@ -73,6 +76,9 @@ def check(project_root):
     translation_chars = extract_cjk_from_translations(translations_dir)
     if aozora_codepoints_path.exists():
         translation_chars.update(chr(cp) for cp in extract_codepoints_from_file(aozora_codepoints_path))
+    ui_codepoints_path = project_root / "scripts" / "codepoints" / "ui_jis2_symbols.txt"
+    if ui_codepoints_path.exists():
+        translation_chars.update(chr(cp) for cp in extract_codepoints_from_file(ui_codepoints_path))
     header_codepoints = extract_codepoints_from_header(header_path)
 
     missing = []
