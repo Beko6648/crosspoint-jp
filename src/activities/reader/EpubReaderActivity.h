@@ -22,6 +22,14 @@ class EpubReaderActivity final : public Activity {
   bool idlePageDone = false;
   void prefetchIdleImage();
 #endif
+#if defined(IDLE_CHAPTER_BUILD)
+  std::atomic<uint32_t> chapterRenderReady{0};
+  uint32_t chapterLastInput = 0;
+  uint16_t chapterViewportWidth = 0, chapterViewportHeight = 0;
+  std::unique_ptr<Section> idleChapter;
+  bool chapterCancelled = false;
+  void prefetchIdleChapter();
+#endif
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
@@ -108,9 +116,14 @@ class EpubReaderActivity final : public Activity {
         epub(std::move(epub)),
         restoreGlobalReaderSettingsOnExit(restoreGlobalReaderSettingsOnExit),
         activeBookFingerprint(activeBookFingerprint) {}
-#if defined(IDLE_IMAGE_PREFETCH_TEST)
+#if defined(IDLE_IMAGE_PREFETCH_TEST) || defined(IDLE_CHAPTER_BUILD)
   void requestUpdate(bool immediate = false) override {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
     idleRenderReady.store(0);
+#endif
+#if defined(IDLE_CHAPTER_BUILD)
+    chapterRenderReady.store(0);
+#endif
     Activity::requestUpdate(immediate);
   }
 #endif

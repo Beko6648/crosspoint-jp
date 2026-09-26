@@ -6,12 +6,11 @@
 #include <FontManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
-#include <ImageRenderDiagnostics.h>
-#include <ImageRenderBudget.h>
-#include <utility>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <ImageRenderBudget.h>
+#include <ImageRenderDiagnostics.h>
 #include <Issue18Diagnostics.h>
 #include <Logging.h>
 #include <SdFontDiagnostics.h>
@@ -20,6 +19,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "BookCacheClearActivity.h"
 #include "BookReaderSettings.h"
@@ -411,6 +411,12 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+#if defined(IDLE_CHAPTER_BUILD)
+  // ActivityManager calls onExit while holding the non-recursive RenderLock.
+  // Taking it again here would deadlock even when no build is active.
+  idleChapter.reset();
+  chapterRenderReady.store(0);
+#endif
   READING_HISTORY.endSession();
 
   // Reset orientation back to portrait for the rest of the UI
@@ -494,6 +500,19 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+#if defined(IDLE_CHAPTER_BUILD)
+  if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) {
+    chapterLastInput = millis();
+    // Never stall GPIO polling on a press edge: waiting for a full refresh can
+    // turn a short press into a measured long press. If rendering owns the
+    // mutex, render()/onExit() already discard the speculative state.
+    RenderLock lock(RenderLock::TryLock::Now);
+    if (lock.ownsLock()) {
+      if (idleChapter) LOG_INF("NCH", "cancel input");
+      idleChapter.reset();
+    }
+  }
+#endif
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) idleLastInput = millis();
 #endif
@@ -638,6 +657,9 @@ void EpubReaderActivity::loop() {
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
     prefetchIdleImage();
 #endif
+#if defined(IDLE_CHAPTER_BUILD)
+    prefetchIdleChapter();
+#endif
     return;
   }
 
@@ -656,6 +678,10 @@ void EpubReaderActivity::loop() {
   }
 
   const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
+#if defined(IDLE_CHAPTER_BUILD)
+  LOG_INF("NCH", "turn held=%lu skip=%d prev=%d next=%d", mappedInput.getHeldTime(), skipChapter,
+          prevTriggered, nextTriggered);
+#endif
 
   if (skipChapter) {
     // If there is no adjacent chapter in the requested direction, leave the
@@ -1169,6 +1195,10 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+#if defined(IDLE_CHAPTER_BUILD)
+  chapterRenderReady.store(0);
+  idleChapter.reset();
+#endif
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
   idleRenderReady.store(0);
 #endif
@@ -1461,7 +1491,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     SD_FONT_DIAG_LOG_AFTER("page_draw_after", 0, pageDrawStartedAt);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
+#if !defined(IDLE_CHAPTER_BUILD)
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
+#else
+  chapterViewportWidth = viewportWidth;
+  chapterViewportHeight = viewportHeight;
+#endif
   {
     const int percent = calculateBookPercent(section->currentPage, section->pageCount);
     saveProgress(currentSpineIndex, section->currentPage, section->pageCount, percent >= 95, percent);
@@ -1474,6 +1509,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
   idleRenderEpoch.fetch_add(1);
   idleRenderReady.store(millis());
+#endif
+#if defined(IDLE_CHAPTER_BUILD)
+  LOG_INF("NCH", "view spine=%d page=%d/%u", currentSpineIndex, section->currentPage + 1, section->pageCount);
+  chapterRenderReady.store(millis());
 #endif
 }
 
@@ -1506,16 +1545,30 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     LOG_DBG("ERS", "Skipping silent indexing for chapter %d (maxAlloc=%u, need >=%u)", nextSpineIndex,
             ESP.getMaxAllocHeap(), MIN_MAX_ALLOC_FOR_SILENT_INDEX);
     lastSilentIndexAttemptedSpineIndex = nextSpineIndex;
+#if defined(IDLE_CHAPTER_BUILD)
+    LOG_INF("NCH", "skip heap spine=%d max=%u", nextSpineIndex, ESP.getMaxAllocHeap());
+#endif
     return;
   }
 
   const auto& silentDs = SETTINGS.getDirectionSettings(verticalMode);
+#if defined(IDLE_CHAPTER_BUILD)
+  idleChapter.reset(new (std::nothrow) Section(epub, nextSpineIndex, renderer));
+  if (!idleChapter) return;
+  Section& nextSection = *idleChapter;
+#else
   Section nextSection(epub, nextSpineIndex, renderer);
+#endif
   if (nextSection.loadSectionFile(
           SETTINGS.getReaderFontId(verticalMode), SETTINGS.getTableFontId(verticalMode),
           SETTINGS.getReaderLineCompression(verticalMode), silentDs.extraParagraphSpacing, silentDs.paragraphAlignment,
           viewportWidth, viewportHeight, silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle,
           SETTINGS.imageRendering, verticalMode, silentDs.charSpacing, silentDs.tateChuYokoMaxDigits)) {
+#if defined(IDLE_CHAPTER_BUILD)
+    lastSilentIndexAttemptedSpineIndex = nextSpineIndex;
+    LOG_INF("NCH", "cache hit spine=%d", nextSpineIndex);
+    idleChapter.reset();
+#endif
     return;
   }
 
@@ -1532,10 +1585,64 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
           silentDs.extraParagraphSpacing, silentDs.paragraphAlignment, viewportWidth, viewportHeight,
           silentDs.hyphenationEnabled, silentDs.firstLineIndent, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
           verticalMode, silentDs.charSpacing, silentDs.tateChuYokoMaxDigits, nullptr, silentHeadingFontIds,
-          SETTINGS.getTableFontId(verticalMode), cssBodyFontIds)) {
-    LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
+          SETTINGS.getTableFontId(verticalMode), cssBodyFontIds
+#if defined(IDLE_CHAPTER_BUILD)
+          ,
+          nullptr, nullptr,
+          [this]() {
+            chapterCancelled = chapterCancelled || chapterRenderReady.load() == 0 || gpio.pollIdleInput();
+            return chapterCancelled;
+          },
+          true, true
+#endif
+          )) {
+    LOG_DBG("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
+#if defined(IDLE_CHAPTER_BUILD)
+    LOG_INF("NCH", "prepare failed spine=%d reason=%d cancelled=%d", nextSpineIndex,
+            static_cast<int>(nextSection.getLastCreateFailureReason()), chapterCancelled);
+    idleChapter.reset();
+#endif
   }
 }
+
+#if defined(IDLE_CHAPTER_BUILD)
+void EpubReaderActivity::prefetchIdleChapter() {
+  const uint32_t ready = chapterRenderReady.load();
+  if (!ready || millis() - ready < 1500 || millis() - chapterLastInput < 1500 || automaticPageTurnActive ||
+      rubyAdjustActive || SETTINGS.tiltPageTurn || RenderLock::peek())
+    return;
+  for (uint8_t b = 0; b <= HalGPIO::BTN_POWER; ++b)
+    if (gpio.isPressed(b)) return;
+  RenderLock lock(*this);
+  if (chapterRenderReady.load() != ready || !epub || !section) return;
+  HalPowerManager::Lock powerLock;
+  if (gpio.pollIdleInput()) {
+    idleChapter.reset();
+    chapterLastInput = millis();
+    return;
+  }
+  const uint32_t started = millis();
+  if (!idleChapter) {
+    chapterCancelled = false;
+    silentIndexNextChapterIfNeeded(chapterViewportWidth, chapterViewportHeight);
+    if (idleChapter)
+      LOG_INF("NCH", "prepared spine=%d ms=%lu free=%u max=%u", currentSpineIndex + 1, millis() - started,
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    if (chapterCancelled) {
+      idleChapter.reset();
+      chapterLastInput = millis();
+    }
+    return;
+  }
+  const auto result = idleChapter->stepIncrementalBuild();
+  const uint32_t elapsed = millis() - started;
+  if (elapsed > 25 || result != Section::BuildStep::Pending)
+    LOG_INF("NCH", "step result=%d ms=%lu pages=%u cancel=%d", static_cast<int>(result), elapsed,
+            idleChapter->pageCount, chapterCancelled);
+  if (result != Section::BuildStep::Pending || chapterCancelled) idleChapter.reset();
+  if (chapterCancelled) chapterLastInput = millis();
+}
+#endif
 
 int EpubReaderActivity::calculateBookPercent(const int currentPage, const int pageCount) const {
   if (!epub || epub->getBookSize() == 0 || pageCount <= 0) return -1;
@@ -1672,17 +1779,14 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     imagerenderdiag::mark("font-budget-before");
     const auto heapBefore = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const unsigned released = imagerenderbudget::recover(
-        renderer.getBufferSize(), fcm,
-        [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); },
-        [](unsigned stage) {
-          imagerenderdiag::mark(stage == 1 ? "font-glyphs-released" : "font-tables-released");
-        });
+        renderer.getBufferSize(), fcm, [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); },
+        [](unsigned stage) { imagerenderdiag::mark(stage == 1 ? "font-glyphs-released" : "font-tables-released"); });
     const auto heapAfter = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const bool low = imagerenderbudget::needsRecovery(renderer.getBufferSize(), heapAfter.first, heapAfter.second);
     LOG_DBG("IRB", "release=%u free=%u->%u maxAlloc=%u->%u frame=%u extra=%u low=%d", released,
             (unsigned)heapBefore.first, (unsigned)heapAfter.first, (unsigned)heapBefore.second,
-            (unsigned)heapAfter.second, (unsigned)renderer.getBufferSize(),
-            (unsigned)imagerenderbudget::EXTRA_BYTES, low);
+            (unsigned)heapAfter.second, (unsigned)renderer.getBufferSize(), (unsigned)imagerenderbudget::EXTRA_BYTES,
+            low);
     imagerenderdiag::mark("font-budget-after", released);
     // The estimate cannot guarantee all chunks fit; preserve the existing
     // checked allocation/failure path even when recovery cannot meet it.
@@ -1982,6 +2086,9 @@ void EpubReaderActivity::prefetchIdleImage() {
     if (gpio.isPressed(b)) return;
   RenderLock lock(*this);
   if (idleRenderReady.load() != ready || !epub || !section || !renderer.hasFrameBuffer()) return;
+#if defined(IDLE_CHAPTER_BUILD)
+  if (idleChapter) return;
+#endif
   const uint32_t epoch = idleRenderEpoch.load();
   if (idleSeenEpoch != epoch) {
     idleSeenEpoch = epoch;
@@ -2031,8 +2138,8 @@ void EpubReaderActivity::prefetchIdleImage() {
     const uint32_t started = millis();
     LOG_DBG("IPF", "Start spine=%d next=%d element=%u free=%u maxAlloc=%u", currentSpineIndex, next,
             (unsigned)(idleElement - 1), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    const auto result =
-        image.getImageBlock().ensurePixelCache(renderer, image.xPos + left, image.yPos + top, false, nullptr, &cancel, 32 * 1024);
+    const auto result = image.getImageBlock().ensurePixelCache(renderer, image.xPos + left, image.yPos + top, false,
+                                                               nullptr, &cancel, 32 * 1024);
     LOG_DBG("IPF", "End result=%d cancelled=%d time=%lu free=%u maxAlloc=%u", (int)result, cancel.cancelled,
             millis() - started, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     // Throttle subsequent images. A failed/cancelled image is not retried on this view.

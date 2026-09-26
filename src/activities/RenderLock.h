@@ -7,6 +7,9 @@ class RenderLock {
   bool isLocked = false;
 
  public:
+  enum class TryLock { Now };
+  explicit RenderLock(TryLock);
+  bool ownsLock() const { return isLocked; }
   explicit RenderLock();
   explicit RenderLock(Activity&);  // unused for now, but keep for compatibility
   RenderLock(const RenderLock&) = delete;
