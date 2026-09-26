@@ -11,6 +11,7 @@
 #include <expat.h>
 
 #include "../../Epub.h"
+#include "../CancellableImageOutput.h"
 #include "../LayoutMemory.h"
 #include "../Page.h"
 #include "../blocks/TableRowBlock.h"
@@ -787,14 +788,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // Extract image to cache file
             FsFile cachedImageFile;
             bool extractSuccess = false;
+            CancellableImageOutput imageOutput(cachedImageFile, self->cancelFn);
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
               // Images are extracted lazily. A larger transfer buffer cuts SD
               // read/write calls for image-heavy EPUBs without retaining it.
               {
-                extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
+                extractSuccess = self->epub->readItemContentsToStream(resolvedPath, imageOutput, 8192);
                 cachedImageFile.flush();
                 cachedImageFile.close();
               }
+            }
+
+            // Never turn an input cancellation into a persistent image placeholder.
+            // The file is closed above before removal, including a last-chunk cancel.
+            if (imageOutput.isCancelled()) {
+              Storage.remove(cachedImagePath.c_str());
+              self->lowMemoryAbortRequested = true;
+              LOG_INF("EHP", "Image extraction cancelled");
+              return;
             }
 
             if (extractSuccess) {
