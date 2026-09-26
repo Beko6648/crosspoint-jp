@@ -899,6 +899,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const std::function<bool()>& cancelFn, const bool requireCompleteCss,
                                 const bool incremental) {
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
+  freshTextOnlyBuild = false;
   lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
   BookMetadataCache::SpineEntry spineItem;
@@ -1106,6 +1107,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return true;
   }
   std::vector<std::pair<std::string, uint16_t>> anchors;
+  bool textOnlySource = false;
   {
     ChapterHtmlSlimParser visitor(
         epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
@@ -1121,7 +1123,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
         verticalMode, cssBodyFontIds, cancelFn, tateChuYokoMaxDigits);
     Hyphenator::setPreferredLanguage(epub->getLanguage());
     success = visitor.parseAndBuildPages();
-    if (success) anchors = visitor.getAnchors();
+    if (success) {
+      anchors = visitor.getAnchors();
+      textOnlySource = !visitor.hasEncounteredMedia();
+    }
   }
   LOG_INF("SCT", "Section %d parse/build=%lu ms, SD advance tables=%lu ms (%lu builds)", spineIndex,
           millis() - parseBuildStart, renderer.getSdCardAdvanceBuildMs(), renderer.getSdCardAdvanceBuildCalls());
@@ -1146,6 +1151,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
     return false;
   }
+
+  freshTextOnlyBuild = textOnlySource && cssReady && pageCount == 1;
 
   // CSS and parser allocations are now released. Reload only pages that contain
   // images so optional cache work has enough contiguous heap without making

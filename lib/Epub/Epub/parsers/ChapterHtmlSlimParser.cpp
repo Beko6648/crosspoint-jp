@@ -15,6 +15,7 @@
 #include "../ChapterStageProbe.h"
 #include "../LayoutMemory.h"
 #include "../Page.h"
+#include "../SinglePageCacheCompletion.h"
 #include "../blocks/TableRowBlock.h"
 #include "../blocks/TextBlock.h"
 #include "../converters/ImageDecoderFactory.h"
@@ -560,6 +561,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
 
 void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
+  if (singlepagecache::isMediaElement(name)) self->encounteredMedia = true;
   if (self->lowMemoryAbortRequested) return;
 
   // Middle of skip

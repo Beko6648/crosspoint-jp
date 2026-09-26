@@ -24,6 +24,7 @@ class Section {
   FsFile file;
   struct IncrementalBuild;
   std::shared_ptr<IncrementalBuild> incrementalBuild;
+  bool freshTextOnlyBuild = false;
   CreateFailureReason lastCreateFailureReason = CreateFailureReason::None;
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
   // Set only by the full-cache callers that supply page-ready work.  The
@@ -80,6 +81,7 @@ class Section {
                          const std::function<void(const Page&)>& pageReadyFn = nullptr,
                          const std::function<bool()>& cancelFn = nullptr, bool requireCompleteCss = false,
                          bool incremental = false);
+  bool hasFreshTextOnlyBuild() const { return freshTextOnlyBuild; }
   CreateFailureReason getLastCreateFailureReason() const { return lastCreateFailureReason; }
   std::unique_ptr<Page> loadPageFromSectionFile();
   std::unique_ptr<Page> loadPageFromSectionFile(uint16_t pageNumber);
