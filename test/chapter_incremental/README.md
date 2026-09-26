@@ -1,0 +1,2 @@
+# Incremental parse driver test
+Compiles the actual lifecycle/step method definitions extracted from ChapterHtmlSlimParser.cpp with the bundled Expat C implementation. Stubs storage, memory admission and layout callbacks; checks identical UTF-8/element event streams between synchronous and sliced operation, one-shot finalization, cancellation, heap and IO failures, malformed XML and tolerated trailing data. This does not validate production page geometry, Section publication or UI thread scheduling; those require firmware/device regression.

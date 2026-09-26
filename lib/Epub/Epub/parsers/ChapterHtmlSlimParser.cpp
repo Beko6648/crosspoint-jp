@@ -790,9 +790,11 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
               // Images are extracted lazily. A larger transfer buffer cuts SD
               // read/write calls for image-heavy EPUBs without retaining it.
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
-              cachedImageFile.flush();
-              cachedImageFile.close();
+              {
+                extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
+                cachedImageFile.flush();
+                cachedImageFile.close();
+              }
             }
 
             if (extractSuccess) {
@@ -1988,131 +1990,73 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 }
 
+ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { closeIncrementalParser(); }
+
+void ChapterHtmlSlimParser::closeIncrementalParser() {
+  if (incrementalParser) XML_ParserFree(incrementalParser);
+  incrementalParser = nullptr;
+  incrementalFile.close();
+}
+
 bool ChapterHtmlSlimParser::parseAndBuildPages() {
-  htmlEnded = false;
-  auto paragraphAlignmentBlockStyle = BlockStyle();
-  paragraphAlignmentBlockStyle.textAlignDefined = true;
-  // Resolve None sentinel to Justify for initial block (no CSS context yet)
-  const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                         ? CssTextAlign::Justify
-                         : static_cast<CssTextAlign>(this->paragraphAlignment);
-  paragraphAlignmentBlockStyle.alignment = align;
-  startNewTextBlock(paragraphAlignmentBlockStyle);
-
-  const XML_Parser parser = XML_ParserCreate(nullptr);
-  int done;
-
-  if (!parser) {
-    LOG_ERR("EHP", "Couldn't allocate memory for parser");
-    return false;
-  }
-
-  // Handle HTML entities (like &nbsp;) that aren't in XML spec or DTD
-  // Using DefaultHandlerExpand preserves normal entity expansion from DOCTYPE
-  XML_SetDefaultHandlerExpand(parser, defaultHandlerExpand);
-
-  FsFile file;
-  if (!Storage.openFileForRead("EHP", filepath, file)) {
-    XML_ParserFree(parser);
-    return false;
-  }
-
-  // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
-    popupFn();
-  }
-
-  XML_SetUserData(parser, this);
-  XML_SetElementHandler(parser, startElement, endElement);
-  XML_SetCharacterDataHandler(parser, characterData);
-
-  // Compute the time taken to parse and build pages
-  const uint32_t chapterStartTime = millis();
+  StepResult result;
   do {
-    if (cancelFn && cancelFn()) {
-      LOG_DBG("EHP", "Parsing cancelled by user");
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
+    result = stepParseAndBuildPages();
+  } while (result == StepResult::Pending);
+  return result == StepResult::Complete;
+}
+
+ChapterHtmlSlimParser::StepResult ChapterHtmlSlimParser::stepParseAndBuildPages() {
+  const auto fail = [this]() {
+    closeIncrementalParser();
+    incrementalFinished = true;
+    return StepResult::Failed;
+  };
+  if (incrementalFinished) return StepResult::Failed;
+  if (cancelFn && cancelFn()) return fail();
+  if (!incrementalParser) {
+    htmlEnded = false;
+    auto paragraphAlignmentBlockStyle = BlockStyle();
+    paragraphAlignmentBlockStyle.textAlignDefined = true;
+    // Resolve None sentinel to Justify for initial block (no CSS context yet)
+    const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                           ? CssTextAlign::Justify
+                           : static_cast<CssTextAlign>(this->paragraphAlignment);
+    paragraphAlignmentBlockStyle.alignment = align;
+    startNewTextBlock(paragraphAlignmentBlockStyle);
+
+    if (lowMemoryAbortRequested) return fail();
+    incrementalParser = XML_ParserCreate(nullptr);
+    if (!incrementalParser || !Storage.openFileForRead("EHP", filepath, incrementalFile)) return fail();
+    XML_SetDefaultHandlerExpand(incrementalParser, defaultHandlerExpand);
+    XML_SetUserData(incrementalParser, this);
+    XML_SetElementHandler(incrementalParser, startElement, endElement);
+    XML_SetCharacterDataHandler(incrementalParser, characterData);
+    if (popupFn && incrementalFile.size() >= MIN_SIZE_FOR_POPUP) popupFn();
+  }
+  void* const buf = XML_GetBuffer(incrementalParser, PARSE_BUFFER_SIZE);
+  if (!buf) return fail();
+  const size_t len = incrementalFile.read(buf, PARSE_BUFFER_SIZE);
+  if (len == 0 && incrementalFile.available() > 0) return fail();
+  bool done = incrementalFile.available() == 0;
+  if (XML_ParseBuffer(incrementalParser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+    if (htmlEnded && !lowMemoryAbortRequested) {
+      done = true;
+    } else {
+      LOG_ERR("EHP", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(incrementalParser),
+              XML_ErrorString(XML_GetErrorCode(incrementalParser)));
+      return fail();
     }
-
-    void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
-    if (!buf) {
-      LOG_ERR("EHP", "Couldn't allocate memory for buffer");
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    const size_t len = file.read(buf, PARSE_BUFFER_SIZE);
-
-    if (len == 0 && file.available() > 0) {
-      LOG_ERR("EHP", "File read error");
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    done = file.available() == 0;
-
-    if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
-      if (htmlEnded && !lowMemoryAbortRequested) {
-        LOG_DBG("EHP", "Ignoring trailing data after </html>: %s", XML_ErrorString(XML_GetErrorCode(parser)));
-        break;
-      }
-      LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
-              XML_ErrorString(XML_GetErrorCode(parser)));
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    if (lowMemoryAbortRequested) {
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    // Periodic heap check during parsing to prevent abort() from failed allocations
-    if (!done && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING) {
-      LOG_ERR("EHP", "Low heap during parsing (%u bytes), stopping gracefully", ESP.getFreeHeap());
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-  } while (!done);
-  LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - chapterStartTime);
-
-  XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-  XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-  XML_SetCharacterDataHandler(parser, nullptr);
-  XML_ParserFree(parser);
-  file.close();
-
-  if (lowMemoryAbortRequested) return false;
-
+  }
+  if (lowMemoryAbortRequested || (cancelFn && cancelFn())) return fail();
+  if (!done && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING) return fail();
+  if (!done) return StepResult::Pending;
+  closeIncrementalParser();
+  incrementalFinished = true;
   // Process last page if there is still text
   if (currentTextBlock) {
     makePages();
-    if (lowMemoryAbortRequested) return false;
+    if (lowMemoryAbortRequested) return StepResult::Failed;
     if (!pendingAnchorId.empty()) {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
@@ -2124,7 +2068,8 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     currentTextBlock.reset();
   }
 
-  return true;
+  if (cancelFn && cancelFn()) return StepResult::Failed;
+  return StepResult::Complete;
 }
 
 void ChapterHtmlSlimParser::completeCurrentPage() {
@@ -2143,6 +2088,7 @@ void ChapterHtmlSlimParser::completeCurrentPage() {
 }
 
 bool ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line) {
+  if (cancelFn && cancelFn()) lowMemoryAbortRequested = true;
   if (lowMemoryAbortRequested) return false;
   if (!line) {
     lowMemoryAbortRequested = true;

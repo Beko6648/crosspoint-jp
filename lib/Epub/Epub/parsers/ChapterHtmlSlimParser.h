@@ -24,7 +24,10 @@ class Epub;
 
 class ChapterHtmlSlimParser {
   std::shared_ptr<Epub> epub;
-  const std::string& filepath;
+  const std::string filepath;
+  XML_Parser incrementalParser = nullptr;
+  FsFile incrementalFile;
+  bool incrementalFinished = false;
   GfxRenderer& renderer;
   std::function<void(std::unique_ptr<Page>)> completePageFn;
   std::function<void()> popupFn;  // Popup callback
@@ -237,7 +240,11 @@ class ChapterHtmlSlimParser {
     this->tableFontId = tableFontId;
   }
 
-  ~ChapterHtmlSlimParser() = default;
+  ~ChapterHtmlSlimParser();
+  // One original input chunk per call; callbacks may exceed the soft time budget.
+  enum class StepResult { Pending, Complete, Failed };
+  StepResult stepParseAndBuildPages();
+  void closeIncrementalParser();
   bool parseAndBuildPages();
   bool addLineToPage(std::unique_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
