@@ -1,5 +1,6 @@
 #include "PngToFramebufferConverter.h"
 
+#include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -17,6 +18,7 @@
 #include "ImageDecodeDiagnostics.h"
 #include "PixelCache.h"
 #include "PngDecodeBudget.h"
+#include "PngDrawRecovery.h"
 
 namespace {
 
@@ -327,7 +329,7 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 }
 
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
-                                                     const RenderConfig& config) {
+                                                    const RenderConfig& config) {
   ImageDecodeDiagnostics diagnostics("PNG", config, sizeof(PNG), renderer);
   const size_t reserve = config.writeToFramebuffer ? 0 : config.pngHeapReserveBytes;
   if (reserve) {
@@ -339,10 +341,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     const size_t largest = ESP.getMaxAllocHeap();
     if (!band || !pngbudget::admits(freeBytes, largest, sizeof(PNG), dims.width, band, reserve)) {
       LOG_DBG("IPF", "PNG deferred stage=budget free=%u maxAlloc=%u decoder=%u gray=%u band=%u reserve=%u overhead=%u",
-              (unsigned)freeBytes, (unsigned)largest, (unsigned)sizeof(PNG), (unsigned)dims.width,
-              (unsigned)band, (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
+              (unsigned)freeBytes, (unsigned)largest, (unsigned)sizeof(PNG), (unsigned)dims.width, (unsigned)band,
+              (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
       return false;
     }
+  }
+  const auto beforeRecovery = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  if (pngdrawrecovery::recover(config.writeToFramebuffer, MIN_FREE_HEAP_FOR_PNG, sizeof(PNG),
+                               renderer.getFontCacheManager(),
+                               [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); })) {
+    LOG_INF("IMEM", "PNG draw recovery vertical free=%u->%u max=%u->%u decoder=%u", beforeRecovery.first,
+            ESP.getFreeHeap(), beforeRecovery.second, ESP.getMaxAllocHeap(), static_cast<unsigned>(sizeof(PNG)));
   }
   if (!diagnostics.admit(MIN_FREE_HEAP_FOR_PNG)) return false;
 
@@ -399,17 +408,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   const int bitsPerSample = png->getBpp();
   const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType, bitsPerSample);
   if (requiredInternal > PNG_MAX_BUFFERED_PIXELS) {
-    LOG_ERR("PNG",
-            "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
-            requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
+    LOG_ERR(
+        "PNG",
+        "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
+        requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
     LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
     return false;
   }
 
   if (!isSupportedBitDepth(pixelType, bitsPerSample)) {
-    warnUnsupportedFeature("bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " +
-                               std::to_string(pixelType),
-                           imagePath);
+    warnUnsupportedFeature(
+        "bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " + std::to_string(pixelType), imagePath);
     return false;
   }
 
@@ -419,8 +428,8 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   constexpr size_t MAX_GRAY_LINE_BUFFER_BYTES = PNG_MAX_BUFFERED_PIXELS / 2;
   const size_t grayBufSize = static_cast<size_t>(ctx.srcWidth);
   if (grayBufSize > MAX_GRAY_LINE_BUFFER_BYTES) {
-    LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u",
-            static_cast<unsigned>(grayBufSize), ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
+    LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u", static_cast<unsigned>(grayBufSize),
+            ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
     return false;
   }
 
@@ -453,8 +462,8 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   // Recheck actual headroom after open/line/cache allocations. A rejected
   // attempt removes its partial file before returning to the reader.
   if (reserve && ESP.getFreeHeap() < reserve + pngbudget::OVERHEAD_BYTES) {
-    LOG_DBG("IPF", "PNG deferred stage=allocated free=%u reserve=%u overhead=%u", ESP.getFreeHeap(),
-            (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
+    LOG_DBG("IPF", "PNG deferred stage=allocated free=%u reserve=%u overhead=%u", ESP.getFreeHeap(), (unsigned)reserve,
+            (unsigned)pngbudget::OVERHEAD_BYTES);
     ctx.cache.abort();
     free(ctx.grayLineBuffer);
     return false;
@@ -474,11 +483,11 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     return false;
   }
 
-if (rc != PNG_SUCCESS) {
-  LOG_ERR("PNG", "Decode failed: %d", rc);
-  if (ctx.caching) ctx.cache.abort();
-  return diagnostics.fail("decode");
-}
+  if (rc != PNG_SUCCESS) {
+    LOG_ERR("PNG", "Decode failed: %d", rc);
+    if (ctx.caching) ctx.cache.abort();
+    return diagnostics.fail("decode");
+  }
 
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
