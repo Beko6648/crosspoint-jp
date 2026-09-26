@@ -1623,6 +1623,9 @@ void EpubReaderActivity::prefetchIdleChapter() {
   }
   const uint32_t started = millis();
   if (!idleChapter) {
+#if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
+    chapterTestPause.reset();
+#endif
     chapterCancelled = false;
     silentIndexNextChapterIfNeeded(chapterViewportWidth, chapterViewportHeight);
     if (idleChapter)
@@ -1634,7 +1637,18 @@ void EpubReaderActivity::prefetchIdleChapter() {
     }
     return;
   }
+#if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
+  // Return to the normal loop so input processing remains live during the window.
+  if (chapterTestPause.waiting(millis(), IDLE_CHAPTER_CANCEL_WINDOW_MS)) return;
+#endif
   const auto result = idleChapter->stepIncrementalBuild();
+#if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
+  if (result == Section::BuildStep::Pending && !chapterCancelled &&
+      chapterTestPause.arm(millis(), idleChapter->pageCount)) {
+    LOG_INF("NCH", "cancel test window=%u ms pages=%u", static_cast<unsigned>(IDLE_CHAPTER_CANCEL_WINDOW_MS),
+            idleChapter->pageCount);
+  }
+#endif
   const uint32_t elapsed = millis() - started;
   if (elapsed > 25 || result != Section::BuildStep::Pending)
     LOG_INF("NCH", "step result=%d ms=%lu pages=%u cancel=%d", static_cast<int>(result), elapsed,

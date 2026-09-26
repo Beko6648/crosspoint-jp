@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <new>
 
+#include "ChapterStageProbe.h"
 #include "Epub/css/CssParser.h"
 #include "Epub/css/CssSelectorUsage.h"
 #include "IdleChapterBudget.h"
@@ -968,6 +969,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   bool success = false;
   uint32_t fileSize = 0;
   {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-html-stream");
+#endif
     success = streamSpineItemToTempHtml(localPath, tmpHtmlPath, fileSize, cancelFn);
   }
 
@@ -1010,6 +1014,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   bool cssReady = false;
   CssParser* cssParser = nullptr;
   {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-css");
+#endif
     cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath, requireCompleteCss, cssReady);
   }
   if (requireCompleteCss && !cssReady) {
@@ -1070,6 +1077,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // a long chapter can otherwise exhaust the fragmented heap immediately after
   // its last page has been serialized.
   if (incremental) {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-parser");
+#endif
     incrementalBuild.reset(new (std::nothrow) IncrementalBuild());
     if (!incrementalBuild) {
       file.close();

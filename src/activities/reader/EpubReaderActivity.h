@@ -11,6 +11,9 @@
 #include "BookmarkEntry.h"
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
+#if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
+#include "util/IdleChapterTestPause.h"
+#endif
 
 class EpubReaderActivity final : public Activity {
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
@@ -28,6 +31,9 @@ class EpubReaderActivity final : public Activity {
   uint16_t chapterViewportWidth = 0, chapterViewportHeight = 0;
   std::unique_ptr<Section> idleChapter;
   bool chapterCancelled = false;
+#if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
+  IdleChapterTestPause chapterTestPause;
+#endif
   void prefetchIdleChapter();
 #endif
   std::shared_ptr<Epub> epub;

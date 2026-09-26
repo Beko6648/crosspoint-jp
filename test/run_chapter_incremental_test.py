@@ -18,6 +18,11 @@ subprocess.run([a.compiler,'c++','-std=c++20','-I'+str(r/'lib/Epub'),str(r/'test
 subprocess.run([str(budget)],check=True)
 print('PASS: conditional one-shot font recovery; sufficient, total-low, fragmented, missing-font cases')
 
+pause=out/'pause.exe'
+subprocess.run([a.compiler,'c++','-std=c++20','-I'+str(r/'src'),str(r/'test/chapter_incremental/PauseTest.cpp'),'-o',str(pause)],check=True)
+subprocess.run([str(pause)],check=True)
+print('PASS: diagnostic pause starts after partial output, expiry, single pause and clock wrap')
+
 recovery=out/'png_draw_recovery.exe'
 subprocess.run([a.compiler,'c++','-std=c++20','-I'+str(r/'lib/Epub'),str(r/'test/chapter_incremental/PngDrawRecoveryTest.cpp'),'-o',str(recovery)],check=True)
 subprocess.run([str(recovery)],check=True)

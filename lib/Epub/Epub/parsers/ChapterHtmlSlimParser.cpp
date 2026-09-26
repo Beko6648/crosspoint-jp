@@ -12,6 +12,7 @@
 
 #include "../../Epub.h"
 #include "../CancellableImageOutput.h"
+#include "../ChapterStageProbe.h"
 #include "../LayoutMemory.h"
 #include "../Page.h"
 #include "../blocks/TableRowBlock.h"
@@ -793,6 +794,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
               // Images are extracted lazily. A larger transfer buffer cuts SD
               // read/write calls for image-heavy EPUBs without retaining it.
               {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+                ChapterStageProbe stageProbe("image-extract");
+                LOG_INF("NCP", "image source=%s", resolvedPath.c_str());
+#endif
                 extractSuccess = self->epub->readItemContentsToStream(resolvedPath, imageOutput, 8192);
                 cachedImageFile.flush();
                 cachedImageFile.close();
@@ -818,6 +823,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 if (attempt > 0) {
                   delay(50);
                 }
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+                ChapterStageProbe stageProbe("image-dimensions");
+#endif
                 gotDimensions = decoder && decoder->getDimensions(cachedImagePath, dims);
               }
               if (gotDimensions) {
@@ -2018,6 +2026,9 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 }
 
 ChapterHtmlSlimParser::StepResult ChapterHtmlSlimParser::stepParseAndBuildPages() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("parser-step");
+#endif
   const auto fail = [this]() {
     closeIncrementalParser();
     incrementalFinished = true;
@@ -2290,6 +2301,9 @@ static std::vector<std::string> wrapCellText(GfxRenderer& renderer, const int fo
 }
 
 void ChapterHtmlSlimParser::flushTableAsGrid() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("table");
+#endif
   if (tableBuffer.empty()) return;
 
   int maxCols = 0;
@@ -2419,6 +2433,9 @@ void ChapterHtmlSlimParser::flushTableAsGrid() {
 }
 
 void ChapterHtmlSlimParser::makePages() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("text-layout");
+#endif
   if (lowMemoryAbortRequested) return;
   const bool suppressParagraphSpacing = suppressParagraphSpacingOnce;
   suppressParagraphSpacingOnce = false;
