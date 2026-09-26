@@ -313,9 +313,9 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       bool firstColumn = true;
       for (size_t sampleIndex = 0; sampleIndex < 9 && nextColumnX >= left; ++sampleIndex) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
-        std::vector<std::shared_ptr<TextBlock>> columns;
+        std::vector<std::unique_ptr<TextBlock>> columns;
         sample.layoutVerticalColumns(renderer, fontId, static_cast<uint16_t>(contentHeight),
-                                     [&columns](std::shared_ptr<TextBlock> column) {
+                                     [&columns](std::unique_ptr<TextBlock> column) {
                                        columns.push_back(std::move(column));
                                        return true;
                                      });
@@ -345,9 +345,9 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       int y = top;
       for (size_t sampleIndex = 0; sampleIndex < 9; ++sampleIndex) {
         ParsedText sample = makeSampleLine(direction, sampleIndex);
-        std::vector<std::shared_ptr<TextBlock>> lines;
+        std::vector<std::unique_ptr<TextBlock>> lines;
         sample.layoutAndExtractLines(renderer, fontId, static_cast<uint16_t>(contentWidth),
-                                     [&lines](std::shared_ptr<TextBlock> line) {
+                                     [&lines](std::unique_ptr<TextBlock> line) {
                                        lines.push_back(std::move(line));
                                        return true;
                                      });

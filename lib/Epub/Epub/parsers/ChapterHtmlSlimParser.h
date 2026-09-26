@@ -239,6 +239,6 @@ class ChapterHtmlSlimParser {
 
   ~ChapterHtmlSlimParser() = default;
   bool parseAndBuildPages();
-  bool addLineToPage(std::shared_ptr<TextBlock> line);
+  bool addLineToPage(std::unique_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
 };
