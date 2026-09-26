@@ -92,6 +92,7 @@ class ChapterHtmlSlimParser {
   std::string contentBase;
   std::string imageBasePath;
   int imageCounter = 0;
+  bool encounteredMedia = false;
   bool verticalMode = false;
   uint8_t tateChuYokoMaxDigits = 2;
 
@@ -240,6 +241,7 @@ class ChapterHtmlSlimParser {
     this->tableFontId = tableFontId;
   }
 
+  bool hasEncounteredMedia() const { return encounteredMedia; }
   ~ChapterHtmlSlimParser();
   // One original input chunk per call; callbacks may exceed the soft time budget.
   enum class StepResult { Pending, Complete, Failed };

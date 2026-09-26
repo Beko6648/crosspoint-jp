@@ -1,6 +1,7 @@
 #include "EpubReaderActivity.h"
 
 #include <Epub/Page.h>
+#include <Epub/SinglePageCacheCompletion.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <FontManager.h>
@@ -679,8 +680,8 @@ void EpubReaderActivity::loop() {
 
   const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
 #if defined(IDLE_CHAPTER_DIAGNOSTICS)
-  LOG_INF("NCH", "turn held=%lu skip=%d prev=%d next=%d", mappedInput.getHeldTime(), skipChapter,
-          prevTriggered, nextTriggered);
+  LOG_INF("NCH", "turn held=%lu skip=%d prev=%d next=%d", mappedInput.getHeldTime(), skipChapter, prevTriggered,
+          nextTriggered);
 #endif
 
   if (skipChapter) {
@@ -1479,6 +1480,17 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       return;
     }
 
+    // Only a fresh, fully persisted single-page text build proves this whole book is ready.
+    if (singlepagecache::eligible(epub->getSpineItemsCount(), currentSpineIndex, section->pageCount,
+                                  section->hasFreshTextOnlyBuild(), p->hasImages()) &&
+        !epub->isFullCacheGenerated()) {
+      if (epub->markFullCacheGenerated()) {
+        LOG_INF("ERS", "Single-page text cache complete");
+      } else {
+        LOG_ERR("ERS", "Could not publish single-page completion marker");
+      }
+    }
+
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
 
@@ -1658,8 +1670,8 @@ void EpubReaderActivity::prefetchIdleChapter() {
             idleChapter->pageCount, chapterCancelled);
 #else
   if (result != Section::BuildStep::Pending)
-    LOG_INF("NCH", "finished spine=%d result=%d pages=%u cancel=%d", currentSpineIndex + 1,
-            static_cast<int>(result), idleChapter->pageCount, chapterCancelled);
+    LOG_INF("NCH", "finished spine=%d result=%d pages=%u cancel=%d", currentSpineIndex + 1, static_cast<int>(result),
+            idleChapter->pageCount, chapterCancelled);
 #endif
   if (result != Section::BuildStep::Pending || chapterCancelled) idleChapter.reset();
   if (chapterCancelled) chapterLastInput = millis();
