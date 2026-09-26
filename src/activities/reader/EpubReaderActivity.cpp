@@ -678,7 +678,7 @@ void EpubReaderActivity::loop() {
   }
 
   const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
-#if defined(IDLE_CHAPTER_BUILD)
+#if defined(IDLE_CHAPTER_DIAGNOSTICS)
   LOG_INF("NCH", "turn held=%lu skip=%d prev=%d next=%d", mappedInput.getHeldTime(), skipChapter,
           prevTriggered, nextTriggered);
 #endif
@@ -1511,7 +1511,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   idleRenderReady.store(millis());
 #endif
 #if defined(IDLE_CHAPTER_BUILD)
+#if defined(IDLE_CHAPTER_DIAGNOSTICS)
   LOG_INF("NCH", "view spine=%d page=%d/%u", currentSpineIndex, section->currentPage + 1, section->pageCount);
+#endif
   chapterRenderReady.store(millis());
 #endif
 }
@@ -1649,10 +1651,16 @@ void EpubReaderActivity::prefetchIdleChapter() {
             idleChapter->pageCount);
   }
 #endif
+#if defined(IDLE_CHAPTER_DIAGNOSTICS)
   const uint32_t elapsed = millis() - started;
   if (elapsed > 25 || result != Section::BuildStep::Pending)
     LOG_INF("NCH", "step result=%d ms=%lu pages=%u cancel=%d", static_cast<int>(result), elapsed,
             idleChapter->pageCount, chapterCancelled);
+#else
+  if (result != Section::BuildStep::Pending)
+    LOG_INF("NCH", "finished spine=%d result=%d pages=%u cancel=%d", currentSpineIndex + 1,
+            static_cast<int>(result), idleChapter->pageCount, chapterCancelled);
+#endif
   if (result != Section::BuildStep::Pending || chapterCancelled) idleChapter.reset();
   if (chapterCancelled) chapterLastInput = millis();
 }
