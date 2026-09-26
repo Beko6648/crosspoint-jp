@@ -24,6 +24,7 @@
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#include "util/LibraryProfile.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
@@ -173,6 +174,7 @@ void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
 }
 
 FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool forceReload) {
+  LIBRARY_PROFILE_SCOPE("directory-load");
   const unsigned long totalStartedAt = millis();
   if (forceReload) {
     invalidateDirectoryCache(basepath);
@@ -320,9 +322,13 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 }
 
 void FileBrowserActivity::onEnter() {
+  LIBRARY_PROFILE_SCOPE("browser-enter");
   Activity::onEnter();
 
-  if (mode == Mode::Books) loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
+  if (mode == Mode::Books) {
+    LIBRARY_PROFILE_SCOPE("status-index-load");
+    loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
+  }
 
   selectorIndex = 0;
   lockNextConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -347,6 +353,7 @@ void FileBrowserActivity::onEnter() {
 }
 
 void FileBrowserActivity::onExit() {
+  LIBRARY_PROFILE_SCOPE("browser-exit");
   Activity::onExit();
   if (bookListStatusIndexDirty) saveBookListStatusIndex("/.crosspoint", bookListStatusIndex);
   files.clear();
