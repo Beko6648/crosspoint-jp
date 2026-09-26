@@ -36,6 +36,7 @@ class Epub {
   bool saveSourceFingerprint(uint64_t fingerprint) const;
   // CSS files
   std::vector<std::string> cssFiles;
+  bool cssDiscoveryComplete = true;
 
   bool findContentOpfFile(std::string* contentOpfFile) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true);

@@ -14,7 +14,7 @@ class CssParser;
 
 class Section {
  public:
-  enum class CreateFailureReason { None, Cancelled, InsufficientMemory, StorageIo, Parse };
+  enum class CreateFailureReason { None, Cancelled, InsufficientMemory, StorageIo, Parse, CssUnavailable };
 
  private:
   std::shared_ptr<Epub> epub;
@@ -34,7 +34,8 @@ class Section {
                               bool hyphenationEnabled, bool firstLineIndent, uint8_t bookStyle, uint8_t imageRendering,
                               bool verticalMode, uint8_t charSpacing, uint8_t tateChuYokoMaxDigits);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
-  CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize, const std::string& htmlPath);
+  CssParser* loadEmbeddedCssForSection(uint8_t bookStyle, uint32_t fileSize, const std::string& htmlPath,
+                                       bool requireComplete, bool& cssReady);
   bool streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath, uint32_t& fileSize);
   bool readSectionOffsets(FsFile& file, uint32_t& lutOffset, uint32_t& anchorMapOffset) const;
   bool finalizeSectionFile(const std::vector<uint32_t>& lut,
@@ -69,7 +70,7 @@ class Section {
                          const int* headingFontIds = nullptr, int tableFontId = 0, const int* cssBodyFontIds = nullptr,
                          const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn = nullptr,
                          const std::function<void(const Page&)>& pageReadyFn = nullptr,
-                         const std::function<bool()>& cancelFn = nullptr);
+                         const std::function<bool()>& cancelFn = nullptr, bool requireCompleteCss = false);
   CreateFailureReason getLastCreateFailureReason() const { return lastCreateFailureReason; }
   std::unique_ptr<Page> loadPageFromSectionFile();
   std::unique_ptr<Page> loadPageFromSectionFile(uint16_t pageNumber);

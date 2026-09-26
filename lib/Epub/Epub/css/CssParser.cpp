@@ -458,13 +458,14 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
   }
 
   // Check if we've reached the rule limit before processing
-  if (rulesBySelector_.size() >= MAX_RULES) {
+  if (!cacheWriteActive_ && rulesBySelector_.size() >= MAX_RULES) {
     LOG_DBG("CSS", "Reached max rules limit (%zu), stopping CSS parsing", MAX_RULES);
     return;
   }
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
     LOG_DBG("CSS", "Low heap (%u bytes), dropping CSS rule registration", ESP.getFreeHeap());
+    if (cacheWriteActive_) cacheWriteFailed_ = true;
     return;
   }
 
@@ -533,9 +534,18 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
     }
 
     // Skip if this would exceed the rule limit
-    if (rulesBySelector_.size() >= MAX_RULES) {
+    if (!cacheWriteActive_ && rulesBySelector_.size() >= MAX_RULES) {
       LOG_DBG("CSS", "Reached max rules limit, stopping selector processing");
       return;
+    }
+
+    if (cacheWriteActive_) {
+      if (cacheWriteCount_ == UINT16_MAX || !writeCachedRule(cacheWriteFile_, key, style)) {
+        cacheWriteFailed_ = true;
+        return;
+      }
+      ++cacheWriteCount_;
+      continue;
     }
 
     // Store or merge with existing
@@ -552,6 +562,7 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
 
 bool CssParser::loadFromStream(FsFile& source) {
   if (!source) {
+    if (cacheWriteActive_) cacheWriteFailed_ = true;
     LOG_ERR("CSS", "Cannot read from invalid file");
     return false;
   }
@@ -653,13 +664,17 @@ bool CssParser::loadFromStream(FsFile& source) {
     // exhausted. The caller keeps the already parsed rules in RAM, but will
     // avoid saving this incomplete set as a cache.
     if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
+      if (cacheWriteActive_) cacheWriteFailed_ = true;
       LOG_ERR("CSS", "Low heap during CSS parse (%u bytes), stopping early with %zu rules", ESP.getFreeHeap(),
               rulesBySelector_.size());
       return false;
     }
 
     int bytesRead = source.read(buffer, sizeof(buffer));
-    if (bytesRead <= 0) break;
+    if (bytesRead <= 0) {
+      if (cacheWriteActive_) cacheWriteFailed_ = true;
+      return false;
+    }
 
     totalRead += static_cast<size_t>(bytesRead);
 
@@ -694,6 +709,7 @@ bool CssParser::loadFromStream(FsFile& source) {
       }
 
       handleChar(c);
+      if (cacheWriteFailed_) return false;
     }
   }
 
@@ -702,7 +718,7 @@ bool CssParser::loadFromStream(FsFile& source) {
   }
 
   LOG_DBG("CSS", "Parsed %zu rules from %zu bytes", rulesBySelector_.size(), totalRead);
-  return true;
+  return !cacheWriteFailed_;
 }
 
 // Style resolution
@@ -791,8 +807,78 @@ bool CssParser::validateCache() const {
   return valid;
 }
 
+bool CssParser::writeCachedRule(FsFile& file, const std::string& selector, const CssStyle& style) {
+  // Write selector string (length-prefixed)
+  const auto selectorLen = static_cast<uint16_t>(selector.size());
+  file.write(reinterpret_cast<const uint8_t*>(&selectorLen), sizeof(selectorLen));
+  file.write(reinterpret_cast<const uint8_t*>(selector.data()), selectorLen);
+
+  // Write CssStyle fields (all are POD types)
+  file.write(static_cast<uint8_t>(style.textAlign));
+  file.write(static_cast<uint8_t>(style.fontStyle));
+  file.write(static_cast<uint8_t>(style.fontWeight));
+  file.write(static_cast<uint8_t>(style.textDecoration));
+
+  // Write CssLength fields (value + unit)
+  auto writeLength = [&file](const CssLength& len) {
+    file.write(reinterpret_cast<const uint8_t*>(&len.value), sizeof(len.value));
+    file.write(static_cast<uint8_t>(len.unit));
+  };
+
+  writeLength(style.textIndent);
+  writeLength(style.marginTop);
+  writeLength(style.marginBottom);
+  writeLength(style.marginLeft);
+  writeLength(style.marginRight);
+  writeLength(style.paddingTop);
+  writeLength(style.paddingBottom);
+  writeLength(style.paddingLeft);
+  writeLength(style.paddingRight);
+  writeLength(style.imageHeight);
+  writeLength(style.imageWidth);
+  writeLength(style.imageMaxHeight);
+  writeLength(style.imageMaxWidth);
+  writeLength(style.fontSize);
+  writeLength(style.lineHeightLength);
+  file.write(reinterpret_cast<const uint8_t*>(&style.lineHeight), sizeof(style.lineHeight));
+  file.write(static_cast<uint8_t>(style.lineHeightIsMultiplier));
+  file.write(static_cast<uint8_t>(style.fontSizeDefined));
+  file.write(static_cast<uint8_t>(style.lineHeightDefined));
+  file.write(static_cast<uint8_t>(style.display));
+  file.write(static_cast<uint8_t>(style.emphasis));
+  file.write(static_cast<uint8_t>(style.emphasisDefined));
+
+  // Write defined flags as uint32_t. New image bounds use bits above the
+  // original 16-bit image-style flags.
+  uint32_t definedBits = 0;
+  if (style.defined.textAlign) definedBits |= 1 << 0;
+  if (style.defined.fontStyle) definedBits |= 1 << 1;
+  if (style.defined.fontWeight) definedBits |= 1 << 2;
+  if (style.defined.textDecoration) definedBits |= 1 << 3;
+  if (style.defined.textIndent) definedBits |= 1 << 4;
+  if (style.defined.marginTop) definedBits |= 1 << 5;
+  if (style.defined.marginBottom) definedBits |= 1 << 6;
+  if (style.defined.marginLeft) definedBits |= 1 << 7;
+  if (style.defined.marginRight) definedBits |= 1 << 8;
+  if (style.defined.paddingTop) definedBits |= 1 << 9;
+  if (style.defined.paddingBottom) definedBits |= 1 << 10;
+  if (style.defined.paddingLeft) definedBits |= 1 << 11;
+  if (style.defined.paddingRight) definedBits |= 1 << 12;
+  if (style.defined.imageHeight) definedBits |= 1 << 13;
+  if (style.defined.imageWidth) definedBits |= 1 << 14;
+  if (style.defined.display) definedBits |= 1 << 15;
+  if (style.defined.imageMaxHeight) definedBits |= 1u << 16;
+  if (style.defined.imageMaxWidth) definedBits |= 1u << 17;
+  file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
+#ifndef SIMULATOR
+  return !file.getWriteError();
+#else
+  return true;
+#endif
+}
+
 bool CssParser::saveToCache() const {
-  if (cachePath.empty()) {
+  if (cachePath.empty() || cacheWriteActive_) {
     return false;
   }
 
@@ -814,71 +900,12 @@ bool CssParser::saveToCache() const {
   const auto ruleCount = static_cast<uint16_t>(rulesBySelector_.size());
   file.write(reinterpret_cast<const uint8_t*>(&ruleCount), sizeof(ruleCount));
 
-  // Write each rule: selector string + CssStyle fields
   for (const auto& pair : rulesBySelector_) {
-    // Write selector string (length-prefixed)
-    const auto selectorLen = static_cast<uint16_t>(pair.first.size());
-    file.write(reinterpret_cast<const uint8_t*>(&selectorLen), sizeof(selectorLen));
-    file.write(reinterpret_cast<const uint8_t*>(pair.first.data()), selectorLen);
-
-    // Write CssStyle fields (all are POD types)
-    const CssStyle& style = pair.second;
-    file.write(static_cast<uint8_t>(style.textAlign));
-    file.write(static_cast<uint8_t>(style.fontStyle));
-    file.write(static_cast<uint8_t>(style.fontWeight));
-    file.write(static_cast<uint8_t>(style.textDecoration));
-
-    // Write CssLength fields (value + unit)
-    auto writeLength = [&file](const CssLength& len) {
-      file.write(reinterpret_cast<const uint8_t*>(&len.value), sizeof(len.value));
-      file.write(static_cast<uint8_t>(len.unit));
-    };
-
-    writeLength(style.textIndent);
-    writeLength(style.marginTop);
-    writeLength(style.marginBottom);
-    writeLength(style.marginLeft);
-    writeLength(style.marginRight);
-    writeLength(style.paddingTop);
-    writeLength(style.paddingBottom);
-    writeLength(style.paddingLeft);
-    writeLength(style.paddingRight);
-    writeLength(style.imageHeight);
-    writeLength(style.imageWidth);
-    writeLength(style.imageMaxHeight);
-    writeLength(style.imageMaxWidth);
-    writeLength(style.fontSize);
-    writeLength(style.lineHeightLength);
-    file.write(reinterpret_cast<const uint8_t*>(&style.lineHeight), sizeof(style.lineHeight));
-    file.write(static_cast<uint8_t>(style.lineHeightIsMultiplier));
-    file.write(static_cast<uint8_t>(style.fontSizeDefined));
-    file.write(static_cast<uint8_t>(style.lineHeightDefined));
-    file.write(static_cast<uint8_t>(style.display));
-    file.write(static_cast<uint8_t>(style.emphasis));
-    file.write(static_cast<uint8_t>(style.emphasisDefined));
-
-    // Write defined flags as uint32_t. New image bounds use bits above the
-    // original 16-bit image-style flags.
-    uint32_t definedBits = 0;
-    if (style.defined.textAlign) definedBits |= 1 << 0;
-    if (style.defined.fontStyle) definedBits |= 1 << 1;
-    if (style.defined.fontWeight) definedBits |= 1 << 2;
-    if (style.defined.textDecoration) definedBits |= 1 << 3;
-    if (style.defined.textIndent) definedBits |= 1 << 4;
-    if (style.defined.marginTop) definedBits |= 1 << 5;
-    if (style.defined.marginBottom) definedBits |= 1 << 6;
-    if (style.defined.marginLeft) definedBits |= 1 << 7;
-    if (style.defined.marginRight) definedBits |= 1 << 8;
-    if (style.defined.paddingTop) definedBits |= 1 << 9;
-    if (style.defined.paddingBottom) definedBits |= 1 << 10;
-    if (style.defined.paddingLeft) definedBits |= 1 << 11;
-    if (style.defined.paddingRight) definedBits |= 1 << 12;
-    if (style.defined.imageHeight) definedBits |= 1 << 13;
-    if (style.defined.imageWidth) definedBits |= 1 << 14;
-    if (style.defined.display) definedBits |= 1 << 15;
-    if (style.defined.imageMaxHeight) definedBits |= 1u << 16;
-    if (style.defined.imageMaxWidth) definedBits |= 1u << 17;
-    file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
+    if (!writeCachedRule(file, pair.first, pair.second)) {
+      file.close();
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
   }
 
   file.flush();
@@ -903,7 +930,8 @@ bool CssParser::saveToCache() const {
   return true;
 }
 
-bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelectorUsage* usage) {
+bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelectorUsage* usage,
+                              const bool requireComplete) {
   if (cachePath.empty()) {
     return false;
   }
@@ -939,12 +967,6 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
   // Read rule count
   uint16_t ruleCount = 0;
   if (file.read(&ruleCount, sizeof(ruleCount)) != sizeof(ruleCount)) {
-    return false;
-  }
-
-  if (ruleCount > MAX_RULES) {
-    LOG_DBG("CSS", "Invalid cache rule count (%u > %zu)", ruleCount, MAX_RULES);
-    rulesBySelector_.clear();
     return false;
   }
 
@@ -989,6 +1011,10 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     if (ESP.getFreeHeap() < MIN_FREE_HEAP_DURING_CSS_PARSE) {
       LOG_ERR("CSS", "Low heap while loading CSS cache (%u bytes), stopping early with %zu rules", ESP.getFreeHeap(),
               rulesBySelector_.size());
+      if (requireComplete) {
+        clear();
+        return false;
+      }
       return true;
     }
 
@@ -1134,7 +1160,12 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
     if (usage != nullptr && !usage->matches(selector)) {
       continue;
     }
-    rulesBySelector_.emplace(std::move(selector), style);
+    auto existing = rulesBySelector_.find(selector);
+    if (existing != rulesBySelector_.end()) {
+      existing->second.applyOver(style);
+    } else {
+      rulesBySelector_.emplace(std::move(selector), style);
+    }
   }
 
   if (file.available() != 0) {
@@ -1147,5 +1178,63 @@ bool CssParser::loadFromCache(const size_t minFreeHeapAfterLoad, const CssSelect
 
   LOG_DBG("CSS", "Loaded %zu of %u cached rules%s", rulesBySelector_.size(), ruleCount,
           usage != nullptr ? " (usage-filtered)" : "");
+  return true;
+}
+
+void CssParser::abortCacheWrite() {
+  if (!cacheWriteActive_) return;
+  cacheWriteFile_.close();
+  Storage.remove((cachePath + rulesCacheTmp).c_str());
+  cacheWriteActive_ = false;
+  cacheWriteFailed_ = false;
+}
+
+bool CssParser::beginCacheWrite() {
+  abortCacheWrite();
+  if (cachePath.empty()) return false;
+  clear();
+  cacheWriteCount_ = 0;
+  cacheWriteFailed_ = false;
+  const auto tmpPath = cachePath + rulesCacheTmp;
+  Storage.remove(tmpPath.c_str());
+  if (!Storage.openFileForWrite("CSS", tmpPath, cacheWriteFile_)) return false;
+  cacheWriteActive_ = true;
+  const uint8_t version = CSS_CACHE_VERSION;
+  if (cacheWriteFile_.write(&version, sizeof(version)) != sizeof(version) ||
+      cacheWriteFile_.write(reinterpret_cast<const uint8_t*>(&cacheSourceFingerprint_),
+                            sizeof(cacheSourceFingerprint_)) != sizeof(cacheSourceFingerprint_) ||
+      cacheWriteFile_.write(reinterpret_cast<const uint8_t*>(&cacheWriteCount_), sizeof(cacheWriteCount_)) !=
+          sizeof(cacheWriteCount_)) {
+    abortCacheWrite();
+    return false;
+  }
+  return true;
+}
+
+bool CssParser::finishCacheWrite() {
+  if (!cacheWriteActive_) return false;
+  if (cacheWriteFailed_ || !cacheWriteFile_.seek(sizeof(uint8_t) + sizeof(uint64_t)) ||
+      cacheWriteFile_.write(reinterpret_cast<const uint8_t*>(&cacheWriteCount_), sizeof(cacheWriteCount_)) !=
+          sizeof(cacheWriteCount_)) {
+    abortCacheWrite();
+    return false;
+  }
+  cacheWriteFile_.flush();
+#ifndef SIMULATOR
+  if (cacheWriteFile_.getWriteError()) {
+    abortCacheWrite();
+    return false;
+  }
+#endif
+  cacheWriteFile_.close();
+  const auto tmpPath = cachePath + rulesCacheTmp;
+  const auto finalPath = cachePath + rulesCache;
+  if ((Storage.exists(finalPath.c_str()) && !Storage.remove(finalPath.c_str())) ||
+      !Storage.rename(tmpPath.c_str(), finalPath.c_str())) {
+    abortCacheWrite();
+    return false;
+  }
+  cacheWriteActive_ = false;
+  LOG_INF("CSS", "Streamed CSS cache: records=%u, free=%u", cacheWriteCount_, ESP.getFreeHeap());
   return true;
 }

@@ -639,7 +639,8 @@ bool Section::clearCache() const {
 }
 
 CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize,
-                                              const std::string& htmlPath) {
+                                              const std::string& htmlPath, const bool requireComplete, bool& cssReady) {
+  cssReady = bookStyle == 0;
   if (bookStyle == 0) {
     return nullptr;
   }
@@ -653,8 +654,9 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
       std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
   CssSelectorUsage usage;
   const bool scanned = usage.scanHtmlFile(htmlPath);
-  if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr)) {
-    LOG_INF("SCT", "CSS cache unavailable or skipped; continuing without external rules");
+  if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr, requireComplete)) {
+    LOG_INF("SCT", "CSS cache unavailable or skipped (strict=%d)", requireComplete);
+    cssParser->clear();
     return nullptr;
   }
 
@@ -662,6 +664,7 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
           ESP.getMaxAllocHeap());
 
   if (cssParser->empty()) {
+    cssReady = true;
     LOG_DBG("SCT", "CSS cache has no rules, skipping stylesheet lookup for this section");
     cssParser->clear();
     return nullptr;
@@ -674,6 +677,7 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
     return nullptr;
   }
 
+  cssReady = true;
   return cssParser;
 }
 
@@ -834,7 +838,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
-                                const std::function<bool()>& cancelFn) {
+                                const std::function<bool()>& cancelFn, const bool requireCompleteCss) {
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
@@ -917,7 +921,16 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
-  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath);
+  bool cssReady = false;
+  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath, requireCompleteCss, cssReady);
+  if (requireCompleteCss && !cssReady) {
+    LOG_ERR("SCT", "CSS unavailable; leaving section %d incomplete", spineIndex);
+    file.close();
+    Storage.remove(tmpSectionPath.c_str());
+    Storage.remove(tmpHtmlPath.c_str());
+    lastCreateFailureReason = CreateFailureReason::CssUnavailable;
+    return false;
+  }
 
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');
