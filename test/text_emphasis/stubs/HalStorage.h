@@ -12,8 +12,18 @@ class FsFile {
   explicit operator bool() const { return static_cast<bool>(bytes); }
   int available() const { return bytes?static_cast<int>(bytes->size()-pos):0; }
   int read(void* out,size_t count) { count=std::min(count,static_cast<size_t>(available())); if(count) std::memcpy(out,bytes->data()+pos,count);pos+=count;return count; }
-  size_t write(const uint8_t* data,size_t count) { bytes->insert(bytes->end(),data,data+count);return count; }
-  size_t write(uint8_t value) { bytes->push_back(value);return 1; }
+  size_t write(const uint8_t* data, size_t count) {
+    if (bytes->size() < pos + count) bytes->resize(pos + count);
+    std::memcpy(bytes->data() + pos, data, count);
+    pos += count;
+    return count;
+  }
+  size_t write(uint8_t value) { return write(&value, 1); }
+  bool seek(size_t offset) {
+    if (!bytes || offset > bytes->size()) return false;
+    pos = offset;
+    return true;
+  }
   void flush() {} void close() {} bool getWriteError() const { return false; }
 };
 class TestStorage {

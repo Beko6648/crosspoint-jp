@@ -13,17 +13,16 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "ReadingStatusHelper.h"
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
 #include "util/CacheGenerationControls.h"
+#include "util/CacheProgressPolicy.h"
 
 namespace {
 
-// E-paper progress redraws are expensive (~670 ms in the measured run).
-// Quarter-step updates keep useful feedback without dominating cache creation.
-constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 constexpr int STATUS_BAR_CONTENT_GUARD = 8;
 
 int getStatusBarContentReservation(const int statusBarHeight) {
@@ -74,25 +73,29 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
   return true;
 }
 
-int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset,
+                           bool& framebufferInvalidated) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset,
+                                    &framebufferInvalidated))
+      generated++;
   }
   return generated;
 }
 
 int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
-                                            const int yOffset, int& pagesScanned) {
+                                            const int yOffset, int& pagesScanned, bool& framebufferInvalidated) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
     if (!page) continue;
     ++pagesScanned;
-    if (page->hasImages()) generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset);
+    if (page->hasImages())
+      generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset, framebufferInvalidated);
   }
   return generated;
 }
@@ -316,6 +319,11 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
+  // Invalidate before the first mutation, including interrupted/failed runs.
+  // The browser rebuilds visible entries from authoritative per-book files.
+  if (!invalidateBookListStatusIndex("/.crosspoint")) {
+    LOG_ERR("GENALL", "Could not invalidate book-list status summary");
+  }
   const uint32_t generationStartedAt = millis();
   LOG_DBG("GENALL", "Scanning for EPUB files...");
 
@@ -360,6 +368,28 @@ void GenerateAllCacheActivity::generateAllCaches() {
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  CacheProgressPolicy progressPolicy(millis());
+  bool framebufferInvalidated = false;
+  const auto restoreProgress = [&] {
+    if (!framebufferInvalidated) return;
+    const uint32_t startedAt = millis();
+    renderer.clearScreen();
+    const auto layout = UiLayout::from(renderer);
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                   tr(STR_GENERATE_ALL_CACHE));
+    const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+    const int centerY = renderer.getScreenHeight() / 2;
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_GENERATING_ALL_CACHE), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2), true, centerOffset);
+    popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
+    progressDisplayMs += millis() - startedAt;
+    framebufferInvalidated = false;
+    LOG_DBG("IMEM", "Restored progress UI after JPEG framebuffer loan");
+  };
+
   bool cancelled = false;
   bool storageFailure = false;
 
@@ -388,13 +418,14 @@ void GenerateAllCacheActivity::generateAllCaches() {
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     const int progress = (bookIdx * 100) / totalCount;
-    if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+    if (progressPolicy.shouldUpdate(bookIdx, progress, millis())) {
       progressDetail =
           std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" + std::to_string(totalCount);
       const uint32_t displayStartedAt = millis();
       GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
       lastDisplayedProgress = progress;
+      progressPolicy.displayed(bookIdx, progress, millis());
     }
 
     if (controls.shouldCancel(renderer)) {
@@ -403,6 +434,12 @@ void GenerateAllCacheActivity::generateAllCaches() {
       break;
     }
 
+    // CSS is parsed during load(), before section-level reclamation runs.
+    if (auto* fontCache = renderer.getFontCacheManager()) {
+      fontCache->clearCache();
+      fontCache->freeKernLigatureData();
+      fontCache->releaseSdFontCaches();
+    }
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
     if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
@@ -413,6 +450,11 @@ void GenerateAllCacheActivity::generateAllCaches() {
     const int spineCount = epub->getSpineItemsCount();
     if (spineCount <= 0) continue;
     epub->clearFullCacheGeneratedMarker();
+    if (SETTINGS.embeddedStyle != CrossPointSettings::CROSSPOINT_STYLE &&
+        (!epub->getCssParser() || !epub->getCssParser()->validateCache())) {
+      LOG_ERR("GENALL", "CSS not ready; leaving book incomplete: %s", epubPath.c_str());
+      continue;
+    }
 
     const uint32_t pixelPreflightStartedAt = millis();
     const auto pixelPreflight = inspectPixelCaches(epub->getCachePath(), spineCount);
@@ -478,7 +520,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
       }
       const int bookProgress = (i * 80) / spineCount;
       const int overallProgress = (bookIdx * 100 + bookProgress) / totalCount;
-      if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      if (progressPolicy.shouldUpdate(bookIdx, overallProgress, millis())) {
         progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
                          std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " + std::to_string(i + 1) + "/" +
                          std::to_string(spineCount);
@@ -486,6 +528,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
         progressDisplayMs += millis() - displayStartedAt;
         lastDisplayedProgress = overallProgress;
+        progressPolicy.displayed(bookIdx, overallProgress, millis());
       }
       Section sec(epub, i, renderer);
       const bool sectionCached =
@@ -506,9 +549,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPixelPageScan) {
           const uint32_t pixelStartedAt = millis();
-          generatedPixelCaches +=
-              pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned);
+          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(
+              sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned, framebufferInvalidated);
           pixelCacheMs += millis() - pixelStartedAt;
+          restoreProgress();
         }
       } else {
         const uint32_t sectionStartedAt = millis();
@@ -521,12 +565,14 @@ void GenerateAllCacheActivity::generateAllCaches() {
                 viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
                 SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
                 SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-                [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                [this, &generatedPixelCaches, &pixelCacheMs, &framebufferInvalidated, &restoreProgress, bmLeft,
+                 bmTop](const Page& page) {
                   const uint32_t pixelStartedAt = millis();
-                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop, framebufferInvalidated);
                   pixelCacheMs += millis() - pixelStartedAt;
+                  restoreProgress();
                 },
-                [&controls, this] { return controls.shouldCancel(renderer); })) {
+                [&controls, this] { return controls.shouldCancel(renderer); }, true)) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
           const auto failureReason = sec.getLastCreateFailureReason();
@@ -534,6 +580,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
             cancelled = true;
             break;
           }
+          if (failureReason == Section::CreateFailureReason::CssUnavailable) break;
           if (failureReason == Section::CreateFailureReason::StorageIo) {
             LOG_ERR("GENALL", "Stopping cache generation after SD I/O failure at section %d of %s", i,
                     epubPath.c_str());

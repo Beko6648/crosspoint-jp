@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "../converters/DecodeCancellation.h"
 #include "Block.h"
 
 class GfxRenderer;
@@ -20,7 +21,14 @@ class ImageBlock final : public Block {
   bool imageExists() const;
   // Build a missing raster-image pixel cache without drawing into the current framebuffer.
   // The page position is used to preserve the rendered Bayer dither pattern.
-  bool pregeneratePixelCache(GfxRenderer& renderer, int x, int y) const;
+  enum class CacheResult { AlreadyValid, Generated, Failed };
+  // No font eviction or framebuffer loan by default. A non-null invalidation
+  // pointer permits a JPEG fallback loan: the caller must redraw the whole UI
+  // after this call if it becomes true, including when generation fails.
+  CacheResult ensurePixelCache(GfxRenderer& renderer, int x, int y, bool releaseFontCaches = false,
+                               bool* framebufferInvalidated = nullptr,
+                               DecodeCancellation* cancellation = nullptr, size_t pngHeapReserveBytes = 0) const;
+  bool pregeneratePixelCache(GfxRenderer& renderer, int x, int y, bool* framebufferInvalidated = nullptr) const;
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }

@@ -1,4 +1,5 @@
 #include "GfxRenderer.h"
+#include "ImageRenderDiagnostics.h"
 
 #include <BuildScratch.h>
 #include <EpdFontFamily.h>
@@ -2974,6 +2975,7 @@ void GfxRenderer::freeBwBufferChunks() {
  * Returns true if buffer was stored successfully, false if allocation failed.
  */
 bool GfxRenderer::storeBwBuffer() {
+  imagerenderdiag::mark("bw-store-before", frameBufferSize);
   // Allocate and copy each chunk
   for (size_t i = 0; i < bwBufferChunks.size(); i++) {
     // Check if any chunks are already allocated
@@ -2987,6 +2989,7 @@ bool GfxRenderer::storeBwBuffer() {
     const size_t chunkSize = std::min(BW_BUFFER_CHUNK_SIZE, static_cast<size_t>(frameBufferSize - offset));
     bwBufferChunks[i] = static_cast<uint8_t*>(malloc(chunkSize));
 
+    imagerenderdiag::mark("bw-chunk", chunkSize);
     if (!bwBufferChunks[i]) {
       LOG_ERR("GFX", "!! Failed to allocate BW buffer chunk %zu (%zu bytes)", i, chunkSize);
       // Free previously allocated chunks
@@ -2997,6 +3000,7 @@ bool GfxRenderer::storeBwBuffer() {
     memcpy(bwBufferChunks[i], frameBuffer + offset, chunkSize);
   }
 
+  imagerenderdiag::mark("bw-store-after", frameBufferSize);
   LOG_DBG("GFX", "Stored BW buffer in %zu chunks (%zu bytes each)", bwBufferChunks.size(), BW_BUFFER_CHUNK_SIZE);
   return true;
 }
@@ -3027,9 +3031,12 @@ void GfxRenderer::restoreBwBuffer() {
     memcpy(frameBuffer + offset, bwBufferChunks[i], chunkSize);
   }
 
+  imagerenderdiag::mark("bw-cleanup-before");
   display.cleanupGrayscaleBuffers(frameBuffer);
+  imagerenderdiag::mark("bw-cleanup-after");
 
   freeBwBufferChunks();
+  imagerenderdiag::mark("bw-freed");
   LOG_DBG("GFX", "Restored and freed BW buffer chunks");
 }
 

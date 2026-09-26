@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
   const std::string rules =
       ".mark{text-emphasis:filled sesame;color:black}.off{text-emphasis:none}.other{width:40%;font-weight:bold}";
   css.write(reinterpret_cast<const uint8_t*>(rules.data()), rules.size());
+  assert(css.seek(0));
   CssParser parser("/cache");
   parser.setCacheSourceFingerprint(123);
   assert(parser.loadFromStream(css));

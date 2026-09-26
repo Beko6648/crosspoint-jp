@@ -48,7 +48,7 @@ class ParsedText {
   bool hasHeapForToken();
   bool admitLayout(size_t bytes, const char* stage);
   void consumePrefix(size_t count);
-  std::shared_ptr<TextBlock> prepareBlock(size_t start, size_t end, bool vertical);
+  std::unique_ptr<TextBlock> prepareBlock(size_t start, size_t end, bool vertical);
 
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,
@@ -63,7 +63,7 @@ class ParsedText {
   void extractLine(size_t breakIndex, int pageWidth, int spaceWidth, const std::vector<uint16_t>& wordWidths,
                    const std::vector<bool>& continuesVec, const std::vector<bool>& wordIsCjkVec,
                    const std::vector<size_t>& lineBreakIndices,
-                   const std::function<bool(std::shared_ptr<TextBlock>)>& processLine, const GfxRenderer& renderer,
+                   const std::function<bool(std::unique_ptr<TextBlock>)>& processLine, const GfxRenderer& renderer,
                    int fontId);
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
 
@@ -99,9 +99,9 @@ class ParsedText {
     return !blockStyle.isHtmlRule && words.size() == 1 && words.front() == "\xE2\x80\x8B";
   }
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
-                             const std::function<bool(std::shared_ptr<TextBlock>)>& processLine,
+                             const std::function<bool(std::unique_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);
   void layoutVerticalColumns(const GfxRenderer& renderer, int fontId, uint16_t columnHeight,
-                             const std::function<bool(std::shared_ptr<TextBlock>)>& processColumn,
+                             const std::function<bool(std::unique_ptr<TextBlock>)>& processColumn,
                              bool includeLastColumn = true);
 };

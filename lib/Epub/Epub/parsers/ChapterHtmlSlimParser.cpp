@@ -11,6 +11,8 @@
 #include <expat.h>
 
 #include "../../Epub.h"
+#include "../CancellableImageOutput.h"
+#include "../ChapterStageProbe.h"
 #include "../LayoutMemory.h"
 #include "../Page.h"
 #include "../blocks/TableRowBlock.h"
@@ -476,14 +478,14 @@ void ChapterHtmlSlimParser::flushTextBlockForMemory() {
     // Preserve the trailing partial column so the next input chunk continues it.
     currentTextBlock->layoutVerticalColumns(
         renderer, fontId, viewportHeight,
-        [this](const std::shared_ptr<TextBlock>& textBlock) { return addLineToPage(textBlock); }, false);
+        [this](std::unique_ptr<TextBlock> textBlock) { return addLineToPage(std::move(textBlock)); }, false);
   } else {
     const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
     const uint16_t effectiveWidth =
         (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
     currentTextBlock->layoutAndExtractLines(
         renderer, fontId, effectiveWidth,
-        [this](const std::shared_ptr<TextBlock>& textBlock) { return addLineToPage(textBlock); }, false);
+        [this](std::unique_ptr<TextBlock> textBlock) { return addLineToPage(std::move(textBlock)); }, false);
   }
   if (currentTextBlock->layoutFailed()) lowMemoryAbortRequested = true;
 }
@@ -787,12 +789,28 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // Extract image to cache file
             FsFile cachedImageFile;
             bool extractSuccess = false;
+            CancellableImageOutput imageOutput(cachedImageFile, self->cancelFn);
             if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
               // Images are extracted lazily. A larger transfer buffer cuts SD
               // read/write calls for image-heavy EPUBs without retaining it.
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 8192);
-              cachedImageFile.flush();
-              cachedImageFile.close();
+              {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+                ChapterStageProbe stageProbe("image-extract");
+                LOG_INF("NCP", "image source=%s", resolvedPath.c_str());
+#endif
+                extractSuccess = self->epub->readItemContentsToStream(resolvedPath, imageOutput, 8192);
+                cachedImageFile.flush();
+                cachedImageFile.close();
+              }
+            }
+
+            // Never turn an input cancellation into a persistent image placeholder.
+            // The file is closed above before removal, including a last-chunk cancel.
+            if (imageOutput.isCancelled()) {
+              Storage.remove(cachedImagePath.c_str());
+              self->lowMemoryAbortRequested = true;
+              LOG_INF("EHP", "Image extraction cancelled");
+              return;
             }
 
             if (extractSuccess) {
@@ -805,6 +823,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 if (attempt > 0) {
                   delay(50);
                 }
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+                ChapterStageProbe stageProbe("image-dimensions");
+#endif
                 gotDimensions = decoder && decoder->getDimensions(cachedImagePath, dims);
               }
               if (gotDimensions) {
@@ -917,9 +938,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 const bool pageFitImage = hasClassToken(classAttr, "fit");
 
                 const auto startEmptyImagePage = [&]() -> bool {
-                  self->currentPage.reset(new Page());
+                  self->currentPage.reset(new (std::nothrow) Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create image page");
+                    self->lowMemoryAbortRequested = true;
                     return false;
                   }
                   self->currentPageNextY = 0;
@@ -985,17 +1007,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 }
 
                 // Create ImageBlock and add to page
-                auto imageBlock = std::make_shared<ImageBlock>(cachedImagePath, displayWidth, displayHeight);
+                auto imageBlock = std::unique_ptr<ImageBlock>(
+                    new (std::nothrow) ImageBlock(cachedImagePath, displayWidth, displayHeight));
                 if (!imageBlock) {
                   LOG_ERR("EHP", "Failed to create ImageBlock");
+                  self->lowMemoryAbortRequested = true;
                   return;
                 }
-                auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, imageY);
+                auto pageImage =
+                    std::unique_ptr<PageImage>(new (std::nothrow) PageImage(std::move(imageBlock), xPos, imageY));
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");
+                  self->lowMemoryAbortRequested = true;
                   return;
                 }
-                self->currentPage->elements.push_back(pageImage);
+                self->currentPage->elements.push_back(std::move(pageImage));
 
                 if (pageFitImage) {
                   // Full-page illustrations remain isolated in both writing modes.
@@ -1983,131 +2009,76 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 }
 
+ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { closeIncrementalParser(); }
+
+void ChapterHtmlSlimParser::closeIncrementalParser() {
+  if (incrementalParser) XML_ParserFree(incrementalParser);
+  incrementalParser = nullptr;
+  incrementalFile.close();
+}
+
 bool ChapterHtmlSlimParser::parseAndBuildPages() {
-  htmlEnded = false;
-  auto paragraphAlignmentBlockStyle = BlockStyle();
-  paragraphAlignmentBlockStyle.textAlignDefined = true;
-  // Resolve None sentinel to Justify for initial block (no CSS context yet)
-  const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
-                         ? CssTextAlign::Justify
-                         : static_cast<CssTextAlign>(this->paragraphAlignment);
-  paragraphAlignmentBlockStyle.alignment = align;
-  startNewTextBlock(paragraphAlignmentBlockStyle);
-
-  const XML_Parser parser = XML_ParserCreate(nullptr);
-  int done;
-
-  if (!parser) {
-    LOG_ERR("EHP", "Couldn't allocate memory for parser");
-    return false;
-  }
-
-  // Handle HTML entities (like &nbsp;) that aren't in XML spec or DTD
-  // Using DefaultHandlerExpand preserves normal entity expansion from DOCTYPE
-  XML_SetDefaultHandlerExpand(parser, defaultHandlerExpand);
-
-  FsFile file;
-  if (!Storage.openFileForRead("EHP", filepath, file)) {
-    XML_ParserFree(parser);
-    return false;
-  }
-
-  // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
-    popupFn();
-  }
-
-  XML_SetUserData(parser, this);
-  XML_SetElementHandler(parser, startElement, endElement);
-  XML_SetCharacterDataHandler(parser, characterData);
-
-  // Compute the time taken to parse and build pages
-  const uint32_t chapterStartTime = millis();
+  StepResult result;
   do {
-    if (cancelFn && cancelFn()) {
-      LOG_DBG("EHP", "Parsing cancelled by user");
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
+    result = stepParseAndBuildPages();
+  } while (result == StepResult::Pending);
+  return result == StepResult::Complete;
+}
+
+ChapterHtmlSlimParser::StepResult ChapterHtmlSlimParser::stepParseAndBuildPages() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("parser-step");
+#endif
+  const auto fail = [this]() {
+    closeIncrementalParser();
+    incrementalFinished = true;
+    return StepResult::Failed;
+  };
+  if (incrementalFinished) return StepResult::Failed;
+  if (cancelFn && cancelFn()) return fail();
+  if (!incrementalParser) {
+    htmlEnded = false;
+    auto paragraphAlignmentBlockStyle = BlockStyle();
+    paragraphAlignmentBlockStyle.textAlignDefined = true;
+    // Resolve None sentinel to Justify for initial block (no CSS context yet)
+    const auto align = (this->paragraphAlignment == static_cast<uint8_t>(CssTextAlign::None))
+                           ? CssTextAlign::Justify
+                           : static_cast<CssTextAlign>(this->paragraphAlignment);
+    paragraphAlignmentBlockStyle.alignment = align;
+    startNewTextBlock(paragraphAlignmentBlockStyle);
+
+    if (lowMemoryAbortRequested) return fail();
+    incrementalParser = XML_ParserCreate(nullptr);
+    if (!incrementalParser || !Storage.openFileForRead("EHP", filepath, incrementalFile)) return fail();
+    XML_SetDefaultHandlerExpand(incrementalParser, defaultHandlerExpand);
+    XML_SetUserData(incrementalParser, this);
+    XML_SetElementHandler(incrementalParser, startElement, endElement);
+    XML_SetCharacterDataHandler(incrementalParser, characterData);
+    if (popupFn && incrementalFile.size() >= MIN_SIZE_FOR_POPUP) popupFn();
+  }
+  void* const buf = XML_GetBuffer(incrementalParser, PARSE_BUFFER_SIZE);
+  if (!buf) return fail();
+  const size_t len = incrementalFile.read(buf, PARSE_BUFFER_SIZE);
+  if (len == 0 && incrementalFile.available() > 0) return fail();
+  bool done = incrementalFile.available() == 0;
+  if (XML_ParseBuffer(incrementalParser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+    if (htmlEnded && !lowMemoryAbortRequested) {
+      done = true;
+    } else {
+      LOG_ERR("EHP", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(incrementalParser),
+              XML_ErrorString(XML_GetErrorCode(incrementalParser)));
+      return fail();
     }
-
-    void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
-    if (!buf) {
-      LOG_ERR("EHP", "Couldn't allocate memory for buffer");
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    const size_t len = file.read(buf, PARSE_BUFFER_SIZE);
-
-    if (len == 0 && file.available() > 0) {
-      LOG_ERR("EHP", "File read error");
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    done = file.available() == 0;
-
-    if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
-      if (htmlEnded && !lowMemoryAbortRequested) {
-        LOG_DBG("EHP", "Ignoring trailing data after </html>: %s", XML_ErrorString(XML_GetErrorCode(parser)));
-        break;
-      }
-      LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
-              XML_ErrorString(XML_GetErrorCode(parser)));
-      XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-      XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    if (lowMemoryAbortRequested) {
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-
-    // Periodic heap check during parsing to prevent abort() from failed allocations
-    if (!done && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING) {
-      LOG_ERR("EHP", "Low heap during parsing (%u bytes), stopping gracefully", ESP.getFreeHeap());
-      XML_StopParser(parser, XML_FALSE);
-      XML_SetElementHandler(parser, nullptr, nullptr);
-      XML_SetCharacterDataHandler(parser, nullptr);
-      XML_ParserFree(parser);
-      file.close();
-      return false;
-    }
-  } while (!done);
-  LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - chapterStartTime);
-
-  XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
-  XML_SetElementHandler(parser, nullptr, nullptr);  // Clear callbacks
-  XML_SetCharacterDataHandler(parser, nullptr);
-  XML_ParserFree(parser);
-  file.close();
-
-  if (lowMemoryAbortRequested) return false;
-
+  }
+  if (lowMemoryAbortRequested || (cancelFn && cancelFn())) return fail();
+  if (!done && ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_PARSING) return fail();
+  if (!done) return StepResult::Pending;
+  closeIncrementalParser();
+  incrementalFinished = true;
   // Process last page if there is still text
   if (currentTextBlock) {
     makePages();
-    if (lowMemoryAbortRequested) return false;
+    if (lowMemoryAbortRequested) return StepResult::Failed;
     if (!pendingAnchorId.empty()) {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
@@ -2119,7 +2090,8 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     currentTextBlock.reset();
   }
 
-  return true;
+  if (cancelFn && cancelFn()) return StepResult::Failed;
+  return StepResult::Complete;
 }
 
 void ChapterHtmlSlimParser::completeCurrentPage() {
@@ -2137,20 +2109,32 @@ void ChapterHtmlSlimParser::completeCurrentPage() {
   completedPageCount++;
 }
 
-bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
+bool ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line) {
+  if (cancelFn && cancelFn()) lowMemoryAbortRequested = true;
   if (lowMemoryAbortRequested) return false;
+  if (!line) {
+    lowMemoryAbortRequested = true;
+    return false;
+  }
   const size_t elements = currentPage ? currentPage->elements.size() : 0;
   const size_t budget = LayoutMemory::add(
       sizeof(Page) + sizeof(PageLine) + 256,
-      LayoutMemory::add(LayoutMemory::multiply(elements + 1, 2 * sizeof(std::shared_ptr<PageElement>)),
+      LayoutMemory::add(LayoutMemory::multiply(elements + 1, 2 * sizeof(std::unique_ptr<PageElement>)),
                         LayoutMemory::multiply(Page::MAX_FOOTNOTES_PER_PAGE * 2, sizeof(FootnoteEntry))));
   if (!LayoutMemory::admit(budget, "page acceptance")) {
     lowMemoryAbortRequested = true;
     return false;
   }
-  const int effectiveFontId = (line->getBlockStyle().fontId != 0) ? line->getBlockStyle().fontId : fontId;
+  auto pageLine = std::unique_ptr<PageLine>(new (std::nothrow) PageLine(std::move(line), 0, 0));
+  if (!pageLine) {
+    lowMemoryAbortRequested = true;
+    LOG_ERR("EHP", "PageLine allocation failed");
+    return false;
+  }
+  const auto* text = pageLine->getBlock().get();
+  const int effectiveFontId = (text->getBlockStyle().fontId != 0) ? text->getBlockStyle().fontId : fontId;
   const int lineHeight =
-      renderer.getLineHeight(effectiveFontId) * lineCompression * line->getBlockStyle().lineHeightMultiplier;
+      renderer.getLineHeight(effectiveFontId) * lineCompression * text->getBlockStyle().lineHeightMultiplier;
 
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
@@ -2159,17 +2143,21 @@ bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     const int columnSpacing = columnWidth / 4;
 
     if (!currentPage) {
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return false;
+      }
       currentPageNextX = viewportWidth - columnWidth;  // start from right edge
     }
 
     const auto rubyRightInset = [&]() {
-      if (!line->hasRuby() && !line->hasEmphasis()) return 0;
+      if (!text->hasRuby() && !text->hasEmphasis()) return 0;
       // Ruby is placed on the right of its base. Reserve only the part that
       // extends beyond the body column. Configured column spacing already
       // provides clearance between columns, so add only the missing amount;
       // the first column still has to clear the physical page edge entirely.
-      const int overflow = line->annotationRightOverflow(renderer, effectiveFontId, columnWidth);
+      const int overflow = text->annotationRightOverflow(renderer, effectiveFontId, columnWidth);
       if (!currentPage || currentPage->elements.empty()) return overflow;
       return std::max(0, overflow - columnSpacing);
     };
@@ -2178,13 +2166,17 @@ bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     if (columnX < 0) {
       // Page full — emit and start new page
       completeCurrentPage();
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return false;
+      }
       currentPageNextX = viewportWidth - columnWidth;
       columnX = currentPageNextX - rubyRightInset();
     }
 
     // Track cumulative words for footnote assignment
-    wordsExtractedInBlock += line->wordCount();
+    wordsExtractedInBlock += text->wordCount();
     auto footnoteIt = pendingFootnotes.begin();
     while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
       currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
@@ -2193,18 +2185,23 @@ bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
 
     // Column x-position, y=0 (column starts at top)
-    currentPage->elements.push_back(std::make_shared<PageLine>(line, static_cast<int16_t>(columnX), 0));
+    pageLine->xPos = static_cast<int16_t>(columnX);
+    currentPage->elements.push_back(std::move(pageLine));
     currentPageNextX = columnX - (columnWidth + columnSpacing);
   } else {
     // Horizontal mode: lines placed top-to-bottom (existing logic)
     if (!currentPage) {
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return false;
+      }
       currentPageNextY = 0;
     }
 
     int rubyTopInset = 0;
-    if (line->hasRuby() || line->hasEmphasis()) {
-      const int requiredBodyY = line->annotationTopInset(renderer, effectiveFontId);
+    if (text->hasRuby() || text->hasEmphasis()) {
+      const int requiredBodyY = text->annotationTopInset(renderer, effectiveFontId);
       const bool followsImage =
           !currentPage->elements.empty() && currentPage->elements.back()->getTag() == TAG_PageImage;
       // Configured line spacing already contributes leading between body
@@ -2223,13 +2220,17 @@ bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
 
     if (currentPageNextY + rubyTopInset + lineHeight > viewportHeight) {
       completeCurrentPage();
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return false;
+      }
       currentPageNextY = 0;
-      rubyTopInset = (line->hasRuby() || line->hasEmphasis()) ? line->annotationTopInset(renderer, effectiveFontId) : 0;
+      rubyTopInset = (text->hasRuby() || text->hasEmphasis()) ? text->annotationTopInset(renderer, effectiveFontId) : 0;
     }
 
     // Track cumulative words for footnote assignment
-    wordsExtractedInBlock += line->wordCount();
+    wordsExtractedInBlock += text->wordCount();
     auto footnoteIt = pendingFootnotes.begin();
     while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
       currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
@@ -2237,9 +2238,10 @@ bool ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     }
     pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
 
-    const int16_t xOffset = line->getBlockStyle().leftInset();
-    currentPage->elements.push_back(
-        std::make_shared<PageLine>(line, xOffset, static_cast<int16_t>(currentPageNextY + rubyTopInset)));
+    const int16_t xOffset = text->getBlockStyle().leftInset();
+    pageLine->xPos = xOffset;
+    pageLine->yPos = static_cast<int16_t>(currentPageNextY + rubyTopInset);
+    currentPage->elements.push_back(std::move(pageLine));
     currentPageNextY += rubyTopInset + lineHeight;
   }
   return !lowMemoryAbortRequested;
@@ -2299,6 +2301,9 @@ static std::vector<std::string> wrapCellText(GfxRenderer& renderer, const int fo
 }
 
 void ChapterHtmlSlimParser::flushTableAsGrid() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("table");
+#endif
   if (tableBuffer.empty()) return;
 
   int maxCols = 0;
@@ -2360,7 +2365,11 @@ void ChapterHtmlSlimParser::flushTableAsGrid() {
   // Start table on a new page if current page has content
   if (currentPage && currentPageNextY > 0) {
     completeCurrentPage();
-    currentPage.reset(new Page());
+    currentPage.reset(new (std::nothrow) Page());
+    if (!currentPage) {
+      lowMemoryAbortRequested = true;
+      return;
+    }
     currentPageNextY = 0;
   }
 
@@ -2386,26 +2395,47 @@ void ChapterHtmlSlimParser::flushTableAsGrid() {
     // Add descenderExtra so bottom padding visually matches top padding
     const int16_t rowHeight = static_cast<int16_t>(maxLinesInRow * lineH + descenderExtra + CELL_PADDING * 2);
 
-    auto block = std::make_shared<TableRowBlock>(std::move(cellLines), std::move(headers), layout, rowHeight,
-                                                 rowIdx == 0, rowIdx == numRows - 1);
+    auto block = std::unique_ptr<TableRowBlock>(new (std::nothrow) TableRowBlock(
+        std::move(cellLines), std::move(headers), layout, rowHeight, rowIdx == 0, rowIdx == numRows - 1));
+    if (!block) {
+      lowMemoryAbortRequested = true;
+      return;
+    }
 
     if (!currentPage) {
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return;
+      }
       currentPageNextY = 0;
     }
 
     if (currentPageNextY + rowHeight > viewportHeight) {
       completeCurrentPage();
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
+      if (!currentPage) {
+        lowMemoryAbortRequested = true;
+        return;
+      }
       currentPageNextY = 0;
     }
 
-    currentPage->elements.push_back(std::make_shared<PageTableRow>(block, 0, currentPageNextY));
+    auto element =
+        std::unique_ptr<PageTableRow>(new (std::nothrow) PageTableRow(std::move(block), 0, currentPageNextY));
+    if (!element) {
+      lowMemoryAbortRequested = true;
+      return;
+    }
+    currentPage->elements.push_back(std::move(element));
     currentPageNextY += rowHeight;
   }
 }
 
 void ChapterHtmlSlimParser::makePages() {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+  ChapterStageProbe stageProbe("text-layout");
+#endif
   if (lowMemoryAbortRequested) return;
   const bool suppressParagraphSpacing = suppressParagraphSpacingOnce;
   suppressParagraphSpacingOnce = false;
@@ -2426,10 +2456,10 @@ void ChapterHtmlSlimParser::makePages() {
   const auto discardExplicitBlankLine = [&]() {
     if (verticalMode) {
       currentTextBlock->layoutVerticalColumns(renderer, layoutFontId, viewportHeight,
-                                              [](const std::shared_ptr<TextBlock>&) { return true; });
+                                              [](const std::unique_ptr<TextBlock>&) { return true; });
     } else {
       currentTextBlock->layoutAndExtractLines(renderer, layoutFontId, effectiveWidth,
-                                              [](const std::shared_ptr<TextBlock>&) { return true; });
+                                              [](const std::unique_ptr<TextBlock>&) { return true; });
     }
   };
 
@@ -2474,11 +2504,11 @@ void ChapterHtmlSlimParser::makePages() {
   if (verticalMode) {
     currentTextBlock->layoutVerticalColumns(
         renderer, layoutFontId, viewportHeight,
-        [this](const std::shared_ptr<TextBlock>& textBlock) { return addLineToPage(textBlock); });
+        [this](std::unique_ptr<TextBlock> textBlock) { return addLineToPage(std::move(textBlock)); });
   } else {
     currentTextBlock->layoutAndExtractLines(
         renderer, layoutFontId, effectiveWidth,
-        [this](const std::shared_ptr<TextBlock>& textBlock) { return addLineToPage(textBlock); });
+        [this](std::unique_ptr<TextBlock> textBlock) { return addLineToPage(std::move(textBlock)); });
   }
 
   if (currentTextBlock->layoutFailed()) {

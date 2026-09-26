@@ -7,6 +7,7 @@
 #include "FontCacheManager.h"
 class GfxRenderer {
  public:
+  bool isSdCardFont(int) const { return false; }
   std::map<int, EpdFontFamily> fonts{{1, {}}};
   FontCacheManager cache;
   static constexpr int W = 900, H = 160;
