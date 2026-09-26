@@ -5,7 +5,7 @@
 - X3/X4: 通常速度で先読み完了、章cache再利用、短押し、Home復帰、画像・表・長文、画像後の句読点・括弧・ルビを確認。
 - X3: PNG初回gate失敗を再現し、v9で縦書き字形の条件付き解放が1回実行。max57332→106484B、free118788→131900B。初回PNG表示正常。X4は追加回収が不要な状態で表示正常。
 - X3/X4: 本ごとの生成・全書籍生成で中断、再開、完了、完了後再実行で再生成なしをユーザー確認。ログでは中断章のみ再生成し先行章を再利用。完了画面と再実行結果はINFOログだけで断定せずユーザー確認と組み合わせた。
-- 最終ビルド: v9 default/idle_chapter_probe/gh_release成功。診断段階ログはprobe専用。default/gh_releaseの次章生成トリガーは従来方式を維持。
+- v10通常版有効化はX3/X4実機確認後にコミット済み。v11 default/gh_releaseビルド成功。一括生成後の一覧更新もX3/X4で確認済み。
 - 実装・診断を5つのコミットに分離。未push。以下のv1〜v9節は開発履歴で、各節の「実機待ち」「未コミット」はその時点の状態。本節を現在の判定とする。
 
 ### 残る制約
@@ -90,3 +90,13 @@ CancellableImageOutputがcancelFnの検出を保持し、ZIP出力chunk境界で
 v8 X3はPNG初回欠落。IMEM gateでdecoder58464Bに対しmax57332B、free119180B。章先読みは正常に34ページ完了、画像抽出キャンセルなし。Home再入場後max65524Bで表示復旧。コード変更がheap配置に及ぼした厳密な因果は未確定。
 ImageBlockの通常cache missは既にclearCache/freeKernLigatureDataを実行しており、さらに無条件に繰返さない。PNG converterで通常描画かつfree60KiBまたはsizeof(PNG)の連続条件に足りない場合だけFontCacheManager::releaseSdFontVerticalGlyphsを1回実行して既存gateへ進む。cache-only/idle prefetchの字体保持とbudget判定は変更しない。効果が不足すれば既存gateで安全に失敗する。
 GfxRenderer::drawの縦書き経路はloadVertDataを描画冒頭で実行するので、後続本文は再ロードできる。converter実行中に文字描画は行わない。実機では句読点・括弧・ルビ・画像前後の回帰確認が必要。PngDrawRecoveryTestで十分なheap/境界/断片化/総量不足/fontなし/cache-onlyを確認。v9実機結果は待ち。準備HTML展開のbootMin54656→31684をv8診断で確認できたが、今回は回収順やZIPメモリ構造を変更しない。
+
+## v10: 通常構成への有効化（X3/X4確認済み）
+defaultとgh_releaseでIDLE_CHAPTER_BUILDを定義。idle_chapter環境はIDLE_CHAPTER_DIAGNOSTICSを追加する診断環境として残す。turn/viewとstepの詳細は診断環境のみ、通常版は先読み終了時のresult/pagesと既存のprepare/回復等を記録する。NCP計測と10秒待機は通常版に含めない。解析/メモリ回復/キャンセルのアルゴリズム変更なし。実機確認後に有効化を別コミットにする。
+
+## v10実機結果とv11一覧状態修正（X3/X4確認済み）
+v10通常版X3/X4で1〜4正常をユーザー確認。X3は34ページ4935ms、PNG縦書き字形回復57332→106484B。X4は37ページ3664ms、後続cache hit確認。通常版への有効化は実機確認済みだが、追加報告の一覧状態問題を確認してからコミットする。
+全書籍生成は完了markerを更新する一方、FileBrowserはbook-list-status.binの既知状態を優先し再取得しない。GenerateAllCacheActivityに索引無効化がなく、古いResumableが残る経路を確認。v11は生成開始前に派生索引ファイルのみ無効化し、次回一覧の可視範囲で実ファイルから再取得する。書籍cacheやprogress、完了markerは保持。ホスト試験で対象範囲・ファイルなし・削除失敗・走査前呼出を検証。実機表示修正は待ち。
+
+## 最終受入結果
+v10通常構成有効化は0d24577cで保存。v11はX3のdevice-monitor-260926-205320.logにエラーなし、一覧の完了表示と再入場後保持をユーザー確認。v10書籍の未生成第3章だけ新規生成されており、すべての旧「途中」表示が索引不整合だったとは断定しない。X4はユーザーが同じ1〜4の正常を確認（この確認時点で追加ログの提示はなし）。一覧更新修正も受入済み。未push。画像出力途中の最悪応答時間の未測定という制約は継続。

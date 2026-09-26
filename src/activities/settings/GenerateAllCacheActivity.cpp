@@ -13,6 +13,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "ReadingStatusHelper.h"
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
@@ -318,6 +319,11 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
+  // Invalidate before the first mutation, including interrupted/failed runs.
+  // The browser rebuilds visible entries from authoritative per-book files.
+  if (!invalidateBookListStatusIndex("/.crosspoint")) {
+    LOG_ERR("GENALL", "Could not invalidate book-list status summary");
+  }
   const uint32_t generationStartedAt = millis();
   LOG_DBG("GENALL", "Scanning for EPUB files...");
 

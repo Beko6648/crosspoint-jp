@@ -43,6 +43,8 @@ void moveBookListStatusIndexEntry(const std::string& oldPath, const std::string&
 bool saveBookListStatusIndex(const std::string& cacheDir, const std::vector<BookListStatusEntry>& entries);
 void removeBookListStatusIndexEntry(const std::string& filepath, std::vector<BookListStatusEntry>& entries);
 void invalidateBookListStatusIndexEntry(const std::string& filepath, const std::string& cacheDir);
+// Drop only the derived list summary before a batch can change many books.
+bool invalidateBookListStatusIndex(const std::string& cacheDir);
 
 // ファイルパスからSDカード上のキャッシュを確認し、読書状態を返す。
 // filepath: 書籍ファイルの絶対パス（例: "/books/sample.epub"）
