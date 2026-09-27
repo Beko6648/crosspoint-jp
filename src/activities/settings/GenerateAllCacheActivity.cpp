@@ -309,6 +309,8 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
     drawCentered(pageHeight / 2, tr(STR_GENERATING_ALL_CACHE));
     drawCentered(pageHeight / 2 + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
     drawCentered(pageHeight / 2 + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+    const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -364,7 +366,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
     requestUpdate();
     return;
   }
-  CacheGenerationControls controls;
+  CacheGenerationControls controls(mappedInput);
   const auto scanResult = findEpubFiles("/", epubFiles, controls, renderer);
   LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
 #if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
@@ -425,6 +427,8 @@ void GenerateAllCacheActivity::generateAllCaches() {
     renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_GENERATING_ALL_CACHE), true, centerOffset);
     renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1), true, centerOffset);
     renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2), true, centerOffset);
+    const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
     popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
     progressDisplayMs += millis() - startedAt;
@@ -702,6 +706,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 }
 
 void GenerateAllCacheActivity::loop() {
+  if (CacheGenerationControls::consumeCancellationRelease(mappedInput)) return;
   if (state == CONFIRMING) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       {
@@ -710,6 +715,7 @@ void GenerateAllCacheActivity::loop() {
       }
       requestUpdateAndWait();
       generateAllCaches();
+      return;
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {

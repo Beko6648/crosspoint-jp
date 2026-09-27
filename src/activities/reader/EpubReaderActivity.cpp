@@ -131,7 +131,7 @@ int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xO
 }  // namespace
 
 void EpubReaderActivity::pregenerateCache() {
-  CacheGenerationControls controls;
+  CacheGenerationControls controls(mappedInput);
   const uint32_t generationStartedAt = millis();
   uint32_t sectionBuildMs = 0;
   uint32_t pixelCacheMs = 0;
@@ -191,6 +191,8 @@ void EpubReaderActivity::pregenerateCache() {
   renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY, tr(STR_GENERATING_CACHE));
   renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
   renderer.drawCenteredText(UI_10_FONT_ID, screenCenterY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+  const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
@@ -203,6 +205,8 @@ void EpubReaderActivity::pregenerateCache() {
     renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_GENERATING_CACHE));
     renderer.drawCenteredText(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
     renderer.drawCenteredText(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+    const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
     popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_CACHE), progressDetail.c_str());
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
     progressDisplayMs += millis() - startedAt;
@@ -280,6 +284,9 @@ void EpubReaderActivity::pregenerateCache() {
       fcm->releaseSdFontCaches();
       fcm->releaseSdFontVerticalGlyphs();
     }
+  }
+  if (cancelled) {
+    GUI.updateProgressPopup(renderer, popupRect, tr(STR_CACHE_INTERRUPTED), 0);
   }
   const bool imagesComplete = !cancelled;
 
@@ -506,6 +513,7 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+  if (CacheGenerationControls::consumeCancellationRelease(mappedInput)) return;
 #if defined(IDLE_CHAPTER_BUILD)
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) {
     chapterLastInput = millis();
