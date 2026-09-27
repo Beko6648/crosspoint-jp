@@ -21,6 +21,7 @@ struct FsFile {
   std::string data;
   size_t pos = 0;
   bool opened = false, readError = false;
+  explicit operator bool() const { return opened; }
   size_t size() const { return data.size(); }
   size_t available() const { return opened ? data.size() - pos : 0; }
   size_t read(void* p, size_t n) {
