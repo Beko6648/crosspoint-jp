@@ -656,8 +656,8 @@ bool TextBlock::serialize(FsFile& file) const {
   // Word data
   serialization::writePod(file, static_cast<uint16_t>(words.size()));
   for (const auto& w : words) serialization::writeString(file, w);
-  for (auto x : wordXpos) serialization::writePod(file, x);
-  for (auto s : wordStyles) serialization::writePod(file, s);
+  if (!serialization::writePodArray(file, wordXpos.data(), wordXpos.size()) ||
+      !serialization::writePodArray(file, wordStyles.data(), wordStyles.size())) return false;
 
   // Style (alignment + margins/padding/indent)
   serialization::writePod(file, blockStyle.alignment);
@@ -683,7 +683,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, isVertical);
   serialization::writePod(file, tateChuYokoMaxDigits);
   if (isVertical) {
-    for (auto y : wordYpos) serialization::writePod(file, y);
+    if (!serialization::writePodArray(file, wordYpos.data(), wordYpos.size())) return false;
   }
 
   // Ruby text data
