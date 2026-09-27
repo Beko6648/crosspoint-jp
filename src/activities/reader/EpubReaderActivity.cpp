@@ -295,6 +295,11 @@ void EpubReaderActivity::pregenerateCache() {
     GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), 100);
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
+#if defined(SINGLE_CACHE_PROFILE)
+  LOG_INF("SCP", "run total_ms=%lu section_ms=%lu generated=%d cached=%d image_ms=%lu images=%d progress_ms=%lu",
+          millis() - generationStartedAt, sectionBuildMs, generatedSections, sectionCacheHits, pixelCacheMs,
+          generatedPixelCaches, progressDisplayMs);
+#endif
   LOG_DBG("ERS",
           "Pregenerate timing: total=%lu ms, section-build=%lu ms (%d generated, %d cached), PXC=%lu ms (%d "
           "images), progress=%lu ms",

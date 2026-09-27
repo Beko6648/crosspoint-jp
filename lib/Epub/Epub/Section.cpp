@@ -1,3 +1,4 @@
+#include <SingleCacheProfile.h>
 #include "Section.h"
 
 #include <Arduino.h>
@@ -494,6 +495,9 @@ PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIn
 #endif
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::Timer writeTimer(SingleCacheProfile::PageWrite);
+#endif
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
     lastCreateFailureReason = CreateFailureReason::StorageIo;
@@ -1106,6 +1110,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     prepared = true;
     return true;
   }
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::SectionScope sectionProfile(spineIndex);
+#endif
   std::vector<std::pair<std::string, uint16_t>> anchors;
   bool textOnlySource = false;
   {

@@ -1,3 +1,4 @@
+#include <SingleCacheProfile.h>
 #include "ParsedText.h"
 
 #include <GfxRenderer.h>
@@ -501,6 +502,10 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fontId, const uint16_t columnHeight,
                                        const std::function<bool(std::unique_ptr<TextBlock>)>& processColumn,
                                        const bool includeLastColumn) {
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::Timer verticalTimer(SingleCacheProfile::VerticalLayout);
+#endif
+
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   if (layoutFailed_ || words.empty()) return;
   if (!admitLayout(LayoutMemory::multiply(words.size(), 16), "vertical plan")) return;

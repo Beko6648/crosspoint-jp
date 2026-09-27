@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Issue18Diagnostics.h>
 #include <Logging.h>
+#include <SingleCacheProfile.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -1505,6 +1506,15 @@ int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
 
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
+
+#if defined(SINGLE_CACHE_PROFILE)
+  bool allFull = true;
+  for (uint8_t si = 0; si < MAX_STYLES; ++si) {
+    if ((styleMask & (1 << si)) && styles_[si].present && advanceTableSize_[si] < 1024) allFull = false;
+  }
+  SingleCacheProfile::Timer advanceTimer(allFull ? SingleCacheProfile::AdvanceFull
+                                               : SingleCacheProfile::AdvanceOther);
+#endif
 
   unsigned long startMs = millis();
 
