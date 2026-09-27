@@ -1,9 +1,10 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "activities/Activity.h"
+
+class BatchEpubPaths;
 
 class GenerateAllCacheActivity final : public Activity {
  public:
@@ -28,6 +29,6 @@ class GenerateAllCacheActivity final : public Activity {
 
   void goBack() { finish(); }
   void generateAllCaches();
-  void summarizeCacheStatuses(const std::vector<std::string>& epubFiles);
+  bool summarizeCacheStatuses(BatchEpubPaths& epubFiles);
   std::string cacheGenerationResultText() const;
 };

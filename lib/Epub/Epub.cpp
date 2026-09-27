@@ -496,6 +496,10 @@ void Epub::parseCssFiles() const {
 
     // Check heap before parsing - CSS parsing allocates heavily
     const uint32_t freeHeap = ESP.getFreeHeap();
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    LOG_INF("BCMEM", "stage=css-gate free=%u maxAlloc=%u required=%u", freeHeap, ESP.getMaxAllocHeap(),
+            static_cast<unsigned>(MIN_HEAP_FOR_CSS_PARSING));
+#endif
     if (freeHeap < MIN_HEAP_FOR_CSS_PARSING) {
       LOG_ERR("EBP", "Insufficient heap for CSS parsing (%u bytes free, need %zu), skipping: %s", freeHeap,
               MIN_HEAP_FOR_CSS_PARSING, cssPath.c_str());
