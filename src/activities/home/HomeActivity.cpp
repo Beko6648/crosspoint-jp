@@ -71,7 +71,12 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
         if (FsHelpers::hasEpubExtension(book.path)) {
           Epub epub(book.path, "/.crosspoint");
           // Skip loading css since we only need metadata here
-          epub.load(false, true);
+          if (!epub.load(false, true)) {
+            // Cache removal can leave a recent-book entry before metadata is rebuilt.
+            // Keep its cover reference so a later Home entry can retry.
+            LOG_DBG("HOME", "Deferring thumbnail until metadata is available: %s", book.path.c_str());
+            continue;
+          }
 
           // Try to generate thumbnail image for Continue Reading card
           if (!showingLoading && !bufferLent) {

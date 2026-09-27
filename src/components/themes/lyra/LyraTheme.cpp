@@ -688,6 +688,8 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             hasCover = false;
           }
           file.close();
+        } else {
+          hasCover = false;
         }
       }
 
