@@ -2016,7 +2016,10 @@ ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { closeIncrementalParser(); }
 void ChapterHtmlSlimParser::closeIncrementalParser() {
   if (incrementalParser) XML_ParserFree(incrementalParser);
   incrementalParser = nullptr;
-  incrementalFile.close();
+  // Cancellation or allocation failure can happen before the file is opened.
+  // HalFile::close() requires an initialized handle; cleanup also runs again
+  // from the destructor after parsing has already finished.
+  if (incrementalFile) incrementalFile.close();
 }
 
 bool ChapterHtmlSlimParser::parseAndBuildPages() {
