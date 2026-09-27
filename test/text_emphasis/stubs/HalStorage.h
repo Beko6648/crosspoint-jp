@@ -18,12 +18,16 @@ class FsFile {
     return count;
   }
   size_t write(const uint8_t* data, size_t count) {
-    bytes->insert(bytes->end(), data, data + count);
+    if (bytes->size() < pos + count) bytes->resize(pos + count);
+    std::memcpy(bytes->data() + pos, data, count);
+    pos += count;
     return count;
   }
-  size_t write(uint8_t value) {
-    bytes->push_back(value);
-    return 1;
+  size_t write(uint8_t value) { return write(&value, 1); }
+  bool seek(size_t offset) {
+    if (!bytes || offset > bytes->size()) return false;
+    pos = offset;
+    return true;
   }
   void flush() {}
   void close() {}

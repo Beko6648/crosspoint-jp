@@ -203,6 +203,12 @@ void removeBookListStatusIndexEntry(const std::string& filepath, std::vector<Boo
   if (entry != entries.end() && entry->cacheEntryName == cacheEntryName) entries.erase(entry);
 }
 
+bool invalidateBookListStatusIndex(const std::string& cacheDir) {
+  const std::string path = cacheDir + BOOK_LIST_STATUS_INDEX_FILE;
+  if (!Storage.exists(path.c_str())) return true;
+  return Storage.remove(path.c_str());
+}
+
 void invalidateBookListStatusIndexEntry(const std::string& filepath, const std::string& cacheDir) {
   std::vector<BookListStatusEntry> entries;
   loadBookListStatusIndex(cacheDir, entries);

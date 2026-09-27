@@ -2,8 +2,21 @@
 #include <HalStorage.h>
 
 #include <iostream>
+#include <limits>
+#include <type_traits>
 
 namespace serialization {
+// Same bytes as repeated writePod calls, without per-element filesystem locks.
+// The caller owns the contiguous storage; no temporary buffer is allocated.
+template <typename T>
+static bool writePodArray(FsFile& file, const T* values, size_t count) {
+  static_assert(std::is_trivially_copyable<T>::value, "POD array required");
+  if (count == 0) return true;
+  if (count > std::numeric_limits<size_t>::max() / sizeof(T)) return false;
+  const size_t bytes = count * sizeof(T);
+  return file.write(reinterpret_cast<const uint8_t*>(values), bytes) == bytes;
+}
+
 template <typename T>
 static void writePod(std::ostream& os, const T& value) {
   os.write(reinterpret_cast<const char*>(&value), sizeof(T));

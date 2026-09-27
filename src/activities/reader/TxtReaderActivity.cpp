@@ -161,9 +161,8 @@ void TxtReaderActivity::initializeReader() {
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
-  LOG_INF("TRS", "Viewport: %dx%d, lines per page: %d, horizontal=1, font=%d, sdFont=%d", viewportWidth,
-          viewportHeight, linesPerPage, cachedFontId,
-          renderer.isSdCardFont(cachedFontId) ? 1 : 0);
+  LOG_INF("TRS", "Viewport: %dx%d, lines per page: %d, horizontal=1, font=%d, sdFont=%d", viewportWidth, viewportHeight,
+          linesPerPage, cachedFontId, renderer.isSdCardFont(cachedFontId) ? 1 : 0);
 
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
@@ -224,8 +223,7 @@ void TxtReaderActivity::buildPageIndex() {
   inputFile.close();
 
   totalPages = pageOffsets.size();
-  LOG_INF("TRS", "Built page index: pages=%d bytes=%zu duration=%lu ms", totalPages, fileSize,
-          millis() - startedAt);
+  LOG_INF("TRS", "Built page index: pages=%d bytes=%zu duration=%lu ms", totalPages, fileSize, millis() - startedAt);
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
@@ -334,7 +332,6 @@ void TxtReaderActivity::render(RenderLock&&) {
   // Save progress
   const bool nearEnd = totalPages > 0 && static_cast<float>(currentPage + 1) / totalPages >= 0.95f;
   saveProgress(nearEnd);
-
 }
 
 void TxtReaderActivity::renderPage() {

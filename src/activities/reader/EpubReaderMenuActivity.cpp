@@ -269,16 +269,15 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       const auto pageTurnValue = pageTurnLabels[selectedPageTurnOption];
       const auto pageTurnWidth = renderer.getTextWidth(UI_10_FONT_ID, pageTurnValue);
       renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - valueRightMargin - pageTurnWidth, displayY,
-                        pageTurnValue,
-                        !isSelected);
+                        pageTurnValue, !isSelected);
     }
   }
 
   // Footer / Hints
   const auto selectedAction = menuItems[selectedIndex].action;
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT)
-                                                                        : (currentValueIsEditable() ? tr(STR_EDIT) : tr(STR_SELECT)),
-                                            tr(STR_PREVIOUS), tr(STR_NEXT));
+  const auto labels = mappedInput.mapLabels(
+      tr(STR_BACK), editingValue ? tr(STR_SELECT) : (currentValueIsEditable() ? tr(STR_EDIT) : tr(STR_SELECT)),
+      tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   if (!editingValue) {
     GUI.drawSideButtonHints(renderer, tr(STR_PREVIOUS), tr(STR_NEXT));
@@ -373,12 +372,12 @@ bool EpubReaderMenuActivity::changeCurrentValue(const int delta, const bool togg
       SETTINGS.saveToFile();
       return true;
     case MenuAction::ROTATE_SCREEN:
-      pendingOrientation = static_cast<uint8_t>(std::clamp(static_cast<int>(pendingOrientation) + delta, 0,
-                                                            static_cast<int>(orientationLabels.size()) - 1));
+      pendingOrientation = static_cast<uint8_t>(
+          std::clamp(static_cast<int>(pendingOrientation) + delta, 0, static_cast<int>(orientationLabels.size()) - 1));
       return true;
     case MenuAction::AUTO_PAGE_TURN:
-      selectedPageTurnOption = static_cast<uint8_t>(std::clamp(static_cast<int>(selectedPageTurnOption) + delta, 0,
-                                                                static_cast<int>(pageTurnLabels.size()) - 1));
+      selectedPageTurnOption = static_cast<uint8_t>(
+          std::clamp(static_cast<int>(selectedPageTurnOption) + delta, 0, static_cast<int>(pageTurnLabels.size()) - 1));
       return true;
     default:
       return false;

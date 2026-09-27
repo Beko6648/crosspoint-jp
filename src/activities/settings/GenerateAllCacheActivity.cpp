@@ -4,6 +4,7 @@
 #include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <Epub/converters/ImageCacheValidation.h>
+#include <Epub/converters/ImagePixelCachePath.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -11,33 +12,48 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <vector>
+
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "ReadingStatusHelper.h"
 #include "SdCardFontGlobals.h"
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#include "util/BatchEpubPaths.h"
 #include "util/CacheGenerationControls.h"
+#include "util/CacheProgressPolicy.h"
 
 namespace {
 
-// E-paper progress redraws are expensive (~670 ms in the measured run).
-// Quarter-step updates keep useful feedback without dominating cache creation.
-constexpr int CACHE_PROGRESS_STEP_PERCENT = 25;
 constexpr int STATUS_BAR_CONTENT_GUARD = 8;
+
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+void logBatchMemory(const char* stage, const int book = -1) {
+  LOG_INF("BCMEM", "stage=%s book=%d free=%u maxAlloc=%u", stage, book, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
+
+struct BatchBookMemoryProbe {
+  int book;
+  ~BatchBookMemoryProbe() { logBatchMemory("book-released", book); }
+};
+#endif
 
 int getStatusBarContentReservation(const int statusBarHeight) {
   return statusBarHeight > 0 ? statusBarHeight + STATUS_BAR_CONTENT_GUARD : 0;
 }
 
+enum class PathScanResult { Complete, Cancelled, Failed };
+
 // Recursively scan a directory for EPUB files
-bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, CacheGenerationControls& controls,
-                   GfxRenderer& renderer) {
-  if (controls.shouldCancel(renderer)) return false;
+PathScanResult findEpubFiles(const char* dirPath, BatchEpubPaths& results, CacheGenerationControls& controls,
+                             GfxRenderer& renderer) {
+  if (controls.shouldCancel(renderer)) return PathScanResult::Cancelled;
   auto dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) {
     if (dir) dir.close();
-    return true;
+    return PathScanResult::Failed;
   }
 
   char name[256];
@@ -45,7 +61,7 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
     if (controls.shouldCancel(renderer)) {
       file.close();
       dir.close();
-      return false;
+      return PathScanResult::Cancelled;
     }
     file.getName(name, sizeof(name));
     if (name[0] == '.') {
@@ -59,40 +75,49 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
 
     if (file.isDirectory()) {
       file.close();
-      if (!findEpubFiles(fullPath.c_str(), results, controls, renderer)) {
+      const auto result = findEpubFiles(fullPath.c_str(), results, controls, renderer);
+      if (result != PathScanResult::Complete) {
         dir.close();
-        return false;
+        return result;
       }
     } else {
       if (FsHelpers::hasEpubExtension(std::string_view(name))) {
-        results.push_back(fullPath);
+        if (!results.append(fullPath)) {
+          file.close();
+          dir.close();
+          return PathScanResult::Failed;
+        }
       }
       file.close();
     }
   }
   dir.close();
-  return true;
+  return PathScanResult::Complete;
 }
 
-int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset) {
+int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset,
+                           bool& framebufferInvalidated) {
   int generated = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageImage) continue;
     const auto& pageImage = static_cast<const PageImage&>(*element);
     const auto& image = pageImage.getImageBlock();
-    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset)) generated++;
+    if (image.pregeneratePixelCache(renderer, pageImage.xPos + xOffset, pageImage.yPos + yOffset,
+                                    &framebufferInvalidated))
+      generated++;
   }
   return generated;
 }
 
 int pregeneratePixelCachesFromCachedSection(Section& section, GfxRenderer& renderer, const int xOffset,
-                                            const int yOffset, int& pagesScanned) {
+                                            const int yOffset, int& pagesScanned, bool& framebufferInvalidated) {
   int generated = 0;
   for (uint16_t pageIndex = 0; pageIndex < section.pageCount; ++pageIndex) {
     auto page = section.loadPageFromSectionFile(pageIndex);
     if (!page) continue;
     ++pagesScanned;
-    if (page->hasImages()) generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset);
+    if (page->hasImages())
+      generated += pregeneratePixelCaches(*page, renderer, xOffset, yOffset, framebufferInvalidated);
   }
   return generated;
 }
@@ -183,8 +208,7 @@ PixelCachePreflightResult inspectPixelCaches(const std::string& cacheRoot, const
     }
 
     result.sourceCount++;
-    const size_t extensionStart = sourcePath.rfind('.');
-    const std::string pixelCachePath = sourcePath.substr(0, extensionStart) + ".pxc6";
+    const std::string pixelCachePath = getImagePixelCachePath(sourcePath);
     if (Storage.exists(pixelCachePath.c_str()) && ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0)) {
       result.validCacheCount++;
     } else {
@@ -227,11 +251,14 @@ void GenerateAllCacheActivity::onExit() {
   }
 }
 
-void GenerateAllCacheActivity::summarizeCacheStatuses(const std::vector<std::string>& epubFiles) {
+bool GenerateAllCacheActivity::summarizeCacheStatuses(BatchEpubPaths& epubFiles) {
+  if (!epubFiles.rewind()) return false;
   completeCount = 0;
   resumableCount = 0;
   notGeneratedCount = 0;
-  for (const auto& epubPath : epubFiles) {
+  std::string epubPath;
+  for (int i = 0; i < epubFiles.count(); ++i) {
+    if (!epubFiles.next(epubPath)) return false;
     switch (Epub(epubPath, "/.crosspoint").getCacheGenerationStatus()) {
       case Epub::CacheGenerationStatus::Complete:
         ++completeCount;
@@ -244,6 +271,7 @@ void GenerateAllCacheActivity::summarizeCacheStatuses(const std::vector<std::str
         break;
     }
   }
+  return true;
 }
 
 std::string GenerateAllCacheActivity::cacheGenerationResultText() const {
@@ -280,6 +308,8 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
     drawCentered(pageHeight / 2, tr(STR_GENERATING_ALL_CACHE));
     drawCentered(pageHeight / 2 + 25, tr(STR_CACHE_CANCEL_HINT_LINE1));
     drawCentered(pageHeight / 2 + 45, tr(STR_CACHE_CANCEL_HINT_LINE2));
+    const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -316,25 +346,46 @@ void GenerateAllCacheActivity::render(RenderLock&&) {
 }
 
 void GenerateAllCacheActivity::generateAllCaches() {
+  // Invalidate before the first mutation, including interrupted/failed runs.
+  // The browser rebuilds visible entries from authoritative per-book files.
+  if (!invalidateBookListStatusIndex("/.crosspoint")) {
+    LOG_ERR("GENALL", "Could not invalidate book-list status summary");
+  }
   const uint32_t generationStartedAt = millis();
   LOG_DBG("GENALL", "Scanning for EPUB files...");
 
   const uint32_t scanStartedAt = millis();
-  std::vector<std::string> epubFiles;
-  CacheGenerationControls controls;
-  const bool scanCompleted = findEpubFiles("/", epubFiles, controls, renderer);
-  LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
-
-  if (!scanCompleted) {
-    LOG_DBG("GENALL", "Cancelled while scanning for EPUB files");
-    totalCount = epubFiles.size();
-    summarizeCacheStatuses(epubFiles);
-    state = INTERRUPTED;
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+  logBatchMemory("before-scan");
+#endif
+  BatchEpubPaths epubFiles;
+  if (!epubFiles.begin()) {
+    LOG_ERR("GENALL", "Could not create temporary EPUB list");
+    state = FAILED;
     requestUpdate();
     return;
   }
-
-  totalCount = epubFiles.size();
+  CacheGenerationControls controls(mappedInput);
+  const auto scanResult = findEpubFiles("/", epubFiles, controls, renderer);
+  LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+  LOG_INF("BCMEM", "paths count=%d diskBytes=%u scanComplete=%d", epubFiles.count(),
+          static_cast<unsigned>(epubFiles.bytes()), scanResult == PathScanResult::Complete);
+  logBatchMemory("after-scan");
+#endif
+  totalCount = epubFiles.count();
+  if (scanResult == PathScanResult::Failed || !epubFiles.rewind()) {
+    LOG_ERR("GENALL", "Could not write/read temporary EPUB list");
+    state = FAILED;
+    requestUpdate();
+    return;
+  }
+  if (scanResult == PathScanResult::Cancelled) {
+    const bool summarized = summarizeCacheStatuses(epubFiles);
+    state = summarized ? INTERRUPTED : FAILED;
+    requestUpdate();
+    return;
+  }
 
   LOG_DBG("GENALL", "Found %d EPUB files", totalCount);
 
@@ -360,6 +411,30 @@ void GenerateAllCacheActivity::generateAllCaches() {
   Rect popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
   uint32_t progressDisplayMs = millis() - initialDisplayStartedAt;
   int lastDisplayedProgress = 0;
+  CacheProgressPolicy progressPolicy(millis());
+  bool framebufferInvalidated = false;
+  const auto restoreProgress = [&] {
+    if (!framebufferInvalidated) return;
+    const uint32_t startedAt = millis();
+    renderer.clearScreen();
+    const auto layout = UiLayout::from(renderer);
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
+                   tr(STR_GENERATE_ALL_CACHE));
+    const int centerOffset = layout.content.x + layout.content.width / 2 - renderer.getScreenWidth() / 2;
+    const int centerY = renderer.getScreenHeight() / 2;
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY, tr(STR_GENERATING_ALL_CACHE), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 25, tr(STR_CACHE_CANCEL_HINT_LINE1), true, centerOffset);
+    renderer.drawCenteredTextOffset(UI_10_FONT_ID, centerY + 45, tr(STR_CACHE_CANCEL_HINT_LINE2), true, centerOffset);
+    const auto cancelLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, cancelLabels.btn1, cancelLabels.btn2, cancelLabels.btn3, cancelLabels.btn4);
+    popupRect = GUI.drawProgressPopup(renderer, tr(STR_GENERATING_ALL_CACHE), progressDetail.c_str());
+    GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), lastDisplayedProgress);
+    progressDisplayMs += millis() - startedAt;
+    framebufferInvalidated = false;
+    LOG_DBG("IMEM", "Restored progress UI after JPEG framebuffer loan");
+  };
+
   bool cancelled = false;
   bool storageFailure = false;
 
@@ -377,7 +452,18 @@ void GenerateAllCacheActivity::generateAllCaches() {
   const int screenHeight = renderer.getScreenHeight();
 
   for (int bookIdx = 0; bookIdx < totalCount; bookIdx++) {
-    const auto& epubPath = epubFiles[bookIdx];
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    // Declared before the EPUB and other book-local objects so destruction
+    // logs after they release memory, including continue/break paths.
+    BatchBookMemoryProbe memoryProbe{bookIdx + 1};
+    logBatchMemory("book-start", bookIdx + 1);
+#endif
+    std::string epubPath;
+    if (!epubFiles.next(epubPath)) {
+      LOG_ERR("GENALL", "Could not read temporary EPUB list at book %d", bookIdx + 1);
+      storageFailure = true;
+      break;
+    }
     const uint32_t bookStartedAt = millis();
     uint32_t sectionBuildMs = 0;
     uint32_t pixelCacheMs = 0;
@@ -388,13 +474,14 @@ void GenerateAllCacheActivity::generateAllCaches() {
     LOG_DBG("GENALL", "Processing %d/%d: %s", bookIdx + 1, totalCount, epubPath.c_str());
 
     const int progress = (bookIdx * 100) / totalCount;
-    if (progress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+    if (progressPolicy.shouldUpdate(bookIdx, progress, millis())) {
       progressDetail =
           std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" + std::to_string(totalCount);
       const uint32_t displayStartedAt = millis();
       GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), progress);
       progressDisplayMs += millis() - displayStartedAt;
       lastDisplayedProgress = progress;
+      progressPolicy.displayed(bookIdx, progress, millis());
     }
 
     if (controls.shouldCancel(renderer)) {
@@ -403,16 +490,39 @@ void GenerateAllCacheActivity::generateAllCaches() {
       break;
     }
 
+    // CSS is parsed during load(), before section-level reclamation runs.
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("before-font-release", bookIdx + 1);
+#endif
+    if (auto* fontCache = renderer.getFontCacheManager()) {
+      fontCache->clearCache();
+      fontCache->freeKernLigatureData();
+      fontCache->releaseSdFontCaches();
+    }
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("after-font-release", bookIdx + 1);
+#endif
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("before-load", bookIdx + 1);
+#endif
     if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
       LOG_ERR("GENALL", "Failed to load: %s", epubPath.c_str());
       continue;
     }
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("after-load", bookIdx + 1);
+#endif
 
     const int spineCount = epub->getSpineItemsCount();
     if (spineCount <= 0) continue;
     epub->clearFullCacheGeneratedMarker();
+    if (SETTINGS.embeddedStyle != CrossPointSettings::CROSSPOINT_STYLE &&
+        (!epub->getCssParser() || !epub->getCssParser()->validateCache())) {
+      LOG_ERR("GENALL", "CSS not ready; leaving book incomplete: %s", epubPath.c_str());
+      continue;
+    }
 
     const uint32_t pixelPreflightStartedAt = millis();
     const auto pixelPreflight = inspectPixelCaches(epub->getCachePath(), spineCount);
@@ -478,7 +588,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
       }
       const int bookProgress = (i * 80) / spineCount;
       const int overallProgress = (bookIdx * 100 + bookProgress) / totalCount;
-      if (overallProgress >= lastDisplayedProgress + CACHE_PROGRESS_STEP_PERCENT) {
+      if (progressPolicy.shouldUpdate(bookIdx, overallProgress, millis())) {
         progressDetail = std::string(tr(STR_CACHE_BOOK)) + " " + std::to_string(bookIdx + 1) + "/" +
                          std::to_string(totalCount) + "  " + tr(STR_CACHE_CHAPTER) + " " + std::to_string(i + 1) + "/" +
                          std::to_string(spineCount);
@@ -486,6 +596,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
         GUI.updateProgressPopup(renderer, popupRect, progressDetail.c_str(), overallProgress);
         progressDisplayMs += millis() - displayStartedAt;
         lastDisplayedProgress = overallProgress;
+        progressPolicy.displayed(bookIdx, overallProgress, millis());
       }
       Section sec(epub, i, renderer);
       const bool sectionCached =
@@ -506,9 +617,10 @@ void GenerateAllCacheActivity::generateAllCaches() {
         }
         if (needsPixelPageScan) {
           const uint32_t pixelStartedAt = millis();
-          generatedPixelCaches +=
-              pregeneratePixelCachesFromCachedSection(sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned);
+          generatedPixelCaches += pregeneratePixelCachesFromCachedSection(
+              sec, renderer, bmLeft, bmTop, cachedPixelPagesScanned, framebufferInvalidated);
           pixelCacheMs += millis() - pixelStartedAt;
+          restoreProgress();
         }
       } else {
         const uint32_t sectionStartedAt = millis();
@@ -521,12 +633,14 @@ void GenerateAllCacheActivity::generateAllCaches() {
                 viewportWidth, viewportHeight, ds.hyphenationEnabled, ds.firstLineIndent, SETTINGS.embeddedStyle,
                 SETTINGS.imageRendering, isVertical, ds.charSpacing, ds.tateChuYokoMaxDigits, nullptr, headingFontIds,
                 SETTINGS.getTableFontId(isVertical), cssBodyFontIds, nullptr,
-                [this, &generatedPixelCaches, &pixelCacheMs, bmLeft, bmTop](const Page& page) {
+                [this, &generatedPixelCaches, &pixelCacheMs, &framebufferInvalidated, &restoreProgress, bmLeft,
+                 bmTop](const Page& page) {
                   const uint32_t pixelStartedAt = millis();
-                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop);
+                  generatedPixelCaches += pregeneratePixelCaches(page, renderer, bmLeft, bmTop, framebufferInvalidated);
                   pixelCacheMs += millis() - pixelStartedAt;
+                  restoreProgress();
                 },
-                [&controls, this] { return controls.shouldCancel(renderer); })) {
+                [&controls, this] { return controls.shouldCancel(renderer); }, true)) {
           LOG_ERR("GENALL", "Failed section %d of %s", i, epubPath.c_str());
           allSectionsReady = false;
           const auto failureReason = sec.getLastCreateFailureReason();
@@ -534,6 +648,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
             cancelled = true;
             break;
           }
+          if (failureReason == Section::CreateFailureReason::CssUnavailable) break;
           if (failureReason == Section::CreateFailureReason::StorageIo) {
             LOG_ERR("GENALL", "Stopping cache generation after SD I/O failure at section %d of %s", i,
                     epubPath.c_str());
@@ -573,8 +688,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
 
-  if (!storageFailure) {
-    summarizeCacheStatuses(epubFiles);
+  if (!storageFailure && !summarizeCacheStatuses(epubFiles)) {
+    LOG_ERR("GENALL", "Could not read EPUB list for status summary");
+    storageFailure = true;
   }
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
@@ -589,6 +705,7 @@ void GenerateAllCacheActivity::generateAllCaches() {
 }
 
 void GenerateAllCacheActivity::loop() {
+  if (CacheGenerationControls::consumeCancellationRelease(mappedInput)) return;
   if (state == CONFIRMING) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       {
@@ -597,6 +714,7 @@ void GenerateAllCacheActivity::loop() {
       }
       requestUpdateAndWait();
       generateAllCaches();
+      return;
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {

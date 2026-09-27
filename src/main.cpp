@@ -46,6 +46,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
+#include "util/HeapTrace.h"
 #include "util/ScreenshotUtil.h"
 
 // デバッグ: 起動時にどの時刻復元ブランチが使われたかを記録
@@ -336,6 +337,7 @@ void setup() {
   delay(250);
   Serial.begin(115200);
   logSerial.setTxTimeoutMs(1);  // Load-bearing: これがないと未接続時に write でブロック
+  HeapTrace::begin();
 #endif
 
   LOG_INF("MAIN", "Hardware profile: %s", BoardConfig::ACTIVE.name);
@@ -588,12 +590,18 @@ void loop() {
       String cmd = line.substring(4);
       cmd.trim();
       if (cmd == "SCREENSHOT") {
+        HeapTrace::OutputLock traceLock;
         const uint32_t bufferSize = display.getBufferSize();
         logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
         uint8_t* buf = display.getFrameBuffer();
         logSerial.write(buf, bufferSize);
         logSerial.printf("SCREENSHOT_END\n");
       }
+#ifdef CROSSPOINT_HEAP_TRACE
+      else if (cmd == "HEAPTRACE" || cmd.startsWith("HEAPTRACE ")) {
+        HeapTrace::handleCommand(cmd.length() > 10 ? cmd.c_str() + 10 : nullptr);
+      }
+#endif
     }
   }
 
@@ -707,7 +715,11 @@ void loop() {
   } else {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
+#ifndef CROSSPOINT_HEAP_TRACE
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
+#endif
+      // Heap tracing continuously streams USB data even while the reader is
+      // idle. Keep its CPU/APB clocks at normal speed; retain the loop delay.
       delay(50);
     } else {
       // Short delay to prevent tight loop while still being responsive

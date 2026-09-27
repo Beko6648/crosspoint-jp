@@ -209,6 +209,14 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
             # Fallback for older Pillow: approximate baseline by shifting up
             draw.text((x, y - ascent), char, font=font, fill=1)
 
+        # Some fullwidth accents lie wholly above the common baseline cell.
+        # Preserve existing glyphs above; rescue only otherwise blank new glyphs.
+        if img.getbbox() is None and not char.isspace():
+            bbox = font.getbbox(char, anchor="ls")
+            if bbox and bbox[3] > bbox[1]:
+                fit_y = min(max(baseline, -bbox[1]), pixel_size - bbox[3])
+                draw.text((x, fit_y), char, font=font, fill=1, anchor="ls")
+
         # Convert to bytes
         bytes_per_row = (pixel_size + 7) // 8
         bitmap_bytes = []

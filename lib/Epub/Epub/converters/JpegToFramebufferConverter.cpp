@@ -10,8 +10,11 @@
 #include <memory>
 #include <new>
 
+#include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
+#include "ImageDecodeDiagnostics.h"
+#include "LoanedDecoder.h"
 #include "PixelCache.h"
 
 namespace {
@@ -47,7 +50,8 @@ struct JpegContext {
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* jpegOpen(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();
+  FsFile* f = new (std::nothrow) FsFile();
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
     delete f;
     return nullptr;
@@ -118,6 +122,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   JpegContext* ctx = reinterpret_cast<JpegContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer) return 0;
 
+  if (ctx->config->cancellation && ctx->config->cancellation->poll()) return 0;
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
 
   // In EIGHT_BIT_GRAYSCALE mode, pPixels contains 8-bit grayscale values
@@ -148,12 +153,10 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   const int srcYEnd = blockY + blockH;
   const int srcXEnd = blockX + validW;
 
-    int dstYStart = (int)((int64_t)blockY * fineScaleFPY >> FP_SHIFT);
-    int dstYEnd =
-        (srcYEnd >= ctx->scaledSrcHeight) ? ctx->dstHeight : (int)((int64_t)srcYEnd * fineScaleFPY >> FP_SHIFT);
-    int dstXStart = (int)((int64_t)blockX * fineScaleFPX >> FP_SHIFT);
-    int dstXEnd =
-        (srcXEnd >= ctx->scaledSrcWidth) ? ctx->dstWidth : (int)((int64_t)srcXEnd * fineScaleFPX >> FP_SHIFT);
+  int dstYStart = (int)((int64_t)blockY * fineScaleFPY >> FP_SHIFT);
+  int dstYEnd = (srcYEnd >= ctx->scaledSrcHeight) ? ctx->dstHeight : (int)((int64_t)srcYEnd * fineScaleFPY >> FP_SHIFT);
+  int dstXStart = (int)((int64_t)blockX * fineScaleFPX >> FP_SHIFT);
+  int dstXEnd = (srcXEnd >= ctx->scaledSrcWidth) ? ctx->dstWidth : (int)((int64_t)srcXEnd * fineScaleFPX >> FP_SHIFT);
 
   // Pre-clamp destination ranges to screen bounds (eliminates per-pixel screen checks)
   int clampYMax = ctx->dstHeight;
@@ -190,7 +193,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   }
 
   // === 1:1 fast path: no scaling math ===
-    if (fineScaleFPX == FP_ONE && fineScaleFPY == FP_ONE) {
+  if (fineScaleFPX == FP_ONE && fineScaleFPY == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
       pw.beginRow(outY);
@@ -216,7 +219,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === Bilinear interpolation (upscale: fineScale > 1.0) ===
   // Smooths block boundaries that would otherwise create visible banding
   // on progressive JPEG DC-only decode (1/8 resolution upscaled to target).
-    if (fineScaleFPX > FP_ONE || fineScaleFPY > FP_ONE) {
+  if (fineScaleFPX > FP_ONE || fineScaleFPY > FP_ONE) {
     // Pre-compute safe X range where lx0 and lx0+1 are both in [0, validW-1].
     // Only the left/right edge pixels (typically 0-2 and 1-8 respectively) need clamping.
     int safeXStart = (int)(((int64_t)blockX * fineScaleFPX + FP_MASK) >> FP_SHIFT);
@@ -374,7 +377,8 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
   }
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
- 
+  DecoderFileScope<JPEGDEC> fileScope(*jpeg);
+
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;
@@ -390,19 +394,27 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
 
 bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
                                                      const RenderConfig& config) {
-  LOG_DBG("JPG", "Decoding JPEG: %s", imagePath.c_str());
-
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_JPEG) {
-    LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_JPEG);
-    return false;
+  ImageDecodeDiagnostics diagnostics("JPG", config, sizeof(JPEGDEC), renderer);
+  if (!config.writeToFramebuffer && config.cachePath.empty()) return diagnostics.fail("gate");
+  const bool canLoan = !config.writeToFramebuffer && !config.cachePath.empty() && config.framebufferInvalidated;
+  bool forceLoan = false;
+#if defined(JPEG_FRAMEBUFFER_LOAN_TEST)
+  forceLoan = canLoan;  // dedicated diagnostic build only; does not consume heap
+#endif
+  LoanedDecoder<JPEGDEC> jpeg;
+  if (!forceLoan && ESP.getFreeHeap() >= MIN_FREE_HEAP_FOR_JPEG && ESP.getMaxAllocHeap() >= sizeof(JPEGDEC)) {
+    jpeg.tryHeap();
   }
-
-  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
-  if (!jpeg) {
-    LOG_ERR("JPG", "Failed to allocate JPEG decoder");
-    return false;
+  // The decoder is outside heap on this path. Keep the historical 16 KiB
+  // reserve for file state and band allocation (which is checked separately).
+  if (!jpeg && canLoan && ESP.getFreeHeap() >= 16 * 1024) {
+    jpeg.tryLoan(renderer, *config.framebufferInvalidated);
   }
+  if (!jpeg && !diagnostics.admit(MIN_FREE_HEAP_FOR_JPEG)) return false;
+  if (!jpeg) return diagnostics.fail("decoder-allocation");
+  LOG_DBG("IMEM", "JPG storage=%s decoder=%u scratch=%u free=%u maxAlloc=%u forced=%d",
+          jpeg.usesScratch() ? "framebuffer" : "heap", (unsigned)sizeof(JPEGDEC), (unsigned)jpeg.capacity(),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap(), forceLoan);
 
   JpegContext ctx;
   ctx.renderer = &renderer;
@@ -411,11 +423,11 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.screenHeight = renderer.getScreenHeight();
 
   int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
+  DecoderFileScope<JPEGDEC> fileScope(*jpeg);
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    jpeg->close();
-    return false;
+    return diagnostics.fail("open");
   }
 
   ImageDimensions sourceDimensions;
@@ -463,13 +475,11 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     jpegScaleDenom = chooseJpegScale(targetScale, jpegScaleOption);
   }
 
-
   if (destWidth <= 0 || destHeight <= 0) {
     LOG_ERR("JPG", "Degenerate output dimensions %dx%d for %s, skipping render", destWidth, destHeight,
             imagePath.c_str());
     return false;
   }
-
 
   ctx.scaledSrcWidth = (srcWidth + jpegScaleDenom - 1) / jpegScaleDenom;
   ctx.scaledSrcHeight = (srcHeight + jpegScaleDenom - 1) / jpegScaleDenom;
@@ -480,8 +490,8 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.fineScaleFPY = (int32_t)((int64_t)destHeight * FP_ONE / ctx.scaledSrcHeight);
   ctx.invScaleFPY = (int32_t)((int64_t)ctx.scaledSrcHeight * FP_ONE / destHeight);
 
-  LOG_DBG("JPG", "JPEG %dx%d -> %dx%d (scale %.2f, jpegScale 1/%d, fineScale %.2f x %.2f)%s", srcWidth,
-          srcHeight, destWidth, destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
+  LOG_DBG("JPG", "JPEG %dx%d -> %dx%d (scale %.2f, jpegScale 1/%d, fineScale %.2f x %.2f)%s", srcWidth, srcHeight,
+          destWidth, destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
           (float)destHeight / ctx.scaledSrcHeight, isProgressive ? " [progressive]" : "");
 
   // Set pixel type to 8-bit grayscale (must be after open())
@@ -494,9 +504,13 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
     const int maxBlockDstRows = (int)(((int64_t)16 * ctx.fineScaleFPY) >> FP_SHIFT) + 2;
+    diagnostics.scratch(srcWidth, srcHeight, 0, PixelCache::requiredBytes(destWidth, destHeight, maxBlockDstRows));
     if (!ctx.cache.begin(config.cachePath, destWidth, destHeight, config.x, config.y, maxBlockDstRows)) {
-      LOG_ERR("JPG", "Failed to start cache stream, continuing without caching");
       ctx.caching = false;
+      diagnostics.fail("cache-begin");
+      if (!config.writeToFramebuffer) {
+        return false;
+      }
     }
   }
 
@@ -505,21 +519,29 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   rc = jpeg->decode(0, 0, jpegScaleOption);
   unsigned long decodeTime = millis() - decodeStart;
 
+  if (config.cancellation && config.cancellation->cancelled) {
+    ctx.cache.abort();
+    LOG_DBG("JPG", "Cache-only decode cancelled; partial cache discarded");
+    return false;
+  }
+
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
     if (ctx.caching) ctx.cache.abort();
-    return false;
+    return diagnostics.fail("decode");
   }
 
   LOG_DBG("JPG", "JPEG decoding complete - render time: %lu ms", decodeTime);
 
   // Finalize the streamed cache file. Note: a flush failure mid-decode clears
   // ctx.caching (the partial file is dropped), so re-read the flag here.
-  if (ctx.caching) {
-    ctx.cache.finalize();
+  bool cacheComplete = false;
+  if (!config.cachePath.empty()) {
+    const bool cacheStarted = ctx.cache.started();
+    cacheComplete = ctx.cache.finalize();
+    if (!cacheComplete && cacheStarted) diagnostics.fail("finalize");
   }
-  jpeg->close();
-  return true;
+  return config.writeToFramebuffer || cacheComplete;
 }
 
 bool JpegToFramebufferConverter::supportsFormat(const std::string& extension) {

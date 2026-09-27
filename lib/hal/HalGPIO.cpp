@@ -237,11 +237,35 @@ void HalGPIO::begin() {
 }
 
 void HalGPIO::update() {
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+  if (deferInputUpdate) {
+    deferInputUpdate = false;
+    return;
+  }
+#endif
   inputMgr.update();
   const bool connected = isUsbConnected();
   usbStateChanged = (connected != lastUsbConnected);
   lastUsbConnected = connected;
 }
+
+#if defined(IDLE_IMAGE_PREFETCH_TEST)
+bool HalGPIO::pollIdleInput() {
+  if (deferInputUpdate) return true;
+  update();
+  if (wasAnyPressed() || wasAnyReleased() || wasUsbStateChanged()) {
+    deferInputUpdate = true;
+    return true;
+  }
+  for (uint8_t button = 0; button <= BTN_POWER; ++button) {
+    if (isPressed(button)) {
+      deferInputUpdate = true;
+      return true;
+    }
+  }
+  return false;
+}
+#endif
 
 bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
 

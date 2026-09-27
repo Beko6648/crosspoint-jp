@@ -331,19 +331,18 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
         renderer.fillRoundedRect(currentX, rect.y + 1, selectionWidth, rect.height - 4, cornerRadius, Color::Black);
       } else {
         renderer.fillRectDither(currentX, rect.y, selectionWidth, rect.height - 3, Color::LightGray);
-        renderer.drawLine(currentX, rect.y + rect.height - 3, currentX + selectionWidth,
-                          rect.y + rect.height - 3, 2, true);
+        renderer.drawLine(currentX, rect.y + rect.height - 3, currentX + selectionWidth, rect.y + rect.height - 3, 2,
+                          true);
       }
     }
 
-    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, rect.y + 6, tab.label,
-                      !(tab.selected && selected), EpdFontFamily::REGULAR);
+    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, rect.y + 6, tab.label, !(tab.selected && selected),
+                      EpdFontFamily::REGULAR);
 
     currentX += textWidth + tabSpacing + 2 * hPaddingInSelection + selectionExtraRight;
   }
 
-  renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1,
-                    rect.y + rect.height - 1, true);
+  renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
 }
 
 void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
@@ -375,10 +374,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       rect.width -
       (totalPages > 1 ? (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset) : 1);
   if (selectedIndex >= 0) {
-    renderer.fillRoundedRect(rect.x + LyraMetrics::values.contentSidePadding,
-                             rect.y + selectedIndex % pageItems * rowHeight,
-                             contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight, cornerRadius,
-                             Color::LightGray);
+    renderer.fillRoundedRect(
+        rect.x + LyraMetrics::values.contentSidePadding, rect.y + selectedIndex % pageItems * rowHeight,
+        contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight, cornerRadius, Color::LightGray);
   }
 
   int textX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
@@ -453,12 +451,11 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (!valueText.empty()) {
       if (i == selectedIndex && highlightValue) {
         renderer.fillRoundedRect(valueX - hPaddingInSelection, itemY,
-                                 valueWidth + hPaddingInSelection + listValueRightInset + listValueInkSafety,
-                                 rowHeight, cornerRadius, Color::Black);
+                                 valueWidth + hPaddingInSelection + listValueRightInset + listValueInkSafety, rowHeight,
+                                 cornerRadius, Color::Black);
       }
 
-      renderer.drawText(UI_10_FONT_ID, valueX, itemY + 6, valueText.c_str(),
-                        !(i == selectedIndex && highlightValue));
+      renderer.drawText(UI_10_FONT_ID, valueX, itemY + 6, valueText.c_str(), !(i == selectedIndex && highlightValue));
     }
   }
 }
@@ -612,18 +609,16 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     const char* labels[] = {topBtn, bottomBtn};
     const int x = screenWidth - buttonWidth;
     constexpr int stackedHeight = buttonHeight * 2 + 5;
-    const int hintTop = renderer.getScreenHeight() < 600
-                            ? std::max(0, (renderer.getScreenHeight() - stackedHeight) / 2)
-                            : topHintButtonY;
+    const int hintTop = renderer.getScreenHeight() < 600 ? std::max(0, (renderer.getScreenHeight() - stackedHeight) / 2)
+                                                         : topHintButtonY;
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, hintTop, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
-                               true);
+      renderer.drawRoundedRect(x, hintTop, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false, true);
     }
 
     if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, hintTop + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true,
-                               false, true, false, true);
+      renderer.drawRoundedRect(x, hintTop + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true, false,
+                               true, false, true);
     }
 
     for (int i = 0; i < 2; i++) {
@@ -693,6 +688,8 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             hasCover = false;
           }
           file.close();
+        } else {
+          hasCover = false;
         }
       }
 
@@ -744,9 +741,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const bool hasReadingStatusIcon = status == ReadingStatus::Reading || status == ReadingStatus::Finished;
     const bool hasBookmarkIcon = hasProgressData && bookProgress[0].hasBookmarks;
     const bool hasCacheStatusIcon = FsHelpers::hasEpubExtension(book.path);
-    const Epub::CacheGenerationStatus cacheStatus =
-        hasCacheStatusIcon ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
-                           : Epub::CacheGenerationStatus::NotGenerated;
+    const Epub::CacheGenerationStatus cacheStatus = hasCacheStatusIcon
+                                                        ? Epub(book.path, "/.crosspoint").getCacheGenerationStatus()
+                                                        : Epub::CacheGenerationStatus::NotGenerated;
     const bool hasStatusIcons = hasBookmarkIcon || hasReadingStatusIcon || hasCacheStatusIcon;
     const bool hasProgressBar = hasProgressData && bookProgress[0].hasPercent();
     const int statusBlockHeight = hasStatusIcons ? statusIconSize + statusIconTopMargin : 0;

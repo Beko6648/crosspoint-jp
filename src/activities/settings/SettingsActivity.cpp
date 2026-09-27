@@ -357,8 +357,8 @@ void SettingsActivity::changeCurrentSetting(const int delta, const bool activate
       return;
     }
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
-    const int next = std::clamp(static_cast<int>(currentValue) + delta, 0,
-                                static_cast<int>(setting.enumValues.size()) - 1);
+    const int next =
+        std::clamp(static_cast<int>(currentValue) + delta, 0, static_cast<int>(setting.enumValues.size()) - 1);
     SETTINGS.*(setting.valuePtr) = static_cast<uint8_t>(next);
 
     // Apply dark mode change immediately (renderer needs explicit notification)

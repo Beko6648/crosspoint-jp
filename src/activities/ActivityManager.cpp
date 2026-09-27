@@ -280,6 +280,8 @@ RenderLock::RenderLock([[maybe_unused]] Activity&) {
   isLocked = true;
 }
 
+RenderLock::RenderLock(TryLock) { isLocked = xSemaphoreTake(activityManager.renderingMutex, 0) == pdTRUE; }
+
 RenderLock::~RenderLock() {
   if (isLocked) {
     xSemaphoreGive(activityManager.renderingMutex);

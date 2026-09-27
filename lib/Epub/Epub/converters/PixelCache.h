@@ -55,8 +55,18 @@ struct PixelCache {
   PixelCache(const PixelCache&) = delete;
   PixelCache& operator=(const PixelCache&) = delete;
 
-  static constexpr int MIN_BAND_ROWS = 16;
-  static constexpr size_t MAX_BAND_BYTES = 24 * 1024;  // band working-set ceiling
+  static constexpr size_t MAX_BAND_BYTES = 24 * 1024;
+
+  // PNG needs one row; JPEG supplies its tallest MCU span. Include the spare
+  // zero row in the allocation ceiling. Short images need only their height.
+  static size_t requiredBytes(int w, int h, int maxBlockDstRows) {
+    if (w <= 0 || h <= 0 || w > UINT16_MAX || h > UINT16_MAX || maxBlockDstRows <= 0) return 0;
+    const size_t rows = maxBlockDstRows < h ? maxBlockDstRows : h;
+    const size_t bytes = (rows + 1) * ((static_cast<size_t>(w) + 3) / 4);
+    return bytes <= MAX_BAND_BYTES ? bytes : 0;
+  }
+
+  bool started() const { return !cachePathStr.empty(); }
 
   // Open the cache file, write the header, and allocate a band buffer big enough
   // to hold the tallest single decode block (maxBlockDstRows output rows).
@@ -70,24 +80,10 @@ struct PixelCache {
     flushedRows = 0;
     ok = false;
 
-    int wantRows = maxBlockDstRows + 2;
-    if (wantRows < MIN_BAND_ROWS) wantRows = MIN_BAND_ROWS;
-    if (wantRows > h) wantRows = h;
+    const size_t bufSize = requiredBytes(w, h, maxBlockDstRows);
+    if (!bufSize) return false;
+    bandRows = maxBlockDstRows < h ? maxBlockDstRows : h;
 
-    size_t maxRowsByMem = MAX_BAND_BYTES / (size_t)bytesPerRow;
-    if (maxRowsByMem < 1) maxRowsByMem = 1;
-    if ((size_t)wantRows > maxRowsByMem) wantRows = (int)maxRowsByMem;
-
-    // A single decode block must fit inside the band, otherwise streaming would
-    // drop rows. This only fails for pathological upscales that could not be
-    // cached at all; fall back to the no-cache path.
-    if (wantRows < maxBlockDstRows) {
-      LOG_ERR("IMG", "Cache band too small (%d < %d rows) for %dx%d", wantRows, maxBlockDstRows, w, h);
-      return false;
-    }
-    bandRows = wantRows;
-
-    const size_t bufSize = (size_t)(bandRows + 1) * bytesPerRow;  // +1 spare zero row
     buffer = (uint8_t*)malloc(bufSize);
     if (!buffer) {
       LOG_ERR("IMG", "OOM cache band: %u bytes", (unsigned)bufSize);
@@ -125,7 +121,6 @@ struct PixelCache {
     if (newTopRow <= bandStart) return true;
     if (newTopRow > height) newTopRow = height;
 
-
     for (int r = bandStart; r < newTopRow; ++r) {
       const int idx = r - bandStart;
       const uint8_t* rowPtr = (idx < bandRows) ? (buffer + (size_t)idx * bytesPerRow) : zeroRow;
@@ -134,7 +129,6 @@ struct PixelCache {
         ok = false;
         return false;
       }
-
     }
     flushedRows = newTopRow;
     bandStart = newTopRow;
@@ -158,9 +152,15 @@ struct PixelCache {
         return false;
       }
     }
-    file.close();
+    if (!file.close()) {
+      abort();
+      return false;
+    }
     LOG_DBG("IMG", "Cache written: %s (%dx%d, %d bytes)", cachePathStr.c_str(), width, height,
             4 + bytesPerRow * height);
+    cachePathStr.clear();
+    free(buffer);
+    buffer = zeroRow = nullptr;
     ok = false;  // file handed off; nothing left to clean up
     return true;
   }
@@ -169,8 +169,13 @@ struct PixelCache {
   void abort() {
     if (file.isOpen()) file.close();
     if (!cachePathStr.empty()) {
-      Storage.remove(cachePathStr.c_str());
+      if (!Storage.remove(cachePathStr.c_str())) {
+        LOG_ERR("IMG", "Failed to remove partial cache: %s", cachePathStr.c_str());
+      }
+      cachePathStr.clear();
     }
+    free(buffer);
+    buffer = zeroRow = nullptr;
     ok = false;
   }
 

@@ -24,6 +24,7 @@
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#include "util/LibraryProfile.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
@@ -125,10 +126,9 @@ void FileBrowserActivity::cacheCurrentDirectory() {
     return;
   }
 
-  directoryCache.erase(
-      std::remove_if(directoryCache.begin(), directoryCache.end(),
-                     [this](const DirectoryCacheEntry& entry) { return entry.path == loadedPath; }),
-      directoryCache.end());
+  directoryCache.erase(std::remove_if(directoryCache.begin(), directoryCache.end(),
+                                      [this](const DirectoryCacheEntry& entry) { return entry.path == loadedPath; }),
+                       directoryCache.end());
   if (directoryCache.size() >= DIRECTORY_CACHE_SIZE) {
     directoryCache.erase(directoryCache.begin());
   }
@@ -154,17 +154,15 @@ bool FileBrowserActivity::restoreCachedDirectory() {
 }
 
 void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
-  directoryCache.erase(
-      std::remove_if(directoryCache.begin(), directoryCache.end(),
-                     [&path](const DirectoryCacheEntry& entry) {
-                       return entry.path == path ||
-                              (entry.path.size() > path.size() && entry.path.compare(0, path.size(), path) == 0 &&
-                               entry.path[path.size()] == '/');
-                     }),
-      directoryCache.end());
-  if (loadedPath == path ||
-      (loadedPath.size() > path.size() && loadedPath.compare(0, path.size(), path) == 0 &&
-       loadedPath[path.size()] == '/')) {
+  directoryCache.erase(std::remove_if(directoryCache.begin(), directoryCache.end(),
+                                      [&path](const DirectoryCacheEntry& entry) {
+                                        return entry.path == path || (entry.path.size() > path.size() &&
+                                                                      entry.path.compare(0, path.size(), path) == 0 &&
+                                                                      entry.path[path.size()] == '/');
+                                      }),
+                       directoryCache.end());
+  if (loadedPath == path || (loadedPath.size() > path.size() && loadedPath.compare(0, path.size(), path) == 0 &&
+                             loadedPath[path.size()] == '/')) {
     loadedPath.clear();
     files.clear();
     fileStatuses.clear();
@@ -176,6 +174,7 @@ void FileBrowserActivity::invalidateDirectoryCache(const std::string& path) {
 }
 
 FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool forceReload) {
+  LIBRARY_PROFILE_SCOPE("directory-load");
   const unsigned long totalStartedAt = millis();
   if (forceReload) {
     invalidateDirectoryCache(basepath);
@@ -323,9 +322,13 @@ FileBrowserActivity::DirectoryLoadResult FileBrowserActivity::loadFiles(bool for
 }
 
 void FileBrowserActivity::onEnter() {
+  LIBRARY_PROFILE_SCOPE("browser-enter");
   Activity::onEnter();
 
-  if (mode == Mode::Books) loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
+  if (mode == Mode::Books) {
+    LIBRARY_PROFILE_SCOPE("status-index-load");
+    loadBookListStatusIndex("/.crosspoint", bookListStatusIndex);
+  }
 
   selectorIndex = 0;
   lockNextConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -350,6 +353,7 @@ void FileBrowserActivity::onEnter() {
 }
 
 void FileBrowserActivity::onExit() {
+  LIBRARY_PROFILE_SCOPE("browser-exit");
   Activity::onExit();
   if (bookListStatusIndexDirty) saveBookListStatusIndex("/.crosspoint", bookListStatusIndex);
   files.clear();
@@ -665,10 +669,10 @@ void FileBrowserActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto layout = UiLayout::from(renderer);
 
-  std::string folderName = (mode == Mode::PickFirmware)
-                               ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
-                               : ((basepath == "/") ? std::string(tr(STR_SD_CARD))
-                                                    : basepath.substr(basepath.rfind('/') + 1));
+  std::string folderName =
+      (mode == Mode::PickFirmware)
+          ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
+          : ((basepath == "/") ? std::string(tr(STR_SD_CARD)) : basepath.substr(basepath.rfind('/') + 1));
   utf8NfcNormalizeKana(folderName);
   GUI.drawHeader(renderer, Rect{layout.content.x, metrics.topPadding, layout.content.width, metrics.headerHeight},
                  folderName.c_str());

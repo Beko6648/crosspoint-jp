@@ -3,9 +3,10 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <new>
+
 void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                      const int viewportWidth, const int viewportHeight, const int rubyOffsetX,
-                      const int rubyOffsetY) {
+                      const int viewportWidth, const int viewportHeight, const int rubyOffsetX, const int rubyOffsetY) {
   block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, viewportWidth, viewportHeight, xOffset, yOffset,
                 rubyOffsetX, rubyOffsetY);
 }
@@ -27,11 +28,11 @@ bool PageLine::serialize(FsFile& file) {
 std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
   int16_t xPos;
   int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  if (file.read(&xPos, sizeof(xPos)) != sizeof(xPos) || file.read(&yPos, sizeof(yPos)) != sizeof(yPos)) return nullptr;
 
   auto tb = TextBlock::deserialize(file);
-  return std::unique_ptr<PageLine>(new PageLine(std::move(tb), xPos, yPos));
+  if (!tb) return nullptr;
+  return std::unique_ptr<PageLine>(new (std::nothrow) PageLine(std::move(tb), xPos, yPos));
 }
 
 void PageImage::render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, int viewportWidth,
@@ -50,11 +51,11 @@ bool PageImage::serialize(FsFile& file) {
 std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
   int16_t xPos;
   int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  if (file.read(&xPos, sizeof(xPos)) != sizeof(xPos) || file.read(&yPos, sizeof(yPos)) != sizeof(yPos)) return nullptr;
 
   auto ib = ImageBlock::deserialize(file);
-  return std::unique_ptr<PageImage>(new PageImage(std::move(ib), xPos, yPos));
+  if (!ib) return nullptr;
+  return std::unique_ptr<PageImage>(new (std::nothrow) PageImage(std::move(ib), xPos, yPos));
 }
 
 void PageTableRow::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
@@ -71,11 +72,10 @@ bool PageTableRow::serialize(FsFile& file) {
 
 std::unique_ptr<PageTableRow> PageTableRow::deserialize(FsFile& file) {
   int16_t xPos, yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  if (file.read(&xPos, sizeof(xPos)) != sizeof(xPos) || file.read(&yPos, sizeof(yPos)) != sizeof(yPos)) return nullptr;
   auto tb = TableRowBlock::deserialize(file);
   if (!tb) return nullptr;
-  return std::unique_ptr<PageTableRow>(new PageTableRow(std::move(tb), xPos, yPos));
+  return std::unique_ptr<PageTableRow>(new (std::nothrow) PageTableRow(std::move(tb), xPos, yPos));
 }
 
 void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
@@ -156,23 +156,27 @@ bool Page::serialize(FsFile& file) const {
 }
 
 std::unique_ptr<Page> Page::deserialize(FsFile& file) {
-  auto page = std::unique_ptr<Page>(new Page());
+  auto page = std::unique_ptr<Page>(new (std::nothrow) Page());
+  if (!page) return nullptr;
 
   uint16_t count;
-  serialization::readPod(file, count);
+  if (file.read(&count, sizeof(count)) != sizeof(count)) return nullptr;
 
   for (uint16_t i = 0; i < count; i++) {
     uint8_t tag;
-    serialization::readPod(file, tag);
+    if (file.read(&tag, sizeof(tag)) != sizeof(tag)) return nullptr;
 
     if (tag == TAG_PageLine) {
       auto pl = PageLine::deserialize(file);
+      if (!pl) return nullptr;
       page->elements.push_back(std::move(pl));
     } else if (tag == TAG_PageImage) {
       auto pi = PageImage::deserialize(file);
+      if (!pi) return nullptr;
       page->elements.push_back(std::move(pi));
     } else if (tag == TAG_PageTableRow) {
       auto ptr = PageTableRow::deserialize(file);
+      if (!ptr) return nullptr;
       page->elements.push_back(std::move(ptr));
     } else {
       LOG_ERR("PGE", "Deserialization failed: Unknown tag %u", tag);
@@ -182,7 +186,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
 
   // Deserialize footnotes
   uint16_t fnCount;
-  serialization::readPod(file, fnCount);
+  if (file.read(&fnCount, sizeof(fnCount)) != sizeof(fnCount)) return nullptr;
   if (fnCount > MAX_FOOTNOTES_PER_PAGE) {
     LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
     return nullptr;

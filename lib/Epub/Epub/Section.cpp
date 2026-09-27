@@ -6,14 +6,55 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <SingleCacheProfile.h>
 
 #include <algorithm>
+#include <new>
 
+#include "ChapterStageProbe.h"
 #include "Epub/css/CssParser.h"
 #include "Epub/css/CssSelectorUsage.h"
+#include "IdleChapterBudget.h"
 #include "Page.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
+
+struct Section::IncrementalBuild {
+  std::unique_ptr<ChapterHtmlSlimParser> parser;
+  std::vector<uint32_t> lut;
+  std::string htmlPath;
+  CssParser* css = nullptr;
+  uint32_t started = 0;
+};
+
+Section::~Section() { cancelIncrementalBuild(); }
+
+void Section::cancelIncrementalBuild() {
+  if (!incrementalBuild) return;
+  incrementalBuild->parser.reset();
+  file.close();
+  Storage.remove((filePath + ".tmp").c_str());
+  Storage.remove(incrementalBuild->htmlPath.c_str());
+  if (incrementalBuild->css) incrementalBuild->css->clear();
+  incrementalBuild.reset();
+}
+
+Section::BuildStep Section::stepIncrementalBuild() {
+  if (!incrementalBuild) return BuildStep::Failed;
+  const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
+  const auto result = incrementalBuild->parser->stepParseAndBuildPages();
+  if (result == ChapterHtmlSlimParser::StepResult::Pending) return BuildStep::Pending;
+  if (result == ChapterHtmlSlimParser::StepResult::Failed) {
+    cancelIncrementalBuild();
+    return BuildStep::Failed;
+  }
+  auto anchors = incrementalBuild->parser->getAnchors();
+  incrementalBuild->parser.reset();
+  const bool ok = finalizeSectionFile(incrementalBuild->lut, anchors, filePath + ".tmp", incrementalBuild->css,
+                                      incrementalBuild->started, incrementalBuild->started);
+  cancelIncrementalBuild();
+  return ok ? BuildStep::Complete : BuildStep::Failed;
+}
 
 namespace {
 constexpr size_t SECTION_FONT_CODEPOINT_LIMIT = 1024;
@@ -457,6 +498,9 @@ PageLayoutStats logVerticalLayoutDiagnostics(const Page& page, const int spineIn
 #endif
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::Timer writeTimer(SingleCacheProfile::PageWrite);
+#endif
   if (!file) {
     LOG_ERR("SCT", "File not open for writing page %d", pageCount);
     lastCreateFailureReason = CreateFailureReason::StorageIo;
@@ -642,7 +686,8 @@ bool Section::clearCache() const {
 }
 
 CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uint32_t fileSize,
-                                              const std::string& htmlPath) {
+                                              const std::string& htmlPath, const bool requireComplete, bool& cssReady) {
+  cssReady = bookStyle == 0;
   if (bookStyle == 0) {
     return nullptr;
   }
@@ -654,17 +699,21 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
 
   const size_t minFreeHeap =
       std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS, requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
-  CssSelectorUsage usage;
-  const bool scanned = usage.scanHtmlFile(htmlPath);
-  if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr)) {
-    LOG_INF("SCT", "CSS cache unavailable or skipped; continuing without external rules");
-    return nullptr;
-  }
+  {
+    CssSelectorUsage usage;
+    const bool scanned = usage.scanHtmlFile(htmlPath);
+    if (!cssParser->loadFromCache(minFreeHeap, scanned ? &usage : nullptr, requireComplete)) {
+      LOG_INF("SCT", "CSS cache unavailable or skipped (strict=%d)", requireComplete);
+      cssParser->clear();
+      return nullptr;
+    }
+  }  // Selector discovery is no longer needed for layout or its admission test.
 
   LOG_DBG("SCT", "CSS cache loaded: rules=%zu, free=%u, maxAlloc=%u", cssParser->ruleCount(), ESP.getFreeHeap(),
           ESP.getMaxAllocHeap());
 
   if (cssParser->empty()) {
+    cssReady = true;
     LOG_DBG("SCT", "CSS cache has no rules, skipping stylesheet lookup for this section");
     cssParser->clear();
     return nullptr;
@@ -677,15 +726,31 @@ CssParser* Section::loadEmbeddedCssForSection(const uint8_t bookStyle, const uin
     return nullptr;
   }
 
+  cssReady = true;
   return cssParser;
 }
 
 bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std::string& tmpHtmlPath,
-                                        uint32_t& fileSize) {
+                                        uint32_t& fileSize, const std::function<bool()>& cancelFn) {
+  class CancellableOutput final : public Print {
+    Print& output;
+    const std::function<bool()>& cancel;
+
+   public:
+    CancellableOutput(Print& output, const std::function<bool()>& cancel) : output(output), cancel(cancel) {}
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    size_t write(const uint8_t* data, size_t count) override {
+      return cancel && cancel() ? 0 : output.write(data, count);
+    }
+  };
   // Retry logic for SD card timing issues
   bool success = false;
   bool openedTempFile = false;
   for (int attempt = 0; attempt < 3 && !success; attempt++) {
+    if (cancelFn && cancelFn()) {
+      lastCreateFailureReason = CreateFailureReason::Cancelled;
+      return false;
+    }
     if (attempt > 0) {
       LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);
       delay(50);  // Brief delay before retry
@@ -708,7 +773,8 @@ bool Section::streamSpineItemToTempHtml(const std::string& localPath, const std:
     }
     openedTempFile = true;
 
-    success = epub->readItemContentsToStream(localPath, tmpHtml, 1024);
+    CancellableOutput output(tmpHtml, cancelFn);
+    success = epub->readItemContentsToStream(localPath, output, 1024);
     fileSize = tmpHtml.size();
     tmpHtml.close();
 
@@ -837,8 +903,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const int* cssBodyFontIds,
                                 const std::function<void(uint16_t pagesDone, uint16_t estimatedPages)>& progressFn,
                                 const std::function<void(const Page&)>& pageReadyFn,
-                                const std::function<bool()>& cancelFn) {
+                                const std::function<bool()>& cancelFn, const bool requireCompleteCss,
+                                const bool incremental) {
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
+  freshTextOnlyBuild = false;
   lastCreateFailureReason = CreateFailureReason::None;
   const uint32_t createSectionStart = millis();
   BookMetadataCache::SpineEntry spineItem;
@@ -850,6 +918,19 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const auto& localPath = spineItem.href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
+  bool prepared = false;
+  struct Cleanup {
+    std::function<void()> fn;
+    ~Cleanup() { fn(); }
+  } cleanup{[&]() {
+    if (!incremental || prepared) return;
+    file.close();
+    Storage.remove(tmpSectionPath.c_str());
+    Storage.remove(tmpHtmlPath.c_str());
+    if (auto* css = epub->getCssParser()) css->clear();
+  }};
+  if (cancelFn && cancelFn()) return false;
+
 #if defined(CACHE_GENERATION_DIAGNOSTICS)
   cacheGenerationDiagnosticsActive = static_cast<bool>(pageReadyFn);
   if (cacheGenerationDiagnosticsActive) {
@@ -872,7 +953,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // Reclaim rebuildable font caches before the ZIP stream, CSS, and layout
   // allocations. The font objects and coverage data remain loaded.
   renderer.resetSdCardAdvanceBuildTiming();
-  if (auto* fontCache = renderer.getFontCacheManager()) {
+  if (auto* fontCache = incremental ? nullptr : renderer.getFontCacheManager()) {
     fontCache->releaseSdFontCaches();
     if (ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_SECTION_STREAM) {
       // Vertical substitutions are optional until the page is drawn. Reclaim
@@ -895,7 +976,12 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   bool success = false;
   uint32_t fileSize = 0;
-  success = streamSpineItemToTempHtml(localPath, tmpHtmlPath, fileSize);
+  {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-html-stream");
+#endif
+    success = streamSpineItemToTempHtml(localPath, tmpHtmlPath, fileSize, cancelFn);
+  }
 
   if (!success) {
     LOG_ERR("SCT", "Failed to stream item contents to temp file after retries");
@@ -920,7 +1006,37 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   std::vector<uint32_t> lut = {};
   std::vector<uint16_t> imagePages = {};
 
-  CssParser* cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath);
+  if (incremental) {
+    if (cancelFn && cancelFn()) return false;
+    const size_t reserve = bookStyle == 0 ? requiredHeapForSectionBuild(fileSize)
+                                          : std::max(MIN_FREE_HEAP_WITH_EXTERNAL_CSS,
+                                                     requiredHeapForSectionBuild(fileSize) + CSS_SECTION_BUILD_RESERVE);
+    const uint32_t beforeFree = ESP.getFreeHeap(), beforeMax = ESP.getMaxAllocHeap();
+    const bool released =
+        idlechapterbudget::recover(reserve, MIN_MAX_ALLOC_FOR_SECTION_BUILD, renderer.getFontCacheManager(),
+                                   [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); });
+    LOG_INF("NCH", "font headroom released=%d free=%u->%u max=%u->%u reserve=%u", released, beforeFree,
+            ESP.getFreeHeap(), beforeMax, ESP.getMaxAllocHeap(), static_cast<unsigned>(reserve));
+    if (cancelFn && cancelFn()) return false;
+  }
+  bool cssReady = false;
+  CssParser* cssParser = nullptr;
+  {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-css");
+#endif
+    cssParser = loadEmbeddedCssForSection(bookStyle, fileSize, tmpHtmlPath, requireCompleteCss, cssReady);
+  }
+  if (requireCompleteCss && !cssReady) {
+    LOG_ERR("SCT", "CSS unavailable; leaving section %d incomplete", spineIndex);
+    file.close();
+    Storage.remove(tmpSectionPath.c_str());
+    Storage.remove(tmpHtmlPath.c_str());
+    lastCreateFailureReason = CreateFailureReason::CssUnavailable;
+    return false;
+  }
+
+  if (incremental && cancelFn && cancelFn()) return false;
 
   // Derive the content base directory and image cache path prefix for the parser
   size_t lastSlash = localPath.find_last_of('/');
@@ -955,7 +1071,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
           static_cast<unsigned long>(fileSize));
 
   const uint32_t parseBuildStart = millis();
-  if (renderer.isSdCardFont(fontId)) {
+  if (!incremental && renderer.isSdCardFont(fontId)) {
     std::string sectionFontText;
     if (collectSectionFontCodepoints(tmpHtmlPath, sectionFontText)) {
       renderer.ensureSdCardFontReady(fontId, sectionFontText.c_str());
@@ -968,7 +1084,40 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   // converter needs a 32KB inflate ring in addition to its scanline buffers;
   // a long chapter can otherwise exhaust the fragmented heap immediately after
   // its last page has been serialized.
+  if (incremental) {
+#ifdef IDLE_CHAPTER_STAGE_DIAGNOSTICS
+    ChapterStageProbe stageProbe("prepare-parser");
+#endif
+    incrementalBuild.reset(new (std::nothrow) IncrementalBuild());
+    if (!incrementalBuild) {
+      file.close();
+      Storage.remove(tmpSectionPath.c_str());
+      Storage.remove(tmpHtmlPath.c_str());
+      if (cssParser) cssParser->clear();
+      return false;
+    }
+    incrementalBuild->htmlPath = tmpHtmlPath;
+    incrementalBuild->css = cssParser;
+    incrementalBuild->started = createSectionStart;
+    incrementalBuild->parser.reset(new (std::nothrow) ChapterHtmlSlimParser(
+        epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
+        viewportHeight, hyphenationEnabled, firstLineIndent,
+        [this](std::unique_ptr<Page> page) { incrementalBuild->lut.emplace_back(onPageComplete(std::move(page))); },
+        bookStyle, contentBase, imageBasePath, imageRendering, nullptr, cssParser, headingFontIds, tableFontId,
+        verticalMode, cssBodyFontIds, cancelFn, tateChuYokoMaxDigits));
+    if (!incrementalBuild->parser) {
+      cancelIncrementalBuild();
+      return false;
+    }
+    Hyphenator::setPreferredLanguage(epub->getLanguage());
+    prepared = true;
+    return true;
+  }
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::SectionScope sectionProfile(spineIndex);
+#endif
   std::vector<std::pair<std::string, uint16_t>> anchors;
+  bool textOnlySource = false;
   {
     ChapterHtmlSlimParser visitor(
         epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
@@ -984,7 +1133,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
         verticalMode, cssBodyFontIds, cancelFn, tateChuYokoMaxDigits);
     Hyphenator::setPreferredLanguage(epub->getLanguage());
     success = visitor.parseAndBuildPages();
-    if (success) anchors = visitor.getAnchors();
+    if (success) {
+      anchors = visitor.getAnchors();
+      textOnlySource = !visitor.hasEncounteredMedia();
+    }
   }
   LOG_INF("SCT", "Section %d parse/build=%lu ms, SD advance tables=%lu ms (%lu builds)", spineIndex,
           millis() - parseBuildStart, renderer.getSdCardAdvanceBuildMs(), renderer.getSdCardAdvanceBuildCalls());
@@ -1009,6 +1161,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
     return false;
   }
+
+  freshTextOnlyBuild = textOnlySource && cssReady && pageCount == 1;
 
   // CSS and parser allocations are now released. Reload only pages that contain
   // images so optional cache work has enough contiguous heap without making

@@ -21,6 +21,7 @@
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#include "util/LibraryProfile.h"
 
 int HomeActivity::getMenuItemCount() const {
   int count = 5;  // File Browser, Recents, Aozora, File transfer, Settings
@@ -31,6 +32,7 @@ int HomeActivity::getMenuItemCount() const {
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
+  LIBRARY_PROFILE_SCOPE("home-recents");
   recentBooks.clear();
   recentBookProgress.clear();
   const auto& books = RECENT_BOOKS.getBooks();
@@ -54,6 +56,7 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
 }
 
 void HomeActivity::loadRecentCovers(int coverHeight) {
+  LIBRARY_PROFILE_SCOPE("home-covers");
   recentsLoading = true;
   bool showingLoading = false;
   bool bufferLent = false;
@@ -68,7 +71,12 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
         if (FsHelpers::hasEpubExtension(book.path)) {
           Epub epub(book.path, "/.crosspoint");
           // Skip loading css since we only need metadata here
-          epub.load(false, true);
+          if (!epub.load(false, true)) {
+            // Cache removal can leave a recent-book entry before metadata is rebuilt.
+            // Keep its cover reference so a later Home entry can retry.
+            LOG_DBG("HOME", "Deferring thumbnail until metadata is available: %s", book.path.c_str());
+            continue;
+          }
 
           // Try to generate thumbnail image for Continue Reading card
           if (!showingLoading && !bufferLent) {
@@ -124,6 +132,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 }
 
 void HomeActivity::onEnter() {
+  LIBRARY_PROFILE_SCOPE("home-enter");
   Activity::onEnter();
 
   selectorIndex = 0;
@@ -231,6 +240,7 @@ void HomeActivity::loop() {
 }
 
 void HomeActivity::render(RenderLock&&) {
+  LIBRARY_PROFILE_SCOPE("home-render");
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();

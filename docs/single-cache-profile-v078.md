@@ -1,0 +1,18 @@
+# 単体キャッシュ生成の時間診断
+
+基点cf410104。一括生成SDパス一覧の未コミット変更とは別チェックアウト・別ブランチ。診断のみで高速化・容量・ページ配置の変更なし。env:single_cache_profile。SCPを章ごとと単体実行の終了時にINFO出力。
+
+advance_full_us: 対象スタイルの全advance tableが1024件に達しているbuildAdvanceTable呼び出し。文字列走査・配列確保・重複除去等を省略できる候補の実測時間。advance_other_usはそれ以外。resolveStyleMask等は計測開始前であり、既存GFXのadvance_msとは境界・精度が異なる。
+
+vertical_us: ParsedText::layoutVerticalColumns全体。幅table準備やコールバックでのページ書き込みを内包し得る。page_write_us: Section::onPageComplete全体。これらは重複する内包時間なので単純合算しない。章profileは同期生成のみ。測定対象タスクを記録し、他タスクの呼び出しは計測しない。SD glyph I/Oの細分化はまだなく、verticalだけを純粋なCPU時間とは解釈しない。microsの呼び出し等の計測負担がある。
+
+単体実行のrun行: total_ms、section_ms（成功区間のみ）、generated/cached、image_ms/images、progress_ms。section_msは画像等を内包するのでこちらも単純合算しない。中断時の最後の区間は既存section_msには含まれない。
+
+X3で同じ書籍・フォント・向きを維持。対象の本だけキャッシュを削除し、ログ開始後、本単体の生成を開始。1〜2分、数章が進んだところで中断してよい。全部の生成や一括生成は不要。前回再開区間との厳密な速度比較ではなく、処理内訳の調査が目的。
+
+今回のファームには一括生成SD一覧の修正は含めないため、大量書籍の一括生成テストには使用しない。実機診断後に改善方針を判断する。
+
+
+## 計測結果
+X3の115642ログで満杯advance tableの累計は約0.08秒だったため、その早期return最適化は保留。ページ書き込みを改善対象とした。比較結果はsingle-cache-array-write-v078.mdを参照。SectionScope開始前の章準備（初回advance table構築を含む）は測定範囲外である。
+診断はSINGLE_CACHE_PROFILEを有効にした環境のみ。default / gh_releaseにはSCPログ・計測処理を追加しない。

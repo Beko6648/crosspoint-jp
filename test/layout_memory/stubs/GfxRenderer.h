@@ -4,6 +4,14 @@
 #include <Utf8.h>
 class GfxRenderer {
  public:
+  struct MeasureOnlyScope {
+    explicit MeasureOnlyScope(const GfxRenderer&) {}
+  };
+  int getFontAscenderSize(int id) const { return getLineHeight(id); }
+  void getTextVisibleBoundsX(int id, const char* text, int* left, int* right, EpdFontFamily::Style style) const {
+    *left = 0;
+    *right = getTextAdvanceX(id, text, style) - 1;
+  }
   bool sd = false;
   bool exhaustPrewarm = false;
   bool isSdCardFont(int) const { return sd; }

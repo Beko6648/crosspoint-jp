@@ -676,7 +676,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
 
     int maxTitleLines = availableTitleHeight / titleLineHeight;
-    
+
     if (maxTitleLines < 1) {
       maxTitleLines = 1;
     }
@@ -855,7 +855,8 @@ void BaseTheme::updateProgressPopup(const GfxRenderer& renderer, const Rect& lay
   const int barY = layout.y + layout.height - margin - barHeight;
   const int detailWidth = renderer.getTextWidth(UI_10_FONT_ID, detail);
 
-  renderer.fillRect(layout.x + margin, detailY, layout.width - margin * 2, renderer.getLineHeight(UI_10_FONT_ID), false);
+  renderer.fillRect(layout.x + margin, detailY, layout.width - margin * 2, renderer.getLineHeight(UI_10_FONT_ID),
+                    false);
   renderer.drawText(UI_10_FONT_ID, layout.x + (layout.width - detailWidth) / 2, detailY + 1, detail, true);
   renderer.fillRect(barX, barY, barWidth, barHeight, false);
   renderer.fillRect(barX, barY, barWidth * std::clamp(progress, 0, 100) / 100, barHeight, true);

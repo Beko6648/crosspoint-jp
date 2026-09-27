@@ -1,5 +1,6 @@
 #include "PngToFramebufferConverter.h"
 
+#include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -11,9 +12,13 @@
 #include <memory>
 #include <new>
 
+#include "DecoderFileScope.h"
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
+#include "ImageDecodeDiagnostics.h"
 #include "PixelCache.h"
+#include "PngDecodeBudget.h"
+#include "PngDrawRecovery.h"
 
 namespace {
 
@@ -44,7 +49,8 @@ struct PngContext {
 // File I/O callbacks use pFile->fHandle to access the FsFile*,
 // avoiding the need for global file state.
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  FsFile* f = new FsFile();
+  FsFile* f = new (std::nothrow) FsFile();
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
     delete f;
     return nullptr;
@@ -73,12 +79,11 @@ int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
   return f->seek(pos);
 }
 
-// The PNG decoder (PNGdec) is ~42 KB due to internal zlib decompression buffers.
-// We heap-allocate it on demand rather than using a static instance, so this memory
-// is only consumed while actually decoding/querying PNG images. This is critical on
-// the ESP32-C3 where total RAM is ~320 KB.
-constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;                          // ~42 KB + overhead
-constexpr size_t MIN_FREE_HEAP_FOR_PNG = PNG_DECODER_APPROX_SIZE + 16 * 1024;  // decoder + 16 KB headroom
+// Preserve the existing total-heap admission floor. It is not an estimate of
+// decoder size: PNGdec 1.1.6 with our scanline setting is 58,464 bytes on C3.
+// The shared gate separately checks sizeof(PNG) against the largest free block;
+// gray-line and band allocations are checked individually after open().
+constexpr size_t MIN_FREE_HEAP_FOR_PNG = 60 * 1024;
 
 // PNGdec keeps TWO scanlines in its internal ucPixels buffer (current + previous)
 // and each scanline includes a leading filter byte.
@@ -207,6 +212,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
 
+  if (ctx->config->cancellation && ctx->config->cancellation->poll()) return 0;
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
 
   int srcY = pDraw->y;
@@ -263,7 +269,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   for (int dstX = 0; dstX < dstWidth; dstX++) {
     int outX = outXBase + dstX;
     if (outX < screenWidth) {
-      uint8_t gray = applyIllustrationToneCurve(ctx->grayLineBuffer[srcX]);
+      uint8_t gray = ctx->grayLineBuffer[srcX];
 
       uint8_t ditheredGray;
       if (useDithering) {
@@ -291,7 +297,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
   // Width and height are fixed fields in the PNG IHDR chunk. Reading them
-  // directly avoids allocating the ~44KB PNG decoder while section pages and
+  // directly avoids allocating the PNG decoder while section pages and
   // font metrics are already resident in the constrained ESP32-C3 heap.
   FsFile file;
   if (!Storage.openFileForRead("PNG", imagePath, file)) {
@@ -323,31 +329,34 @@ bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath
 }
 
 bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath, GfxRenderer& renderer,
-                                                     const RenderConfig& config) {
-  LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
-
-  const size_t freeHeap = ESP.getFreeHeap();
-  const size_t maxAllocHeap = ESP.getMaxAllocHeap();
-  const size_t decoderSize = sizeof(PNG);
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
-    return false;
+                                                    const RenderConfig& config) {
+  ImageDecodeDiagnostics diagnostics("PNG", config, sizeof(PNG), renderer);
+  const size_t reserve = config.writeToFramebuffer ? 0 : config.pngHeapReserveBytes;
+  if (reserve) {
+    // IHDR probing closes its file before the large decoder allocation.
+    ImageDimensions dims;
+    if (!getDimensionsStatic(imagePath, dims)) return false;
+    const size_t band = PixelCache::requiredBytes(config.maxWidth, config.maxHeight, 1);
+    const size_t freeBytes = ESP.getFreeHeap();
+    const size_t largest = ESP.getMaxAllocHeap();
+    if (!band || !pngbudget::admits(freeBytes, largest, sizeof(PNG), dims.width, band, reserve)) {
+      LOG_DBG("IPF", "PNG deferred stage=budget free=%u maxAlloc=%u decoder=%u gray=%u band=%u reserve=%u overhead=%u",
+              (unsigned)freeBytes, (unsigned)largest, (unsigned)sizeof(PNG), (unsigned)dims.width, (unsigned)band,
+              (unsigned)reserve, (unsigned)pngbudget::OVERHEAD_BYTES);
+      return false;
+    }
   }
-
-  if (maxAllocHeap < decoderSize) {
-    LOG_ERR("PNG", "PNG decoder needs %u contiguous bytes, only %u available (%u free)", decoderSize, maxAllocHeap,
-            freeHeap);
-    return false;
+  const auto beforeRecovery = std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  if (pngdrawrecovery::recover(config.writeToFramebuffer, MIN_FREE_HEAP_FOR_PNG, sizeof(PNG),
+                               renderer.getFontCacheManager(),
+                               [] { return std::make_pair(ESP.getFreeHeap(), ESP.getMaxAllocHeap()); })) {
+    LOG_INF("IMEM", "PNG draw recovery vertical free=%u->%u max=%u->%u decoder=%u", beforeRecovery.first,
+            ESP.getFreeHeap(), beforeRecovery.second, ESP.getMaxAllocHeap(), static_cast<unsigned>(sizeof(PNG)));
   }
+  if (!diagnostics.admit(MIN_FREE_HEAP_FOR_PNG)) return false;
 
-  // Heap-allocate the decoder only for the duration of this decode.  Its fixed
-  // zlib and scanline buffers require one contiguous allocation.
   std::unique_ptr<PNG> png(new (std::nothrow) PNG());
-  if (!png) {
-    LOG_ERR("PNG", "Failed to allocate PNG decoder (%u bytes, maxAlloc=%u, free=%u)", decoderSize, maxAllocHeap,
-            freeHeap);
-    return false;
-  }
+  if (!png) return diagnostics.fail("decoder-allocation");
 
   PngContext ctx;
   ctx.renderer = &renderer;
@@ -357,9 +366,10 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
                      pngDrawCallback);
+  DecoderFileScope<PNG> fileScope(*png);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
-    return false;
+    return diagnostics.fail("open");
   }
 
   ImageDimensions sourceDimensions;
@@ -388,6 +398,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     ctx.dstWidth = (int)(ctx.srcWidth * ctx.scale);
     ctx.dstHeight = (int)(ctx.srcHeight * ctx.scale);
   }
+  if (ctx.dstWidth <= 0 || ctx.dstHeight <= 0) return diagnostics.fail("dimensions");
   ctx.lastDstY = -1;  // Reset row tracking
 
   LOG_DBG("PNG", "PNG %dx%d -> %dx%d (scale %.2f), bpp: %d", ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight,
@@ -397,17 +408,17 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   const int bitsPerSample = png->getBpp();
   const int requiredInternal = requiredPngInternalBufferBytes(ctx.srcWidth, pixelType, bitsPerSample);
   if (requiredInternal > PNG_MAX_BUFFERED_PIXELS) {
-    LOG_ERR("PNG",
-            "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
-            requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
+    LOG_ERR(
+        "PNG",
+        "PNG row buffer too small: need %d bytes for width=%d type=%d bpp=%d, configured PNG_MAX_BUFFERED_PIXELS=%d",
+        requiredInternal, ctx.srcWidth, pixelType, bitsPerSample, PNG_MAX_BUFFERED_PIXELS);
     LOG_ERR("PNG", "Aborting decode to avoid PNGdec internal buffer overflow");
     return false;
   }
 
   if (!isSupportedBitDepth(pixelType, bitsPerSample)) {
-    warnUnsupportedFeature("bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " +
-                               std::to_string(pixelType),
-                           imagePath);
+    warnUnsupportedFeature(
+        "bit depth (" + std::to_string(bitsPerSample) + "bpp) for pixel type " + std::to_string(pixelType), imagePath);
     return false;
   }
 
@@ -417,29 +428,45 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   constexpr size_t MAX_GRAY_LINE_BUFFER_BYTES = PNG_MAX_BUFFERED_PIXELS / 2;
   const size_t grayBufSize = static_cast<size_t>(ctx.srcWidth);
   if (grayBufSize > MAX_GRAY_LINE_BUFFER_BYTES) {
-    LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u",
-            static_cast<unsigned>(grayBufSize), ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
+    LOG_ERR("PNG", "Expanded gray row too wide: need %u bytes for width=%d, max=%u", static_cast<unsigned>(grayBufSize),
+            ctx.srcWidth, static_cast<unsigned>(MAX_GRAY_LINE_BUFFER_BYTES));
     return false;
   }
 
+  diagnostics.scratch(ctx.srcWidth, ctx.srcHeight, grayBufSize,
+                      PixelCache::requiredBytes(ctx.dstWidth, ctx.dstHeight, 1));
   ctx.grayLineBuffer = static_cast<uint8_t*>(malloc(grayBufSize));
   if (!ctx.grayLineBuffer) {
     LOG_ERR("PNG", "Failed to allocate gray line buffer");
-    return false;
+    return diagnostics.fail("line-buffer");
   }
 
   // Stream the pixel cache to disk. PNGdec delivers source scanlines top to
   // bottom and we emit at most one (downscaled) output row per callback, so the
   // band only needs a single row. Streaming keeps the working set tiny, so
-  // unlike the old full-image buffer it neither competes with the ~44KB decoder
+  // unlike the old full-image buffer it neither competes with the large decoder
   // nor forces larger images to skip caching - which previously meant a full
   // re-decode on every one of an image page's ~14 render passes.
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
     if (!ctx.cache.begin(config.cachePath, ctx.dstWidth, ctx.dstHeight, config.x, config.y, 1)) {
-      LOG_ERR("PNG", "Failed to start cache stream, continuing without caching");
       ctx.caching = false;
+      diagnostics.fail("cache-begin");
+      if (!config.writeToFramebuffer) {
+        free(ctx.grayLineBuffer);
+        return false;
+      }
     }
+  }
+
+  // Recheck actual headroom after open/line/cache allocations. A rejected
+  // attempt removes its partial file before returning to the reader.
+  if (reserve && ESP.getFreeHeap() < reserve + pngbudget::OVERHEAD_BYTES) {
+    LOG_DBG("IPF", "PNG deferred stage=allocated free=%u reserve=%u overhead=%u", ESP.getFreeHeap(), (unsigned)reserve,
+            (unsigned)pngbudget::OVERHEAD_BYTES);
+    ctx.cache.abort();
+    free(ctx.grayLineBuffer);
+    return false;
   }
 
   unsigned long decodeStart = millis();
@@ -450,22 +477,28 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   free(ctx.grayLineBuffer);
   ctx.grayLineBuffer = nullptr;
 
-if (rc != PNG_SUCCESS) {
-  LOG_ERR("PNG", "Decode failed: %d", rc);
-  if (ctx.caching) ctx.cache.abort();
-  png->close();
-  return false;
-}
+  if (config.cancellation && config.cancellation->cancelled) {
+    ctx.cache.abort();
+    LOG_DBG("PNG", "Cache-only decode cancelled; partial cache discarded");
+    return false;
+  }
+
+  if (rc != PNG_SUCCESS) {
+    LOG_ERR("PNG", "Decode failed: %d", rc);
+    if (ctx.caching) ctx.cache.abort();
+    return diagnostics.fail("decode");
+  }
 
   LOG_DBG("PNG", "PNG decoding complete - render time: %lu ms", decodeTime);
 
   // Finalize the streamed cache (caching may have been cleared on a flush error).
-  if (ctx.caching) {
-    ctx.cache.finalize();
+  bool cacheComplete = false;
+  if (!config.cachePath.empty()) {
+    const bool cacheStarted = ctx.cache.started();
+    cacheComplete = ctx.cache.finalize();
+    if (!cacheComplete && cacheStarted) diagnostics.fail("finalize");
   }
-
-  png->close();
-  return true;
+  return config.writeToFramebuffer || cacheComplete;
 }
 
 bool PngToFramebufferConverter::supportsFormat(const std::string& extension) {

@@ -2,23 +2,30 @@
 
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
+#include <Logging.h>
 
+#include "MappedInputManager.h"
 #include "ScreenshotUtil.h"
 
 // Cache generation is synchronous, so the normal main-loop shortcut handler
-// is not reached while it runs.  Poll the raw input here to keep both
-// cancellation and the global screenshot shortcut responsive.
+// is not reached while it runs. Poll mapped Back for cancellation and
+// raw inputs for the global screenshot shortcut.
 class CacheGenerationControls {
  public:
+  explicit CacheGenerationControls(MappedInputManager& input) : input(input) {}
+
+  // Consume the cancellation hold and its release before normal navigation resumes.
+  static bool consumeCancellationRelease(MappedInputManager& input) {
+    if (!releasePending) return false;
+    if (!input.isPressed(MappedInputManager::Button::Back)) releasePending = false;
+    return true;
+  }
+
   bool shouldCancel(GfxRenderer& renderer) {
+    if (cancelled) return true;
     gpio.update();
 
-#ifdef SIMULATOR
-    // The desktop simulator has no raw ADC or power-button GPIO. Any mapped
-    // press provides a deterministic way to stop synchronous cache generation.
-    return gpio.wasAnyPressed();
-#else
-
+#ifndef SIMULATOR
     // Do not wait for InputManager's debounced state here: DOWN's ADC value is
     // immediately available to the cancellation path, while a just-pressed
     // POWER button may not have reached that state yet.
@@ -30,16 +37,38 @@ class CacheGenerationControls {
         screenshotHeld = true;
         ScreenshotUtil::takeScreenshot(renderer);
       }
-      // DOWN is also a normal cancellation input.  The chord must win.
+      holding = false;
+      armed = false;
       return false;
     }
 
     screenshotHeld = false;
-    constexpr int kAdcNoButton = 3800;
-    return analogRead(1) < kAdcNoButton || analogRead(2) < kAdcNoButton;
 #endif
+    const bool back = input.isPressed(MappedInputManager::Button::Back);
+    if (!back) {
+      armed = true;
+      holding = false;
+      return false;
+    }
+    if (!armed) return false;
+    if (!holding) {
+      holding = true;
+      holdStarted = millis();
+      return false;
+    }
+    if (static_cast<uint32_t>(millis() - holdStarted) < 1000) return false;
+    cancelled = true;
+    releasePending = true;
+    LOG_INF("CACHE", "Cancellation accepted: Back held");
+    return true;
   }
 
  private:
+  MappedInputManager& input;
+  inline static bool releasePending = false;
+  bool armed = false;
+  bool holding = false;
+  bool cancelled = false;
+  uint32_t holdStarted = 0;
   bool screenshotHeld = false;
 };

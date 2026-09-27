@@ -14,6 +14,8 @@
 
 #include "../../src/fontIds.h"
 #include "FontCacheManager.h"
+#include "GlyphDownsample.h"
+#include "ImageRenderDiagnostics.h"
 #include "VerticalTextUtils.h"
 
 // Built-in CJK UI font (embedded in flash) - 20px only
@@ -3019,6 +3021,7 @@ void GfxRenderer::freeBwBufferChunks() {
  * Returns true if buffer was stored successfully, false if allocation failed.
  */
 bool GfxRenderer::storeBwBuffer() {
+  imagerenderdiag::mark("bw-store-before", frameBufferSize);
   // Allocate and copy each chunk
   for (size_t i = 0; i < bwBufferChunks.size(); i++) {
     // Check if any chunks are already allocated
@@ -3032,6 +3035,7 @@ bool GfxRenderer::storeBwBuffer() {
     const size_t chunkSize = std::min(BW_BUFFER_CHUNK_SIZE, static_cast<size_t>(frameBufferSize - offset));
     bwBufferChunks[i] = static_cast<uint8_t*>(malloc(chunkSize));
 
+    imagerenderdiag::mark("bw-chunk", chunkSize);
     if (!bwBufferChunks[i]) {
       LOG_ERR("GFX", "!! Failed to allocate BW buffer chunk %zu (%zu bytes)", i, chunkSize);
       // Free previously allocated chunks
@@ -3042,6 +3046,7 @@ bool GfxRenderer::storeBwBuffer() {
     memcpy(bwBufferChunks[i], frameBuffer + offset, chunkSize);
   }
 
+  imagerenderdiag::mark("bw-store-after", frameBufferSize);
   LOG_DBG("GFX", "Stored BW buffer in %zu chunks (%zu bytes each)", bwBufferChunks.size(), BW_BUFFER_CHUNK_SIZE);
   return true;
 }
@@ -3072,9 +3077,12 @@ void GfxRenderer::restoreBwBuffer() {
     memcpy(frameBuffer + offset, bwBufferChunks[i], chunkSize);
   }
 
+  imagerenderdiag::mark("bw-cleanup-before");
   display.cleanupGrayscaleBuffers(frameBuffer);
+  imagerenderdiag::mark("bw-cleanup-after");
 
   freeBwBufferChunks();
+  imagerenderdiag::mark("bw-freed");
   LOG_DBG("GFX", "Restored and freed BW buffer chunks");
 }
 
@@ -3261,7 +3269,9 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
           if (is2Bit) {
             const uint8_t byte = bitmap[pixelPosition / 4];
             const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
-            const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
+            const uint8_t bmpVal =
+                3 - (scale < 256 ? downsampleGlyphInk(bitmap, baseW, baseH, drawW, drawH, glyphX, glyphY)
+                                 : ((byte >> bit_index) & 0x3));
 
             if (renderMode == BW) {
               bool shouldDraw = false;

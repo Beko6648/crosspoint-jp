@@ -116,7 +116,6 @@ void StatusBarSettingsActivity::loop() {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
     requestUpdate();
   });
-
 }
 
 void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool toggleValue) {
@@ -126,8 +125,8 @@ void StatusBarSettingsActivity::changeCurrentSetting(const int delta, const bool
     SETTINGS.statusBarBookProgressPercentage =
         toggleValue ? !SETTINGS.statusBarBookProgressPercentage : (delta < 0 ? 0 : 1);
   } else if (selectedIndex == 2) {
-    SETTINGS.statusBarProgressBar = static_cast<uint8_t>(std::clamp(
-        static_cast<int>(SETTINGS.statusBarProgressBar) + delta, 0, PROGRESS_BAR_ITEMS - 1));
+    SETTINGS.statusBarProgressBar = static_cast<uint8_t>(
+        std::clamp(static_cast<int>(SETTINGS.statusBarProgressBar) + delta, 0, PROGRESS_BAR_ITEMS - 1));
   } else if (selectedIndex == 3) {
     SETTINGS.statusBarProgressBarThickness = static_cast<uint8_t>(std::clamp(
         static_cast<int>(SETTINGS.statusBarProgressBarThickness) + delta, 0, PROGRESS_BAR_THICKNESS_ITEMS - 1));
@@ -191,8 +190,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
       },
       editingValue);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT) : tr(STR_EDIT),
-                                            tr(STR_PREVIOUS), tr(STR_NEXT));
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), editingValue ? tr(STR_SELECT) : tr(STR_EDIT), tr(STR_PREVIOUS), tr(STR_NEXT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

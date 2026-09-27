@@ -1,6 +1,7 @@
 #include "ParsedText.h"
 
 #include <GfxRenderer.h>
+#include <SingleCacheProfile.h>
 #include <Utf8.h>
 #include <VerticalTextUtils.h>
 
@@ -309,7 +310,7 @@ void ParsedText::consumePrefix(size_t count) {
   if (!emphasis.empty()) emphasis.erase(emphasis.begin(), emphasis.begin() + count);
 }
 
-std::shared_ptr<TextBlock> ParsedText::prepareBlock(size_t start, size_t end, bool vertical) {
+std::unique_ptr<TextBlock> ParsedText::prepareBlock(size_t start, size_t end, bool vertical) {
   const size_t count = end - start;
   size_t imageStart = 0;
   for (size_t i = 0; i < start; ++i) {
@@ -336,9 +337,9 @@ std::shared_ptr<TextBlock> ParsedText::prepareBlock(size_t start, size_t end, bo
     LOG_ERR("PTX", "TextBlock allocation failed");
     return {};
   }
-  // The control block is part of the admission budget. Allocate it before
-  // copying payload. No input is moved, including on callback rejection.
-  std::shared_ptr<TextBlock> block(raw);
+  // Own the output before copying payload. Keep the source intact until
+  // the page accepts this block, including on callback rejection.
+  std::unique_ptr<TextBlock> block(raw);
   block->isVertical = vertical;
   block->tateChuYokoMaxDigits = tateChuYokoMaxDigits;
   block->words.resize(count);
@@ -397,7 +398,7 @@ void ParsedText::setRubyForWordAt(size_t index, const std::string& ruby, const s
 
 // Consumes data to minimize memory usage
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
-                                       const std::function<bool(std::shared_ptr<TextBlock>)>& processLine,
+                                       const std::function<bool(std::unique_ptr<TextBlock>)>& processLine,
                                        const bool includeLastLine) {
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   if (layoutFailed_ || words.empty()) return;
@@ -499,8 +500,12 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 }
 
 void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fontId, const uint16_t columnHeight,
-                                       const std::function<bool(std::shared_ptr<TextBlock>)>& processColumn,
+                                       const std::function<bool(std::unique_ptr<TextBlock>)>& processColumn,
                                        const bool includeLastColumn) {
+#if defined(SINGLE_CACHE_PROFILE)
+  SingleCacheProfile::Timer verticalTimer(SingleCacheProfile::VerticalLayout);
+#endif
+
   const GfxRenderer::MeasureOnlyScope measureOnly(renderer);
   if (layoutFailed_ || words.empty()) return;
   if (!admitLayout(LayoutMemory::multiply(words.size(), 16), "vertical plan")) return;
@@ -968,7 +973,7 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
       column->wordYpos[j - start] = static_cast<int16_t>(y);
       y += wordHeights[j];
     }
-    if (!processColumn(column)) {
+    if (!processColumn(std::move(column))) {
       layoutFailed_ = true;
       break;
     }
@@ -1239,7 +1244,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
 void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const int spaceWidth,
                              const std::vector<uint16_t>& wordWidths, const std::vector<bool>& continuesVec,
                              const std::vector<bool>& wordIsCjkVec, const std::vector<size_t>& lineBreakIndices,
-                             const std::function<bool(std::shared_ptr<TextBlock>)>& processLine,
+                             const std::function<bool(std::unique_ptr<TextBlock>)>& processLine,
                              const GfxRenderer& renderer, const int fontId) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
@@ -1313,5 +1318,5 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   }
 
   for (auto& word : line->words) stripSoftHyphensInPlace(word);
-  if (!processLine(line)) layoutFailed_ = true;
+  if (!processLine(std::move(line))) layoutFailed_ = true;
 }

@@ -73,6 +73,7 @@ int main() {
   for (bool vertical : {false, true}) {
     ESP = {};
     auto p = sample();
+    ESP.checks = 0;  // Count layout probes independently of source construction.
     std::vector<std::string> rendered;
     std::vector<std::string> imagePaths;
     layout(p, renderer, vertical, [&](const auto& block) {
@@ -85,12 +86,30 @@ int main() {
     assert((imagePaths == std::vector<std::string>{"/images/first-long-path.png", "/images/second-long-path.png"}));
     const int totalChecks = ESP.checks;
 
+    // The consumer owns accepted output beyond the lifetime of ParsedText.
+    std::vector<std::unique_ptr<TextBlock>> retained;
+    {
+      auto ownedSource = sample();
+      layout(ownedSource, renderer, vertical, [&](std::unique_ptr<TextBlock> block) {
+        retained.push_back(std::move(block));
+        return true;
+      });
+      assert(ownedSource.isEmpty());
+    }
+    std::vector<std::string> ownedWords;
+    for (const auto& block : retained) {
+      ownedWords.insert(ownedWords.end(), block->getWords().begin(), block->getWords().end());
+    }
+    assert(ownedWords == rendered);
+    retained.clear();
+
     // Fail every admission point. The remaining source must exactly equal
     // the suffix after the blocks accepted before the failure, metadata too.
     for (int failure = 0; failure < totalChecks; ++failure) {
       ESP = {};
       auto candidate = sample();
       size_t accepted = 0;
+      ESP.checks = 0;
       ESP.failAt = failure;
       layout(candidate, renderer, vertical, [&](const auto& block) {
         accepted += block->wordCount();
