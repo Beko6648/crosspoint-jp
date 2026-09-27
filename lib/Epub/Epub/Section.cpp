@@ -1,4 +1,3 @@
-#include <SingleCacheProfile.h>
 #include "Section.h"
 
 #include <Arduino.h>
@@ -7,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <SingleCacheProfile.h>
 
 #include <algorithm>
 #include <new>

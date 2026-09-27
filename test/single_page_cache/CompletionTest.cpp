@@ -1,6 +1,7 @@
+#include <Epub/SinglePageCacheCompletion.h>
+
 #include <cassert>
 #include <initializer_list>
-#include <Epub/SinglePageCacheCompletion.h>
 int main() {
   using namespace singlepagecache;
   assert(eligible(1, 0, 1, true, false));

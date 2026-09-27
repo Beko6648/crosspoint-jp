@@ -1,8 +1,7 @@
-#include "../converters/ImagePixelCachePath.h"
 #include "ImageBlock.h"
 
-#include <FsHelpers.h>
 #include <FontCacheManager.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <ImageRenderDiagnostics.h>
 #include <Logging.h>
@@ -11,6 +10,7 @@
 #include "../converters/DirectPixelWriter.h"
 #include "../converters/ImageCacheValidation.h"
 #include "../converters/ImageDecoderFactory.h"
+#include "../converters/ImagePixelCachePath.h"
 
 // Cache file format:
 // - uint16_t width
@@ -38,7 +38,6 @@ struct ImageRenderScope {
     if (active) r.endImageRender();
   }
 };
-
 
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
                      int expectedHeight) {
@@ -134,7 +133,6 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   return true;
 }
 
-
 }  // namespace
 
 bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const int y,
@@ -144,7 +142,8 @@ bool ImageBlock::pregeneratePixelCache(GfxRenderer& renderer, const int x, const
 
 ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, const int x, const int y,
                                                      bool releaseFontCaches, bool* framebufferInvalidated,
-                                                     DecodeCancellation* cancellation, size_t pngHeapReserveBytes) const {
+                                                     DecodeCancellation* cancellation,
+                                                     size_t pngHeapReserveBytes) const {
   if (cancellation && cancellation->poll()) return CacheResult::Failed;
   if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > renderer.getScreenWidth() ||
       y + height > renderer.getScreenHeight())
@@ -246,8 +245,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   if (fcm) {
     fcm->clearCache();
     fcm->freeKernLigatureData();
-    LOG_DBG("IMG", "Released font caches before decode: free=%u maxAlloc=%u", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_DBG("IMG", "Released font caches before decode: free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   }
 
   LOG_DBG("IMG", "Decoding and caching: %s", imagePath.c_str());

@@ -6,8 +6,7 @@
 #include <new>
 
 void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                      const int viewportWidth, const int viewportHeight, const int rubyOffsetX,
-                      const int rubyOffsetY) {
+                      const int viewportWidth, const int viewportHeight, const int rubyOffsetX, const int rubyOffsetY) {
   block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, viewportWidth, viewportHeight, xOffset, yOffset,
                 rubyOffsetX, rubyOffsetY);
 }

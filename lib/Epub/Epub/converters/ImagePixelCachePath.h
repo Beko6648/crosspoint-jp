@@ -1,6 +1,7 @@
 #pragma once
 
 #include <FsHelpers.h>
+
 #include <string>
 
 // PNG tone revision only; the packed PXC6 representation is unchanged.

@@ -1,6 +1,4 @@
 #include "GfxRenderer.h"
-#include "GlyphDownsample.h"
-#include "ImageRenderDiagnostics.h"
 
 #include <BuildScratch.h>
 #include <EpdFontFamily.h>
@@ -16,6 +14,8 @@
 
 #include "../../src/fontIds.h"
 #include "FontCacheManager.h"
+#include "GlyphDownsample.h"
+#include "ImageRenderDiagnostics.h"
 #include "VerticalTextUtils.h"
 
 // Built-in CJK UI font (embedded in flash) - 20px only

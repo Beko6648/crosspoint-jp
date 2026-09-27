@@ -28,7 +28,7 @@ struct RenderConfig {
   DecodeCancellation* cancellation = nullptr;
   // Optional PNG cache-only headroom. Zero preserves foreground/batch behavior.
   size_t pngHeapReserveBytes = 0;
-  std::string cachePath;            // If non-empty, decoder will write pixel cache to this path
+  std::string cachePath;  // If non-empty, decoder will write pixel cache to this path
 };
 
 class ImageToFramebufferDecoder {

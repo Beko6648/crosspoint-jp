@@ -26,8 +26,8 @@ class ImageBlock final : public Block {
   // pointer permits a JPEG fallback loan: the caller must redraw the whole UI
   // after this call if it becomes true, including when generation fails.
   CacheResult ensurePixelCache(GfxRenderer& renderer, int x, int y, bool releaseFontCaches = false,
-                               bool* framebufferInvalidated = nullptr,
-                               DecodeCancellation* cancellation = nullptr, size_t pngHeapReserveBytes = 0) const;
+                               bool* framebufferInvalidated = nullptr, DecodeCancellation* cancellation = nullptr,
+                               size_t pngHeapReserveBytes = 0) const;
   bool pregeneratePixelCache(GfxRenderer& renderer, int x, int y, bool* framebufferInvalidated = nullptr) const;
 
   BlockType getType() override { return IMAGE_BLOCK; }

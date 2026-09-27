@@ -10,7 +10,8 @@ FsFile source(const std::string& s) {
   return f;
 }
 int main() {
-  const std::string a = "p, .a { font-weight: bold; margin-left: 2em; } .a { text-align: right; text-emphasis: filled sesame; }";
+  const std::string a =
+      "p, .a { font-weight: bold; margin-left: 2em; } .a { text-align: right; text-emphasis: filled sesame; }";
   const std::string b = ".a { font-weight: normal; font-size: 120%; text-emphasis: none; } p { margin-left: 3em; }";
   CssParser reference("/reference"), streamed("/stream");
   for (const auto& text : {a, b}) {

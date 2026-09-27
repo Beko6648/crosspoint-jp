@@ -1,4 +1,5 @@
 #include <Serialization.h>
+
 #include <cassert>
 #include <vector>
 

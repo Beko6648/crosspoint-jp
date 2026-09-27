@@ -657,7 +657,8 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, static_cast<uint16_t>(words.size()));
   for (const auto& w : words) serialization::writeString(file, w);
   if (!serialization::writePodArray(file, wordXpos.data(), wordXpos.size()) ||
-      !serialization::writePodArray(file, wordStyles.data(), wordStyles.size())) return false;
+      !serialization::writePodArray(file, wordStyles.data(), wordStyles.size()))
+    return false;
 
   // Style (alignment + margins/padding/indent)
   serialization::writePod(file, blockStyle.alignment);

@@ -121,7 +121,6 @@ struct PixelCache {
     if (newTopRow <= bandStart) return true;
     if (newTopRow > height) newTopRow = height;
 
-
     for (int r = bandStart; r < newTopRow; ++r) {
       const int idx = r - bandStart;
       const uint8_t* rowPtr = (idx < bandRows) ? (buffer + (size_t)idx * bytesPerRow) : zeroRow;
@@ -130,7 +129,6 @@ struct PixelCache {
         ok = false;
         return false;
       }
-
     }
     flushedRows = newTopRow;
     bandStart = newTopRow;

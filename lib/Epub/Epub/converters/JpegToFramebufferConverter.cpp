@@ -153,12 +153,10 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   const int srcYEnd = blockY + blockH;
   const int srcXEnd = blockX + validW;
 
-    int dstYStart = (int)((int64_t)blockY * fineScaleFPY >> FP_SHIFT);
-    int dstYEnd =
-        (srcYEnd >= ctx->scaledSrcHeight) ? ctx->dstHeight : (int)((int64_t)srcYEnd * fineScaleFPY >> FP_SHIFT);
-    int dstXStart = (int)((int64_t)blockX * fineScaleFPX >> FP_SHIFT);
-    int dstXEnd =
-        (srcXEnd >= ctx->scaledSrcWidth) ? ctx->dstWidth : (int)((int64_t)srcXEnd * fineScaleFPX >> FP_SHIFT);
+  int dstYStart = (int)((int64_t)blockY * fineScaleFPY >> FP_SHIFT);
+  int dstYEnd = (srcYEnd >= ctx->scaledSrcHeight) ? ctx->dstHeight : (int)((int64_t)srcYEnd * fineScaleFPY >> FP_SHIFT);
+  int dstXStart = (int)((int64_t)blockX * fineScaleFPX >> FP_SHIFT);
+  int dstXEnd = (srcXEnd >= ctx->scaledSrcWidth) ? ctx->dstWidth : (int)((int64_t)srcXEnd * fineScaleFPX >> FP_SHIFT);
 
   // Pre-clamp destination ranges to screen bounds (eliminates per-pixel screen checks)
   int clampYMax = ctx->dstHeight;
@@ -195,7 +193,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   }
 
   // === 1:1 fast path: no scaling math ===
-    if (fineScaleFPX == FP_ONE && fineScaleFPY == FP_ONE) {
+  if (fineScaleFPX == FP_ONE && fineScaleFPY == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
       pw.beginRow(outY);
@@ -221,7 +219,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === Bilinear interpolation (upscale: fineScale > 1.0) ===
   // Smooths block boundaries that would otherwise create visible banding
   // on progressive JPEG DC-only decode (1/8 resolution upscaled to target).
-    if (fineScaleFPX > FP_ONE || fineScaleFPY > FP_ONE) {
+  if (fineScaleFPX > FP_ONE || fineScaleFPY > FP_ONE) {
     // Pre-compute safe X range where lx0 and lx0+1 are both in [0, validW-1].
     // Only the left/right edge pixels (typically 0-2 and 1-8 respectively) need clamping.
     int safeXStart = (int)(((int64_t)blockX * fineScaleFPX + FP_MASK) >> FP_SHIFT);
@@ -477,13 +475,11 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     jpegScaleDenom = chooseJpegScale(targetScale, jpegScaleOption);
   }
 
-
   if (destWidth <= 0 || destHeight <= 0) {
     LOG_ERR("JPG", "Degenerate output dimensions %dx%d for %s, skipping render", destWidth, destHeight,
             imagePath.c_str());
     return false;
   }
-
 
   ctx.scaledSrcWidth = (srcWidth + jpegScaleDenom - 1) / jpegScaleDenom;
   ctx.scaledSrcHeight = (srcHeight + jpegScaleDenom - 1) / jpegScaleDenom;
@@ -494,8 +490,8 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   ctx.fineScaleFPY = (int32_t)((int64_t)destHeight * FP_ONE / ctx.scaledSrcHeight);
   ctx.invScaleFPY = (int32_t)((int64_t)ctx.scaledSrcHeight * FP_ONE / destHeight);
 
-  LOG_DBG("JPG", "JPEG %dx%d -> %dx%d (scale %.2f, jpegScale 1/%d, fineScale %.2f x %.2f)%s", srcWidth,
-          srcHeight, destWidth, destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
+  LOG_DBG("JPG", "JPEG %dx%d -> %dx%d (scale %.2f, jpegScale 1/%d, fineScale %.2f x %.2f)%s", srcWidth, srcHeight,
+          destWidth, destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
           (float)destHeight / ctx.scaledSrcHeight, isProgressive ? " [progressive]" : "");
 
   // Set pixel type to 8-bit grayscale (must be after open())
@@ -528,7 +524,6 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     LOG_DBG("JPG", "Cache-only decode cancelled; partial cache discarded");
     return false;
   }
-
 
   if (rc != 1) {
     LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());

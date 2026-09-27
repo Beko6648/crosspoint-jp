@@ -15,7 +15,10 @@ class HalFile {
   bool opened = false;
   size_t offset = 0;
   explicit operator bool() const { return opened; }
-  bool seek(size_t pos) { offset = pos; return opened; }
+  bool seek(size_t pos) {
+    offset = pos;
+    return opened;
+  }
   size_t size() { return files[path].size(); }
   int read(void* dest, size_t count) {
     if (!opened || offset + count > size()) return 0;

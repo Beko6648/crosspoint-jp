@@ -1512,8 +1512,7 @@ int SdCardFont::buildAdvanceTable(const char* utf8Text, uint8_t styleMask) {
   for (uint8_t si = 0; si < MAX_STYLES; ++si) {
     if ((styleMask & (1 << si)) && styles_[si].present && advanceTableSize_[si] < 1024) allFull = false;
   }
-  SingleCacheProfile::Timer advanceTimer(allFull ? SingleCacheProfile::AdvanceFull
-                                               : SingleCacheProfile::AdvanceOther);
+  SingleCacheProfile::Timer advanceTimer(allFull ? SingleCacheProfile::AdvanceFull : SingleCacheProfile::AdvanceOther);
 #endif
 
   unsigned long startMs = millis();

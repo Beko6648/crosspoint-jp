@@ -32,6 +32,7 @@ inline void mark(const char* stage, uint32_t detail = 0) {
 class PageScope {
   bool enabled;
   int spine, page;
+
  public:
   PageScope(bool hasImages, int spineIndex, int pageIndex)
       : enabled(hasImages && !owner), spine(spineIndex), page(pageIndex) {

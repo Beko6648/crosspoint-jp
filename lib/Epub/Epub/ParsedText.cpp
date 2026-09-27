@@ -1,7 +1,7 @@
-#include <SingleCacheProfile.h>
 #include "ParsedText.h"
 
 #include <GfxRenderer.h>
+#include <SingleCacheProfile.h>
 #include <Utf8.h>
 #include <VerticalTextUtils.h>
 

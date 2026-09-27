@@ -31,8 +31,7 @@ constexpr int STATUS_BAR_CONTENT_GUARD = 8;
 
 #if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
 void logBatchMemory(const char* stage, const int book = -1) {
-  LOG_INF("BCMEM", "stage=%s book=%d free=%u maxAlloc=%u", stage, book, ESP.getFreeHeap(),
-          ESP.getMaxAllocHeap());
+  LOG_INF("BCMEM", "stage=%s book=%d free=%u maxAlloc=%u", stage, book, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 struct BatchBookMemoryProbe {

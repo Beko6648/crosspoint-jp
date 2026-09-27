@@ -2,10 +2,10 @@
 
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
-
-#include "ScreenshotUtil.h"
-#include "MappedInputManager.h"
 #include <Logging.h>
+
+#include "MappedInputManager.h"
+#include "ScreenshotUtil.h"
 
 // Cache generation is synchronous, so the normal main-loop shortcut handler
 // is not reached while it runs. Poll mapped Back for cancellation and
