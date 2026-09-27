@@ -1,4 +1,5 @@
 #include "GfxRenderer.h"
+#include "GlyphDownsample.h"
 #include "ImageRenderDiagnostics.h"
 
 #include <BuildScratch.h>
@@ -3223,7 +3224,9 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
           if (is2Bit) {
             const uint8_t byte = bitmap[pixelPosition / 4];
             const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
-            const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
+            const uint8_t bmpVal =
+                3 - (scale < 256 ? downsampleGlyphInk(bitmap, baseW, baseH, drawW, drawH, glyphX, glyphY)
+                                 : ((byte >> bit_index) & 0x3));
 
             if (renderMode == BW) {
               bool shouldDraw = false;
