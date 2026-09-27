@@ -1,3 +1,4 @@
+#include "../converters/ImagePixelCachePath.h"
 #include "ImageBlock.h"
 
 #include <FsHelpers.h>
@@ -133,14 +134,6 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   return true;
 }
 
-std::string getPixelCachePath(const std::string& imagePath) {
-  // Bump this suffix when the pixel cache encoding or dithering changes.
-  size_t dotPos = imagePath.rfind('.');
-  if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc6";
-  }
-  return imagePath + ".pxc6";
-}
 
 }  // namespace
 
@@ -158,7 +151,7 @@ ImageBlock::CacheResult ImageBlock::ensurePixelCache(GfxRenderer& renderer, cons
     return CacheResult::Failed;
   if (!FsHelpers::hasPngExtension(imagePath) && !FsHelpers::hasJpgExtension(imagePath)) return CacheResult::Failed;
 
-  const std::string cachePath = getPixelCachePath(imagePath);
+  const std::string cachePath = getImagePixelCachePath(imagePath);
   if (Storage.exists(cachePath.c_str())) {
     if (ImageCacheValidation::validatePixelCacheFile(cachePath, width, height)) return CacheResult::AlreadyValid;
     LOG_ERR("IMG", "Removing invalid image pixel cache before pregeneration: %s", cachePath.c_str());
@@ -225,7 +218,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   }
 
   // Try to render from cache first
-  const std::string cachePath = getPixelCachePath(imagePath);
+  const std::string cachePath = getImagePixelCachePath(imagePath);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
     return;
   }

@@ -269,7 +269,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   for (int dstX = 0; dstX < dstWidth; dstX++) {
     int outX = outXBase + dstX;
     if (outX < screenWidth) {
-      uint8_t gray = applyIllustrationToneCurve(ctx->grayLineBuffer[srcX]);
+      uint8_t gray = ctx->grayLineBuffer[srcX];
 
       uint8_t ditheredGray;
       if (useDithering) {

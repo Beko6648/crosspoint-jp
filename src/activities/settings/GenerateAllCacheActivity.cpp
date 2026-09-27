@@ -4,6 +4,7 @@
 #include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <Epub/converters/ImageCacheValidation.h>
+#include <Epub/converters/ImagePixelCachePath.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -186,8 +187,7 @@ PixelCachePreflightResult inspectPixelCaches(const std::string& cacheRoot, const
     }
 
     result.sourceCount++;
-    const size_t extensionStart = sourcePath.rfind('.');
-    const std::string pixelCachePath = sourcePath.substr(0, extensionStart) + ".pxc6";
+    const std::string pixelCachePath = getImagePixelCachePath(sourcePath);
     if (Storage.exists(pixelCachePath.c_str()) && ImageCacheValidation::validatePixelCacheFile(pixelCachePath, 0, 0)) {
       result.validCacheCount++;
     } else {
