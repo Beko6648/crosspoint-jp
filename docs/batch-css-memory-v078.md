@@ -1,5 +1,7 @@
 # 一括生成のCSSメモリ診断
 
+> 2026-09-27: この文書は試験版ごとの経過を含みます。現在のmain統合・実機受入状況と継続調査は[v0.7.8リリース監査](development/v0.7.8-release-audit-ja.md)を参照してください。
+
 基点cf410104。以前のX3ログdevice-monitor-260926-235308.logではCSS開始前の空きが約62.7〜63.1KBで、Epub::parseCssFilesの64KiB条件を下回った。これは最大連続領域の不足を直接示すログではなく、総空きheapによる開始拒否。修正済みのparser cleanup assertとは別件。
 
 一括生成はfindEpubFilesで全EPUBパスをvector<string>に保持し、全処理と最後の状態集計が終わるまで解放しない。日本語パスはUTF-8バイト数で保持されるため、冊数・長い書名によるメモリ増加が候補。ただし以前のログに冊数・保持量がないため原因未確定。load前にはfont cache、kern/ligature、resident SD font cachesを既に解放している。垂直字形や活動スタックの残存量も実測次第。

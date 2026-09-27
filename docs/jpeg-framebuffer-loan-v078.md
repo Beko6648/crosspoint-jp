@@ -1,5 +1,7 @@
 # v0.7.8 P0-2: JPEGDEC FrameBufferLoan
 
+> 2026-09-27: この文書は試験版ごとの経過を含みます。現在のmain統合・実機受入状況と継続調査は[v0.7.8リリース監査](development/v0.7.8-release-audit-ja.md)を参照してください。
+
 P0-1の `18d8806f` を起点とする `feat/v0.7.8-jpeg-framebuffer-loan`。
 X3/X4の基本動作・中断再開・通常heap経路は確認済み。実際の低MaxAlloc時の自動切替と成功率は未検証。
 

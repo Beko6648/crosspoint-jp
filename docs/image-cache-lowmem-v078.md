@@ -1,5 +1,7 @@
 # v0.7.8 P0-1: 画像キャッシュ低メモリ土台
 
+> 2026-09-27: この文書は試験版ごとの経過を含みます。現在のmain統合・実機受入状況と継続調査は[v0.7.8リリース監査](development/v0.7.8-release-audit-ja.md)を参照してください。
+
 2026-09-25。実機確認待ち。起点は origin/main `121380a4`、作業ブランチは
 `feat/v0.7.8-image-cache-lowmem`、作業場所は `C:\Src\crosspoint-jp-image-cache-lowmem`。
 元の checkout の未コミット変更、serial.txt、ローカル main は変更していない。

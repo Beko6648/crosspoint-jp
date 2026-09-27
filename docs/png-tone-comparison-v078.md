@@ -1,5 +1,7 @@
 # PNG明るさ補正比較 v1
 
+> 2026-09-27: この文書は試験版ごとの経過を含みます。現在のmain統合・実機受入状況と継続調査は[v0.7.8リリース監査](development/v0.7.8-release-audit-ja.md)を参照してください。
+
 main c809edb4を基点とする未採用の比較用。PNG_TONE_NEUTRAL_TESTのみPNGのapplyIllustrationToneCurveを迂回する。JPEG、Bayerディザ、透明部分の白合成、PXC形式は変更しない。通常環境は現行補正を維持。
 
 outputsのimage-tone-reference-v1.epubは同一RGB原稿のPNG/JPEG（quality100、subsampling0）2章。18階調、連続勾配、細線を含む。JPEGは非可逆なので完全一致は期待しない。PNG原稿は目視確認、EPUB ZIP/XML検証済み。実機レイアウトと画質は未確認。
