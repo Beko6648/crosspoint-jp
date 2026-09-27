@@ -11,6 +11,8 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <vector>
+
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "ReadingStatusHelper.h"
@@ -18,6 +20,7 @@
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#include "util/BatchEpubPaths.h"
 #include "util/CacheGenerationControls.h"
 #include "util/CacheProgressPolicy.h"
 
@@ -25,18 +28,32 @@ namespace {
 
 constexpr int STATUS_BAR_CONTENT_GUARD = 8;
 
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+void logBatchMemory(const char* stage, const int book = -1) {
+  LOG_INF("BCMEM", "stage=%s book=%d free=%u maxAlloc=%u", stage, book, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
+}
+
+struct BatchBookMemoryProbe {
+  int book;
+  ~BatchBookMemoryProbe() { logBatchMemory("book-released", book); }
+};
+#endif
+
 int getStatusBarContentReservation(const int statusBarHeight) {
   return statusBarHeight > 0 ? statusBarHeight + STATUS_BAR_CONTENT_GUARD : 0;
 }
 
+enum class PathScanResult { Complete, Cancelled, Failed };
+
 // Recursively scan a directory for EPUB files
-bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, CacheGenerationControls& controls,
-                   GfxRenderer& renderer) {
-  if (controls.shouldCancel(renderer)) return false;
+PathScanResult findEpubFiles(const char* dirPath, BatchEpubPaths& results, CacheGenerationControls& controls,
+                             GfxRenderer& renderer) {
+  if (controls.shouldCancel(renderer)) return PathScanResult::Cancelled;
   auto dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) {
     if (dir) dir.close();
-    return true;
+    return PathScanResult::Failed;
   }
 
   char name[256];
@@ -44,7 +61,7 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
     if (controls.shouldCancel(renderer)) {
       file.close();
       dir.close();
-      return false;
+      return PathScanResult::Cancelled;
     }
     file.getName(name, sizeof(name));
     if (name[0] == '.') {
@@ -58,19 +75,24 @@ bool findEpubFiles(const char* dirPath, std::vector<std::string>& results, Cache
 
     if (file.isDirectory()) {
       file.close();
-      if (!findEpubFiles(fullPath.c_str(), results, controls, renderer)) {
+      const auto result = findEpubFiles(fullPath.c_str(), results, controls, renderer);
+      if (result != PathScanResult::Complete) {
         dir.close();
-        return false;
+        return result;
       }
     } else {
       if (FsHelpers::hasEpubExtension(std::string_view(name))) {
-        results.push_back(fullPath);
+        if (!results.append(fullPath)) {
+          file.close();
+          dir.close();
+          return PathScanResult::Failed;
+        }
       }
       file.close();
     }
   }
   dir.close();
-  return true;
+  return PathScanResult::Complete;
 }
 
 int pregeneratePixelCaches(const Page& page, GfxRenderer& renderer, const int xOffset, const int yOffset,
@@ -230,11 +252,14 @@ void GenerateAllCacheActivity::onExit() {
   }
 }
 
-void GenerateAllCacheActivity::summarizeCacheStatuses(const std::vector<std::string>& epubFiles) {
+bool GenerateAllCacheActivity::summarizeCacheStatuses(BatchEpubPaths& epubFiles) {
+  if (!epubFiles.rewind()) return false;
   completeCount = 0;
   resumableCount = 0;
   notGeneratedCount = 0;
-  for (const auto& epubPath : epubFiles) {
+  std::string epubPath;
+  for (int i = 0; i < epubFiles.count(); ++i) {
+    if (!epubFiles.next(epubPath)) return false;
     switch (Epub(epubPath, "/.crosspoint").getCacheGenerationStatus()) {
       case Epub::CacheGenerationStatus::Complete:
         ++completeCount;
@@ -247,6 +272,7 @@ void GenerateAllCacheActivity::summarizeCacheStatuses(const std::vector<std::str
         break;
     }
   }
+  return true;
 }
 
 std::string GenerateAllCacheActivity::cacheGenerationResultText() const {
@@ -328,21 +354,37 @@ void GenerateAllCacheActivity::generateAllCaches() {
   LOG_DBG("GENALL", "Scanning for EPUB files...");
 
   const uint32_t scanStartedAt = millis();
-  std::vector<std::string> epubFiles;
-  CacheGenerationControls controls;
-  const bool scanCompleted = findEpubFiles("/", epubFiles, controls, renderer);
-  LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
-
-  if (!scanCompleted) {
-    LOG_DBG("GENALL", "Cancelled while scanning for EPUB files");
-    totalCount = epubFiles.size();
-    summarizeCacheStatuses(epubFiles);
-    state = INTERRUPTED;
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+  logBatchMemory("before-scan");
+#endif
+  BatchEpubPaths epubFiles;
+  if (!epubFiles.begin()) {
+    LOG_ERR("GENALL", "Could not create temporary EPUB list");
+    state = FAILED;
     requestUpdate();
     return;
   }
-
-  totalCount = epubFiles.size();
+  CacheGenerationControls controls;
+  const auto scanResult = findEpubFiles("/", epubFiles, controls, renderer);
+  LOG_DBG("GENALL", "EPUB scan completed in %lu ms", millis() - scanStartedAt);
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+  LOG_INF("BCMEM", "paths count=%d diskBytes=%u scanComplete=%d", epubFiles.count(),
+          static_cast<unsigned>(epubFiles.bytes()), scanResult == PathScanResult::Complete);
+  logBatchMemory("after-scan");
+#endif
+  totalCount = epubFiles.count();
+  if (scanResult == PathScanResult::Failed || !epubFiles.rewind()) {
+    LOG_ERR("GENALL", "Could not write/read temporary EPUB list");
+    state = FAILED;
+    requestUpdate();
+    return;
+  }
+  if (scanResult == PathScanResult::Cancelled) {
+    const bool summarized = summarizeCacheStatuses(epubFiles);
+    state = summarized ? INTERRUPTED : FAILED;
+    requestUpdate();
+    return;
+  }
 
   LOG_DBG("GENALL", "Found %d EPUB files", totalCount);
 
@@ -407,7 +449,18 @@ void GenerateAllCacheActivity::generateAllCaches() {
   const int screenHeight = renderer.getScreenHeight();
 
   for (int bookIdx = 0; bookIdx < totalCount; bookIdx++) {
-    const auto& epubPath = epubFiles[bookIdx];
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    // Declared before the EPUB and other book-local objects so destruction
+    // logs after they release memory, including continue/break paths.
+    BatchBookMemoryProbe memoryProbe{bookIdx + 1};
+    logBatchMemory("book-start", bookIdx + 1);
+#endif
+    std::string epubPath;
+    if (!epubFiles.next(epubPath)) {
+      LOG_ERR("GENALL", "Could not read temporary EPUB list at book %d", bookIdx + 1);
+      storageFailure = true;
+      break;
+    }
     const uint32_t bookStartedAt = millis();
     uint32_t sectionBuildMs = 0;
     uint32_t pixelCacheMs = 0;
@@ -435,17 +488,29 @@ void GenerateAllCacheActivity::generateAllCaches() {
     }
 
     // CSS is parsed during load(), before section-level reclamation runs.
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("before-font-release", bookIdx + 1);
+#endif
     if (auto* fontCache = renderer.getFontCacheManager()) {
       fontCache->clearCache();
       fontCache->freeKernLigatureData();
       fontCache->releaseSdFontCaches();
     }
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("after-font-release", bookIdx + 1);
+#endif
     // Load EPUB
     auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("before-load", bookIdx + 1);
+#endif
     if (!epub->load(true, SETTINGS.embeddedStyle == CrossPointSettings::CROSSPOINT_STYLE)) {
       LOG_ERR("GENALL", "Failed to load: %s", epubPath.c_str());
       continue;
     }
+#if defined(BATCH_CSS_MEMORY_DIAGNOSTICS)
+    logBatchMemory("after-load", bookIdx + 1);
+#endif
 
     const int spineCount = epub->getSpineItemsCount();
     if (spineCount <= 0) continue;
@@ -620,8 +685,9 @@ void GenerateAllCacheActivity::generateAllCaches() {
     progressDisplayMs += millis() - finalDisplayStartedAt;
   }
 
-  if (!storageFailure) {
-    summarizeCacheStatuses(epubFiles);
+  if (!storageFailure && !summarizeCacheStatuses(epubFiles)) {
+    LOG_ERR("GENALL", "Could not read EPUB list for status summary");
+    storageFailure = true;
   }
 
   LOG_DBG("GENALL", "Cache generation completed in %lu ms (progress display: %lu ms)", millis() - generationStartedAt,
