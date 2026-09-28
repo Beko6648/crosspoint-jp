@@ -4,6 +4,7 @@
 #include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
+#include <HalPowerManager.h>
 #include <HalRTC.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -271,6 +272,12 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("input_style=%s\n", inputStyleName());
   file.printf("sd_transport=%s\n", sdTransportName());
   file.printf("rtc_available=%s\n", halRTC.isAvailable() ? "true" : "false");
+  const auto& abortedSleep = powerManager.getAbortedSleepInfo();
+  file.printf("previous_deep_sleep_aborted=%s\n", abortedSleep.aborted ? "true" : "false");
+  if (abortedSleep.aborted) {
+    file.printf("previous_deep_sleep_abort_cause=%d\n", abortedSleep.wakeupCause);
+    file.printf("previous_deep_sleep_abort_wake_pin=%d\n", abortedSleep.wakePinLevel);
+  }
   file.printf("psram_available=%s\n", psramFound() ? "true" : "false");
   file.printf("psram_total_bytes=%lu\n", static_cast<unsigned long>(ESP.getPsramSize()));
   file.printf("psram_free_bytes=%lu\n", static_cast<unsigned long>(ESP.getFreePsram()));

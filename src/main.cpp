@@ -60,13 +60,32 @@ FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 
-void logX3DisplayProbeDiag() {
+void logDisplayProbeDiag() {
 #ifdef SIMULATOR
   return;
 #else
-  if (!gpio.deviceIsX3()) return;
-
   const auto& diag = freeink::getXteinkDisplayProbeDiag();
+#if FREEINK_DEVICE_X4CLASSIC
+  // At the pinned Stage 1 revision, X4C only probes when NVS screenType is
+  // absent. Replay the decision after Serial.begin(): the SDK's early direct
+  // Serial output may be lost and does not enter Yomuka's diagnostic log ring.
+  if (BoardConfig::isX4Classic()) {
+    const auto controller = BoardConfig::ACTIVE.displayController;
+    const char* name = controller == BoardConfig::DisplayController::UC8179   ? "UC8179"
+                       : controller == BoardConfig::DisplayController::UC8279 ? "UC8279"
+                                                                              : "SSD1677";
+    if (diag.valid) {
+      const uint8_t id = diag.ver[2];
+      const bool recognized = id == 0x01 || id == 0x02 || id == 0x68 || id == 0x69;
+      LOG_INF("XTDET", "X4C source=VER id=%02X recognized=%d busy_timeout=%d controller=%s", id, recognized,
+              diag.busyTimedOut, name);
+    } else {
+      LOG_INF("XTDET", "X4C source=NVS hw_calib/screenType controller=%s (probe skipped)", name);
+    }
+    return;
+  }
+#endif
+  if (!gpio.deviceIsX3()) return;
   if (!diag.valid) {
     LOG_ERR("XTDET", "X3 display-controller probe did not run");
     return;
@@ -335,7 +354,10 @@ void setup() {
 #endif
 
   LOG_INF("MAIN", "Hardware profile: %s", BoardConfig::ACTIVE.name);
-  logX3DisplayProbeDiag();
+#ifndef SIMULATOR
+  powerManager.captureBootDiagnostics();
+#endif
+  logDisplayProbeDiag();
 
   // InputManager's debounced state takes about 500ms to settle after boot.
   // X3 has one established recovery key (BTN_UP). X4 uses the same ADC ladder,

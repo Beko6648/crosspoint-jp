@@ -1,4 +1,5 @@
 #include <HalPowerManager.h>
+#include <PowerManager.h>
 
 #include <iostream>
 HalGPIO gpio;
@@ -6,6 +7,27 @@ void HalGPIO::begin() { _deviceType = DeviceType::X3; }
 void HalGPIO::update() {}
 bool HalGPIO::isPressed(uint8_t) const { return false; }
 int main() {
+  // Normal boot is silent, repeated capture/report reads never consume again.
+  HalPowerManager normalBoot;
+  normalBoot.captureBootDiagnostics();
+  normalBoot.captureBootDiagnostics();
+  assert(freeink::PowerManager::takeCalls == 1 && logs.empty());
+  assert(!normalBoot.getAbortedSleepInfo().aborted);
+  freeink::PowerManager::pendingAbort = {true, 7, -1};
+  HalPowerManager abortedBoot;
+  abortedBoot.captureBootDiagnostics();
+  abortedBoot.captureBootDiagnostics();
+  assert(freeink::PowerManager::takeCalls == 2 && logs.size() == 1);
+  assert(logs.back() == "Previous deep-sleep entry aborted cause=7 wake_pin=-1");
+  for (int report = 0; report < 2; ++report) {
+    const auto& info = abortedBoot.getAbortedSleepInfo();
+    assert(info.aborted && info.wakeupCause == 7 && info.wakePinLevel == -1);
+  }
+  logs.clear();
+  HalPowerManager nextBoot;
+  nextBoot.captureBootDiagnostics();
+  assert(!nextBoot.getAbortedSleepInfo().aborted && logs.empty());
+  std::cout << "PASS: sleep-abort capture once, silent normal boot, retained report fields, consumed record\n";
   // C3 X4 and S3 must never read the X3 I2C fuel gauge.
   HalPowerManager adc;
   adc.begin();

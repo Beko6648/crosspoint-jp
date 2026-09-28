@@ -75,6 +75,16 @@ void HalPowerManager::begin() {
   assert(modeMutex != nullptr);
 }
 
+void HalPowerManager::captureBootDiagnostics() {
+  if (bootDiagnosticsCaptured) return;
+  bootDiagnosticsCaptured = true;
+  const auto info = freeink::PowerManager::takeAbortedSleepInfo();
+  abortedSleepInfo = {info.aborted, info.wakeupCause, info.wakePinLevel};
+  if (info.aborted) {
+    LOG_INF("PWR", "Previous deep-sleep entry aborted cause=%d wake_pin=%d", info.wakeupCause, info.wakePinLevel);
+  }
+}
+
 void HalPowerManager::setPowerSaving(bool enabled) {
   if (normalFreq <= 0) {
     return;  // invalid state
