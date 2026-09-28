@@ -180,6 +180,13 @@ static void appendPowerLog(const char* event, const char* wakeReason = "-") {
   int voltageMv = -1;
   int voltagePercent = -1;
   int currentMa = -32769;
+#if FREEINK_DEVICE_X4CLASSIC
+  // X4C uses CW2017 on the profile's I2C bus. GPIO0 is a navigation key,
+  // not the C3 X4 battery ADC. Preserve unknown fields instead of sampling it.
+  const BatteryMonitor battery;
+  const auto batteryStatus = battery.readStatus();
+  if (batteryStatus.millivoltsKnown) voltageMv = batteryStatus.millivolts;
+#else
   if (gpio.deviceIsX3()) {
     // BQ27220から電圧(mV)と電流(mA)を読み取り。
     uint16_t gaugeVoltageMv = 0;
@@ -204,16 +211,25 @@ static void appendPowerLog(const char* event, const char* wakeReason = "-") {
     voltageMv = battery.readMillivolts();
     if (voltageMv > 0) voltagePercent = BatteryMonitor::percentageFromMillivolts(voltageMv);
   }
+#endif
 
   const int displayedPercent = powerManager.getBatteryPercentage();
-  const bool usbConnected = gpio.isUsbConnected();
+#if FREEINK_DEVICE_X4CLASSIC
+  const char* deviceLabel = "X4 Classic";
+  // No confirmed USB cable detection on this profile. false from the input
+  // HAL must not become evidence that a cable is physically disconnected.
+  const int usbState = BoardConfig::ACTIVE.usbDetect >= 0 ? (gpio.isUsbConnected() ? 1 : 0) : -1;
+#else
+  const char* deviceLabel = gpio.deviceIsX3() ? "X3" : "X4";
+  const int usbState = gpio.isUsbConnected() ? 1 : 0;
+#endif
   char line[256];
   snprintf(line, sizeof(line),
            "%04d/%02d/%02d %02d:%02d:%02d event=%s uptime_ms=%lu device=%s ui_pct=%d voltage_pct=%d "
            "raw_adc=%d voltage_mV=%d current_mA=%d usb=%d wake=%s rtc=%s\n",
-           ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, millis(),
-           gpio.deviceIsX3() ? "X3" : "X4", displayedPercent, voltagePercent, rawAdc, voltageMv, currentMa,
-           usbConnected ? 1 : 0, wakeReason, SETTINGS.rtcEnabled ? "ON" : "OFF");
+           ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday, ti.tm_hour, ti.tm_min, ti.tm_sec, event, millis(), deviceLabel,
+           displayedPercent, voltagePercent, rawAdc, voltageMv, currentMa, usbState, wakeReason,
+           SETTINGS.rtcEnabled ? "ON" : "OFF");
   LOG_INF("BAT", "%s", line);
   auto file = Storage.open("/.crosspoint/power_log.txt", O_WRONLY | O_CREAT | O_APPEND);
   if (file) {

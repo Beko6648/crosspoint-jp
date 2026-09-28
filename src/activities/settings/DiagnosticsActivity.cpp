@@ -18,6 +18,9 @@
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
 #include "fontIds.h"
+#if FREEINK_DEVICE_X4CLASSIC && !defined(SIMULATOR)
+#include "util/X4cDiagnostics.h"
+#endif
 
 namespace {
 
@@ -269,6 +272,11 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("version=%s\n", CROSSPOINT_VERSION);
   file.printf("device=%s\n", deviceName());
   file.printf("display_controller=%s\n", displayControllerName());
+#if FREEINK_DEVICE_X4CLASSIC
+  file.printf("freeink_revision=%s\n", FREEINK_SDK_REVISION);
+  file.printf("build_id=%s\n", CROSSPOINT_BUILD_ID);
+  writeX4cHardwareDiagnostics(file);
+#endif
   file.printf("input_style=%s\n", inputStyleName());
   file.printf("sd_transport=%s\n", sdTransportName());
   file.printf("rtc_available=%s\n", halRTC.isAvailable() ? "true" : "false");
