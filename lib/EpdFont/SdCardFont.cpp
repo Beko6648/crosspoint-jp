@@ -36,8 +36,9 @@ static constexpr uint16_t CPFONT_VERSION_MIN = 4;
 static constexpr uint16_t CPFONT_VERSION_MAX = 5;
 static constexpr uint32_t HEADER_SIZE = 32;
 static constexpr uint32_t STYLE_TOC_ENTRY_SIZE = 32;
-// Vertical substitution is optional punctuation shaping.  Preserve enough
-// contiguous heap for the page renderer and font fallback data before loading it.
+// Preserve the existing total-heap admission floor for vertical glyphs.
+// Individual nothrow allocations below check actual contiguous requirements;
+// a fragmented heap need not contain a full 32 KB block for small vert data.
 static constexpr size_t MIN_FREE_HEAP_FOR_VERT_DATA = 32 * 1024;
 // Kerning is an optional typography enhancement.  Keep a small allocator
 // margin so a dense matrix never consumes the last usable contiguous block.
@@ -1259,8 +1260,8 @@ bool SdCardFont::loadVertData(uint8_t style) {
   if (s.vertLoaded) return true;
   if (s.vertSectionOffset == 0) return false;
 
-  if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA || ESP.getMaxAllocHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
-    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, need>=%zu)", style, ESP.getFreeHeap(),
+  if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_VERT_DATA) {
+    LOG_DBG("SDCF", "Skipping vert data for style %u (free=%u, maxAlloc=%u, totalNeed>=%zu)", style, ESP.getFreeHeap(),
             ESP.getMaxAllocHeap(), MIN_FREE_HEAP_FOR_VERT_DATA);
     Issue18Diagnostics::logMemory("vert-load-skipped", filePath_);
     return false;
