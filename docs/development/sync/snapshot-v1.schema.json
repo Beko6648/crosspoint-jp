@@ -1,0 +1,448 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Yomuka one-book sync snapshot v1",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "yomuka-book-snapshot"
+    },
+    "formatVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "bookId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "not": {
+        "const": "0000000000000000"
+      }
+    },
+    "exportedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "units": {
+      "type": "object",
+      "properties": {
+        "progress": {
+          "type": "object",
+          "properties": {
+            "updatedAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "spineIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "chapterPage": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "chapterPageCount": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 65535
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "finished": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "percent": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "spineIndex",
+                "chapterPage",
+                "chapterPageCount",
+                "finished",
+                "percent"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "updatedAt",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        "bookmarks": {
+          "type": "object",
+          "properties": {
+            "updatedAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "data": {
+              "type": "array",
+              "maxItems": 24,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "spineIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "chapterPage": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "chapterPageCount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "summary": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "pattern": "^[^\\u0000]*$"
+                  },
+                  "progressRatio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "spineIndex",
+                  "chapterPage",
+                  "chapterPageCount",
+                  "summary",
+                  "progressRatio"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "updatedAt",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        "readerSettings": {
+          "type": "object",
+          "properties": {
+            "updatedAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "horizontal": {
+                  "type": "object",
+                  "properties": {
+                    "font": {
+                      "type": "object",
+                      "properties": {
+                        "family": {
+                          "enum": [
+                            "noto-serif",
+                            "noto-sans",
+                            "open-dyslexic"
+                          ]
+                        },
+                        "sdFamilyName": {
+                          "type": "string",
+                          "maxLength": 31,
+                          "pattern": "^[^\\u0000]*$"
+                        }
+                      },
+                      "required": [
+                        "family",
+                        "sdFamilyName"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "fontSize": {
+                      "enum": [
+                        "small",
+                        "medium",
+                        "large",
+                        "extra-large"
+                      ]
+                    },
+                    "lineSpacing": {
+                      "type": "integer",
+                      "minimum": 80,
+                      "maximum": 220
+                    },
+                    "charSpacing": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 50
+                    },
+                    "paragraphAlignment": {
+                      "enum": [
+                        "justified",
+                        "left",
+                        "center",
+                        "right"
+                      ]
+                    },
+                    "extraParagraphSpacing": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4
+                    },
+                    "screenMargin": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 40
+                    },
+                    "firstLineIndent": {
+                      "type": "boolean"
+                    },
+                    "rubyEnabled": {
+                      "type": "boolean"
+                    },
+                    "rubyOffsetX": {
+                      "type": "integer",
+                      "minimum": -16,
+                      "maximum": 64
+                    },
+                    "rubyOffsetY": {
+                      "type": "integer",
+                      "minimum": -16,
+                      "maximum": 64
+                    },
+                    "tateChuYokoMaxDigits": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "maximum": 3
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                },
+                "vertical": {
+                  "type": "object",
+                  "properties": {
+                    "font": {
+                      "type": "object",
+                      "properties": {
+                        "family": {
+                          "enum": [
+                            "noto-serif",
+                            "noto-sans",
+                            "open-dyslexic"
+                          ]
+                        },
+                        "sdFamilyName": {
+                          "type": "string",
+                          "maxLength": 31,
+                          "pattern": "^[^\\u0000]*$"
+                        }
+                      },
+                      "required": [
+                        "family",
+                        "sdFamilyName"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "fontSize": {
+                      "enum": [
+                        "small",
+                        "medium",
+                        "large",
+                        "extra-large"
+                      ]
+                    },
+                    "lineSpacing": {
+                      "type": "integer",
+                      "minimum": 80,
+                      "maximum": 220
+                    },
+                    "charSpacing": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 50
+                    },
+                    "paragraphAlignment": {
+                      "enum": [
+                        "justified",
+                        "left",
+                        "center",
+                        "right"
+                      ]
+                    },
+                    "extraParagraphSpacing": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4
+                    },
+                    "screenMargin": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 40
+                    },
+                    "firstLineIndent": {
+                      "type": "boolean"
+                    },
+                    "rubyEnabled": {
+                      "type": "boolean"
+                    },
+                    "rubyOffsetX": {
+                      "type": "integer",
+                      "minimum": -16,
+                      "maximum": 64
+                    },
+                    "rubyOffsetY": {
+                      "type": "integer",
+                      "minimum": -16,
+                      "maximum": 64
+                    },
+                    "tateChuYokoMaxDigits": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "maximum": 3
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                },
+                "writingMode": {
+                  "enum": [
+                    "auto",
+                    "horizontal",
+                    "vertical"
+                  ]
+                },
+                "orientation": {
+                  "enum": [
+                    "portrait",
+                    "landscape-cw",
+                    "inverted",
+                    "landscape-ccw"
+                  ]
+                },
+                "bookStyle": {
+                  "enum": [
+                    "crosspoint",
+                    "epub",
+                    "balanced"
+                  ]
+                },
+                "imageRendering": {
+                  "enum": [
+                    "display",
+                    "placeholder",
+                    "suppress"
+                  ]
+                },
+                "invertImages": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "updatedAt",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        "history": {
+          "type": "object",
+          "properties": {
+            "updatedAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "sessionCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "lastReadAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "finishedAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "finished": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "seconds",
+                "sessionCount",
+                "lastReadAt",
+                "finishedAt",
+                "finished"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "updatedAt",
+            "data"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "minProperties": 1
+    }
+  },
+  "required": [
+    "format",
+    "formatVersion",
+    "bookId",
+    "exportedAt",
+    "units"
+  ],
+  "additionalProperties": false
+}
