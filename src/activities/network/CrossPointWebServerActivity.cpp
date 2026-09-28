@@ -326,6 +326,12 @@ void CrossPointWebServerActivity::stopWebServer() {
 void CrossPointWebServerActivity::loop() {
   // Handle different states
   if (state == WebServerActivityState::SERVER_RUNNING) {
+    // Consume the main-loop edge before any nested input update can clear it.
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      LOG_INF("WEBACT", "Exit requested before network work");
+      onGoHome();
+      return;
+    }
     // Handle DNS requests for captive portal (AP mode only)
     if (isApMode && dnsServer) {
       dnsServer->processNextRequest();
@@ -364,27 +370,22 @@ void CrossPointWebServerActivity::loop() {
       // Reset watchdog BEFORE processing - HTTP header parsing can be slow
       resetTaskWatchdogIfSubscribed();
 
-      // Process HTTP requests in tight loop for maximum throughput
-      // More iterations = more data processed per main loop cycle
+      // Bound the batch, and poll after every request instead of every 64.
+      // A single synchronous request can still take longer than this budget.
       constexpr int MAX_ITERATIONS = 500;
+      constexpr unsigned long NETWORK_BATCH_MS = 20;
+      const unsigned long batchStart = millis();
       for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
         webServer->handleClient();
-        // Reset watchdog every 32 iterations
-        if ((i & 0x1F) == 0x1F) {
-          resetTaskWatchdogIfSubscribed();
+        resetTaskWatchdogIfSubscribed();
+        mappedInput.update();
+        if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+          LOG_INF("WEBACT", "Exit requested during network work");
+          onGoHome();
+          return;
         }
-        // Yield and check for exit button every 64 iterations
-        if ((i & 0x3F) == 0x3F) {
-          yield();
-          // Force trigger an update of which buttons are being pressed so be have accurate state
-          // for back button checking
-          mappedInput.update();
-          // Check for exit button inside loop for responsiveness
-          if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-            onGoHome();
-            return;
-          }
-        }
+        yield();
+        if (millis() - batchStart >= NETWORK_BATCH_MS) break;
       }
       lastHandleClientTime = millis();
     }

@@ -271,14 +271,11 @@ void ActivityManager::requestUpdateAndWait() {
 // RenderLock
 
 RenderLock::RenderLock() {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY) == pdTRUE;
+  assert(isLocked && "Blocking render lock acquisition failed");
 }
 
-RenderLock::RenderLock([[maybe_unused]] Activity&) {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
-}
+RenderLock::RenderLock(Activity&) : RenderLock() {}
 
 RenderLock::RenderLock(TryLock) { isLocked = xSemaphoreTake(activityManager.renderingMutex, 0) == pdTRUE; }
 

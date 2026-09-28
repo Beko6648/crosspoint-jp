@@ -1636,11 +1636,12 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 void EpubReaderActivity::prefetchIdleChapter() {
   const uint32_t ready = chapterRenderReady.load();
   if (!ready || millis() - ready < 1500 || millis() - chapterLastInput < 1500 || automaticPageTurnActive ||
-      rubyAdjustActive || SETTINGS.tiltPageTurn || RenderLock::peek())
+      rubyAdjustActive || SETTINGS.tiltPageTurn)
     return;
   for (uint8_t b = 0; b <= HalGPIO::BTN_POWER; ++b)
     if (gpio.isPressed(b)) return;
-  RenderLock lock(*this);
+  RenderLock lock(RenderLock::TryLock::Now);
+  if (!lock.ownsLock()) return;
   if (chapterRenderReady.load() != ready || !epub || !section) return;
   HalPowerManager::Lock powerLock;
   if (gpio.pollIdleInput()) {
@@ -1907,7 +1908,12 @@ void EpubReaderActivity::renderStatusBar() const {
   int textYOffset = 0;
 
   if (automaticPageTurnActive) {
-    title = tr(STR_AUTO_TURN_ENABLED) + std::to_string(60 * 1000 / pageTurnDuration);
+    title = tr(STR_AUTO_TURN_ENABLED);
+    if (I18N.getLanguage() == Language::JAPANESE) {
+      title += std::to_string(pageTurnDuration / 1000) + "秒ごと";
+    } else {
+      title += std::to_string(60 * 1000 / pageTurnDuration);
+    }
 
     // calculates textYOffset when rendering title in status bar
     const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
@@ -2127,11 +2133,12 @@ void EpubReaderActivity::restoreSavedPosition() {
 void EpubReaderActivity::prefetchIdleImage() {
   const uint32_t ready = idleRenderReady.load();
   if (!ready || millis() - ready < 1000 || millis() - idleLastInput < 1000 || automaticPageTurnActive ||
-      rubyAdjustActive || SETTINGS.tiltPageTurn || RenderLock::peek())
+      rubyAdjustActive || SETTINGS.tiltPageTurn)
     return;
   for (uint8_t b = 0; b <= HalGPIO::BTN_POWER; ++b)
     if (gpio.isPressed(b)) return;
-  RenderLock lock(*this);
+  RenderLock lock(RenderLock::TryLock::Now);
+  if (!lock.ownsLock()) return;
   if (idleRenderReady.load() != ready || !epub || !section || !renderer.hasFrameBuffer()) return;
 #if defined(IDLE_CHAPTER_BUILD)
   if (idleChapter) return;

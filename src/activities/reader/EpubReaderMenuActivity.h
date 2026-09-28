@@ -2,8 +2,8 @@
 #include <Epub.h>
 #include <I18n.h>
 
-#include <string>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "../Activity.h"
@@ -83,7 +83,10 @@ class EpubReaderMenuActivity final : public Activity {
   uint8_t selectedPageTurnOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
-  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
+  const std::vector<const char*> pageTurnLabels =
+      I18N.getLanguage() == Language::JAPANESE
+          ? std::vector<const char*>{I18N.get(StrId::STR_STATE_OFF), "60秒ごと", "20秒ごと", "10秒ごと", "5秒ごと"}
+          : std::vector<const char*>{I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;
