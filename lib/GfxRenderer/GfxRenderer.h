@@ -78,7 +78,7 @@ class GfxRenderer {
   // Skip dark mode inversion for images (cover art should not be inverted)
   mutable bool skipDarkModeForImages = false;
   void renderChar(int fontId, const EpdFontFamily& fontFamily, uint32_t cp, int* x, const int* y, bool pixelState,
-                  EpdFontFamily::Style style) const;
+                  EpdFontFamily::Style style, bool allowFallback = true) const;
   void renderExternalGlyph(const uint8_t* bitmap, ExternalFont* font, int* x, int y, bool pixelState,
                            int advanceOverride = -1, int minX = 0) const;
   // Render CJK character using built-in UI font (from PROGMEM)
@@ -120,6 +120,7 @@ class GfxRenderer {
   void unregisterSdCardFont(int fontId) { sdCardFonts_.erase(fontId); }
   void clearSdCardFonts() { sdCardFonts_.clear(); }
   void registerSdCardFontScale(int fontId, uint16_t scale) { sdCardFontScales_[fontId] = scale; }
+  void unregisterSdCardFontScale(int fontId) { sdCardFontScales_.erase(fontId); }
   void clearSdCardFontScales() { sdCardFontScales_.clear(); }
   uint16_t getSdCardFontScale(int fontId) const {
     auto it = sdCardFontScales_.find(fontId);
@@ -212,6 +213,8 @@ class GfxRenderer {
 
   void drawCenteredTextOffset(const int fontId, const int y, const char* text, const bool black, const int xOffset,
                               const EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Specimen-only path: draw the font's exact glyph, never UI/external fallback.
+  void drawGlyphExact(int fontId, int x, int y, uint32_t codepoint) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;

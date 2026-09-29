@@ -21,6 +21,7 @@ class FontSelectionActivity final : public Activity {
 
  private:
   void handleSelection();
+  void drawSpecimen(int x, int y, int width, int height);
 
   struct FontEntry {
     std::string name;
