@@ -1305,7 +1305,8 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   }
 }
 
-void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
+void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height,
+                           const bool state) const {
   // Icon bitmaps are authored to match the historical drawImageTransparent
   // path used by UI themes (portrait physical placement with transposed axes).
   // Recreate that logical mapping, then render through drawPixel() so current
@@ -1320,7 +1321,7 @@ void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, con
       if (!transparent) {
         const int legacyX = x + width - 1 - row;
         const int legacyY = y + col;
-        drawPixel(legacyX, legacyY, true);
+        drawPixel(legacyX, legacyY, state);
       }
     }
   }

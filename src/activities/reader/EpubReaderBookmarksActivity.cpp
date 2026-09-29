@@ -12,6 +12,7 @@
 #include "OrientationHelper.h"
 #include "components/UITheme.h"
 #include "components/UiLayout.h"
+#include "components/icons/bookmark32.h"
 #include "fontIds.h"
 #include "util/BookDataPath.h"
 #include "util/BookmarkUtil.h"
@@ -181,23 +182,29 @@ void EpubReaderBookmarksActivity::render(RenderLock&&) {
                                       centerOffset);
   } else {
     const int first = (selectedIndex / rows) * rows;
+    constexpr int iconSize = 32;
+    constexpr int iconGap = 8;
+    const int textX = layout.content.x + 15 + iconSize + iconGap;
+    const int textWidth = layout.content.width - 30 - iconSize - iconGap;
     for (int i = 0; i < rows && first + i < itemCount; ++i) {
       const int index = first + i;
       const bool selected = index == selectedIndex;
       const int y = listTop + i * kLineHeight;
       if (selected) renderer.fillRect(layout.content.x, y - 3, layout.content.width - 1, kLineHeight, true);
       if (index == static_cast<int>(bookmarks.size())) {
-        renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y + 10, tr(STR_DELETE_ALL_BOOKMARKS), !selected);
+        const auto label = renderer.truncatedText(UI_10_FONT_ID, tr(STR_DELETE_ALL_BOOKMARKS), textWidth);
+        renderer.drawText(UI_10_FONT_ID, textX, y + 10, label.c_str(), !selected);
         continue;
       }
       const auto& bookmark = bookmarks[index];
-      const std::string title =
-          renderer.truncatedText(UI_10_FONT_ID, bookmark.summary.c_str(), layout.content.width - 30);
+      renderer.drawIcon(Bookmark32Icon, layout.content.x + 15, y - 3 + (kLineHeight - iconSize) / 2, iconSize, iconSize,
+                        !selected);
+      const std::string title = renderer.truncatedText(UI_10_FONT_ID, bookmark.summary.c_str(), textWidth);
       const std::string detail = std::to_string(static_cast<int>(bookmark.percentage * 100.0f + 0.5f)) + "%  " +
                                  std::to_string(bookmark.chapterPage + 1) + "/" +
                                  std::to_string(bookmark.chapterPageCount);
-      renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y, title.c_str(), !selected);
-      renderer.drawText(UI_10_FONT_ID, layout.content.x + 15, y + 22, detail.c_str(), !selected);
+      renderer.drawText(UI_10_FONT_ID, textX, y, title.c_str(), !selected);
+      renderer.drawText(UI_10_FONT_ID, textX, y + 22, detail.c_str(), !selected);
     }
     renderer.drawCenteredTextOffset(UI_10_FONT_ID, listBottom + metrics.verticalSpacing / 2,
                                     tr(STR_HOLD_OPEN_TO_DELETE), true, centerOffset);
