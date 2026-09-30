@@ -235,12 +235,14 @@ void ReaderTestViewActivity::render(RenderLock&&) {
       availableWidth -= sideHintGutter;
       if (!layout.frontHintsOnLeft) contentX += sideHintGutter;
     } else {
-      // X4 side keys are shown along a horizontal edge in landscape. Match
-      // Settings instead of consuming the X3-only 54 px vertical strip.
+      // Match Settings: Lyra's battery strip can share the top edge with
+      // side-key hints. Keep the gutter for Classic's title and bottom hints.
       const int sideHintGutter = metrics.sideButtonHintsWidth;
-      availableHeight -= sideHintGutter;
-      if (renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
-        contentY += sideHintGutter;
+      const bool hintsAtTop = renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise;
+      const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
+      if (!hintsAtTop || !isLyraTheme) {
+        availableHeight -= sideHintGutter;
+        if (hintsAtTop) contentY += sideHintGutter;
       }
     }
   } else {

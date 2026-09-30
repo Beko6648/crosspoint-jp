@@ -1,0 +1,54 @@
+{
+  "format": "yomuka-book-snapshot",
+  "formatVersion": 1,
+  "bookId": "0123456789abcdef",
+  "exportedAt": 1790550000,
+  "units": {
+    "progress": {
+      "updatedAt": 0,
+      "data": {
+        "spineIndex": 12,
+        "chapterPage": 34,
+        "chapterPageCount": 120,
+        "finished": false,
+        "percent": 42
+      }
+    },
+    "bookmarks": {
+      "updatedAt": 0,
+      "data": [
+        {
+          "spineIndex": 12,
+          "chapterPage": 34,
+          "chapterPageCount": 120,
+          "summary": "第十三章",
+          "progressRatio": 0.42
+        }
+      ]
+    },
+    "readerSettings": {
+      "updatedAt": 0,
+      "data": {
+        "writingMode": "vertical",
+        "vertical": {
+          "font": {
+            "family": "noto-sans",
+            "sdFamilyName": "NotoSerifJP"
+          },
+          "fontSize": "medium",
+          "rubyOffsetX": 0
+        }
+      }
+    },
+    "history": {
+      "updatedAt": 0,
+      "data": {
+        "seconds": 3600,
+        "sessionCount": 3,
+        "lastReadAt": 1790549900,
+        "finishedAt": 0,
+        "finished": false
+      }
+    }
+  }
+}

@@ -500,6 +500,8 @@ void SettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto layout = UiLayout::from(renderer);
+  const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
+  const bool compactX4Landscape = layout.landscape && !gpio.deviceIsX3();
   Rect contentArea = layout.content;
   if (layout.landscape) {
     if (gpio.deviceIsX3()) {
@@ -508,9 +510,12 @@ void SettingsActivity::render(RenderLock&&) {
       if (!layout.frontHintsOnLeft) contentArea.x += sideHintWidth;
     } else {
       const int sideHintHeight = metrics.sideButtonHintsWidth;
-      contentArea.height -= sideHintHeight;
-      if (renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise) {
-        contentArea.y += sideHintHeight;
+      const bool hintsAtTop = renderer.getOrientation() == GfxRenderer::Orientation::LandscapeCounterClockwise;
+      // Lyra's battery strip can share the top edge with the centered side-key
+      // hints. Classic puts its title there, so it still needs the full gutter.
+      if (!hintsAtTop || !isLyraTheme) {
+        contentArea.height -= sideHintHeight;
+        if (hintsAtTop) contentArea.y += sideHintHeight;
       }
     }
   }
@@ -521,7 +526,6 @@ void SettingsActivity::render(RenderLock&&) {
   constexpr int x3ClassicInset = 23;
   constexpr int x3LyraInset = 15;
   constexpr int x4RightInset = 12;
-  const bool isLyraTheme = SETTINGS.uiTheme != CrossPointSettings::UI_THEME::CLASSIC;
   const int x3Inset = isLyraTheme ? x3LyraInset : x3ClassicInset;
   const int listLeftInset = layout.landscape ? 0 : (gpio.deviceIsX3() ? x3Inset : 0);
   const int listRightInset = layout.landscape ? 0 : (gpio.deviceIsX3() ? x3Inset : x4RightInset);
@@ -546,8 +550,10 @@ void SettingsActivity::render(RenderLock&&) {
                       metrics.tabBarHeight + metrics.verticalSpacing;
   const int helpTextHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
   const int bottomHints = layout.landscape ? 0 : metrics.buttonHintsHeight;
-  const int listBottom =
-      contentArea.y + contentArea.height - bottomHints - metrics.verticalSpacing * 2 - helpTextHeight;
+  // The help rectangle already includes trailing spacing. Reuse the additional
+  // bottom margin for list rows, while keeping bottom-edge side hints reserved.
+  const int bottomSpacing = compactX4Landscape ? metrics.verticalSpacing : metrics.verticalSpacing * 2;
+  const int listBottom = contentArea.y + contentArea.height - bottomHints - bottomSpacing - helpTextHeight;
   GUI.drawList(
       renderer,
       Rect{contentArea.x + listLeftInset, listTop, contentArea.width - listLeftInset - listRightInset,

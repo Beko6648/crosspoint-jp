@@ -326,6 +326,12 @@ void CrossPointWebServerActivity::stopWebServer() {
 void CrossPointWebServerActivity::loop() {
   // Handle different states
   if (state == WebServerActivityState::SERVER_RUNNING) {
+    // Consume the main-loop edge before any nested input update can clear it.
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      LOG_INF("WEBACT", "Exit requested before network work");
+      onGoHome();
+      return;
+    }
     // Handle DNS requests for captive portal (AP mode only)
     if (isApMode && dnsServer) {
       dnsServer->processNextRequest();
@@ -383,30 +389,26 @@ void CrossPointWebServerActivity::loop() {
       // Reset watchdog BEFORE processing - HTTP header parsing can be slow
       resetTaskWatchdogIfSubscribed();
 
-      // Process HTTP requests. Idle state uses a small iteration budget and a
-      // short yield between cycles so the CPU (and modem, when sleep is on)
-      // can actually idle; active state uses the upstream tight loop for
-      // maximum transfer throughput.
+      // Process HTTP requests. Upstream bounds each batch to a 20 ms budget and
+      // polls for the exit button after every request; the fork additionally
+      // shrinks the batch when no traffic is active so the CPU (and modem, when
+      // sleep is on) can actually idle.
       const int maxIterations = active ? 500 : 4;
+      constexpr unsigned long NETWORK_BATCH_MS = 20;
+      const unsigned long batchStart = millis();
       for (int i = 0; i < maxIterations && webServer->isRunning(); i++) {
         webServer->handleClient();
-        // Reset watchdog every 32 iterations
-        if ((i & 0x1F) == 0x1F) {
-          resetTaskWatchdogIfSubscribed();
+        resetTaskWatchdogIfSubscribed();
+        mappedInput.update();
+        if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+          LOG_INF("WEBACT", "Exit requested during network work");
+          onGoHome();
+          return;
         }
-        // Yield and check for exit button every iteration when idle (gives the
-        // scheduler a chance to sleep), every 64 when active (throughput).
-        if ((active ? ((i & 0x3F) == 0x3F) : true)) {
-          yield();
-          // Force trigger an update of which buttons are being pressed so be have accurate state
-          // for back button checking
-          mappedInput.update();
-          // Check for exit button inside loop for responsiveness
-          if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-            onGoHome();
-            return;
-          }
-        }
+        yield();
+        // Only the active (full-throughput) path keeps the upstream time budget;
+        // the idle path stays on the short fixed batch so it yields frequently.
+        if (active && millis() - batchStart >= NETWORK_BATCH_MS) break;
       }
       lastHandleClientTime = millis();
     }

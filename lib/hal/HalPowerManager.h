@@ -33,6 +33,17 @@ class HalPowerManager {
   SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
 
  public:
+  struct AbortedSleepInfo {
+    bool aborted = false;
+    int wakeupCause = 0;
+    int wakePinLevel = 0;
+  };
+
+ private:
+  AbortedSleepInfo abortedSleepInfo;
+  bool bootDiagnosticsCaptured = false;
+
+ public:
   static constexpr int LOW_POWER_FREQ = 10;                    // MHz
   static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
   static constexpr unsigned long BATTERY_POLL_MS = 1500;       // ms
@@ -40,6 +51,11 @@ class HalPowerManager {
   static constexpr int BATTERY_SOC_JUMP_THRESHOLD = 15;        // Percentage points, either direction
 
   void begin();
+
+  // Call once after serial initialization. Keep the consumed SDK record in RAM
+  // for manual diagnostic reports, without adding NVS or automatic SD writes.
+  void captureBootDiagnostics();
+  const AbortedSleepInfo& getAbortedSleepInfo() const { return abortedSleepInfo; }
 
   // Control CPU frequency for power saving
   void setPowerSaving(bool enabled);

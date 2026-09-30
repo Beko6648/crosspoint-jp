@@ -22,6 +22,7 @@ class Activity {};
 RenderLock::RenderLock(Activity&) { assert(false && "input must not take blocking lock"); }
 unsigned millis(){return 42;}
 struct Input {bool wasAnyPressed(){return true;}bool wasAnyReleased(){return false;}};
+namespace CacheGenerationControls { bool consumeCancellationRelease(Input&) { return false; } }
 struct Build {~Build(){assert(held);}};
 struct EpubReaderActivity:Activity {
  Input mappedInput;unsigned chapterLastInput=0;std::unique_ptr<Build> idleChapter;void loop();

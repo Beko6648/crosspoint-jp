@@ -1352,7 +1352,8 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   }
 }
 
-void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
+void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height,
+                           const bool state) const {
   // Icon bitmaps are authored to match the historical drawImageTransparent
   // path used by UI themes (portrait physical placement with transposed axes).
   // Recreate that logical mapping, then render through drawPixel() so current
@@ -1367,7 +1368,7 @@ void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, con
       if (!transparent) {
         const int legacyX = x + width - 1 - row;
         const int legacyY = y + col;
-        drawPixel(legacyX, legacyY, true);
+        drawPixel(legacyX, legacyY, state);
       }
     }
   }
@@ -3096,8 +3097,15 @@ void GfxRenderer::cleanupGrayscaleWithFrameBuffer() const {
   }
 }
 
+void GfxRenderer::drawGlyphExact(const int fontId, int x, const int y, const uint32_t codepoint) const {
+  const auto font = fontMap.find(fontId);
+  if (font == fontMap.end() || !font->second.getGlyphExact(codepoint)) return;
+  const int baseline = y + getFontAscenderSize(fontId);
+  renderChar(fontId, font->second, codepoint, &x, &baseline, true, EpdFontFamily::REGULAR, false);
+}
+
 void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, const uint32_t cp, int* x, const int* y,
-                             const bool pixelState, const EpdFontFamily::Style style) const {
+                             const bool pixelState, const EpdFontFamily::Style style, const bool allowFallback) const {
   FontManager& fm = FontManager::getInstance();
 
   const uint32_t displayCp = displayCodepoint(cp, isUiFont(fontId));
@@ -3107,7 +3115,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
 
   // SD-card cpfonts carry their own style data. Never let a legacy external
   // font override their CJK glyphs, or Bold degrades to the external Regular.
-  if (isReaderFont(fontId)) {
+  if (allowFallback && isReaderFont(fontId)) {
     if (!isSdCardFont(fontId) && fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
@@ -3135,7 +3143,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
         // Fall through to built-in reader font rendering below
       }
     }
-  } else {
+  } else if (allowFallback) {
     // UI font - for CJK characters, prioritize built-in UI font (Flash, fast)
     // Only fall back to external font if built-in doesn't have the glyph
     if (isCjk) {
