@@ -111,6 +111,7 @@ class CrossPointWebServer {
   void handleDelete() const;
 
   yomuka::sync::SnapshotUpload syncUpload;
+  size_t syncDiagnosticNeeded = 0, syncDiagnosticFree = 0, syncDiagnosticLargest = 0;
   bool getSyncBook(yomuka::sync::ExchangeBook& book) const;
   void handleSyncPage() const;
   void handleSyncBook() const;

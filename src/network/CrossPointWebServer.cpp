@@ -636,12 +636,18 @@ void CrossPointWebServer::handleSyncExport() const {
 void CrossPointWebServer::handleSyncUpload() {
   resetTaskWatchdogIfSubscribed();
   const auto& part = server->upload();
-  if (part.status == UPLOAD_FILE_START)
+  if (part.status == UPLOAD_FILE_START) {
+    syncDiagnosticNeeded = syncDiagnosticFree = syncDiagnosticLargest = 0;
     syncUpload.start();
-  else if (part.status == UPLOAD_FILE_WRITE) {
+  } else if (part.status == UPLOAD_FILE_WRITE) {
     const size_t needed = syncUpload.size() + part.currentSize;
-    const bool enough = needed <= 65536 && heap_caps_get_free_size(MALLOC_CAP_8BIT) >= needed * 3 + 32768 &&
-                        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= needed + 4096;
+    const bool enough = yomuka::sync::SnapshotUpload::memoryAvailable(
+        needed, heap_caps_get_free_size(MALLOC_CAP_8BIT), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    if (!enough && syncDiagnosticNeeded == 0) {
+      syncDiagnosticNeeded = needed;
+      syncDiagnosticFree = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+      syncDiagnosticLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    }
     syncUpload.append(part.buf, part.currentSize, enough);
   } else if (part.status == UPLOAD_FILE_END)
     syncUpload.finish();
@@ -650,13 +656,24 @@ void CrossPointWebServer::handleSyncUpload() {
 }
 void CrossPointWebServer::handleSyncUploadPost() {
   JsonDocument snapshot;
-  const bool valid = syncUpload.parse(snapshot);
-  syncUpload.clear();
+  const bool parseMemory = yomuka::sync::SnapshotUpload::memoryAvailable(
+      syncUpload.size(), heap_caps_get_free_size(MALLOC_CAP_8BIT), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  const bool valid = syncUpload.parse(snapshot, parseMemory);
   if (!valid) {
-    server->send(400, "text/plain; charset=utf-8",
-                 "受信できませんでした。不正・過大・通信中断・メモリ不足の可能性があります");
+    char diagnostic[256];
+    snprintf(
+        diagnostic, sizeof(diagnostic), "受信失敗: reason=%s validation=%u bytes=%u needed=%u free=%u largest=%u",
+        syncUpload.failureReason(), static_cast<unsigned>(syncUpload.validationError()),
+        static_cast<unsigned>(syncUpload.size()), static_cast<unsigned>(syncDiagnosticNeeded),
+        static_cast<unsigned>(syncDiagnosticNeeded ? syncDiagnosticFree : heap_caps_get_free_size(MALLOC_CAP_8BIT)),
+        static_cast<unsigned>(syncDiagnosticNeeded ? syncDiagnosticLargest
+                                                   : heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+    LOG_DBG("WEB", "%s", diagnostic);
+    syncUpload.clear();
+    server->send(400, "text/plain; charset=utf-8", diagnostic);
     return;
   }
+  syncUpload.clear();
   yomuka::sync::ExchangeBook book;
   if (!getSyncBook(book)) return;
   const auto result = yomuka::sync::stageSnapshotForBook(book, snapshot);

@@ -89,6 +89,17 @@ int main() {
   const ExchangeBook small{1, 1, book.path, book.title, book.author};
   CHECK(readSnapshotForBook(renamed, small, listed) == ExchangeError::Invalid);
   // Web reception is staged only after one complete, valid multipart file.
+  // Device-reported low-heap values must admit this small file, while both
+  // total and contiguous limits still reject below the exact boundary.
+  CHECK(SnapshotUpload::requiredFree(753) == 20240);
+  CHECK(SnapshotUpload::memoryAvailable(753, 32528, 19444));
+  CHECK(SnapshotUpload::memoryAvailable(753, 29088, 16372));
+  CHECK(SnapshotUpload::memoryAvailable(753, 29556, 26612));
+  CHECK(!SnapshotUpload::memoryAvailable(753, 20239, 26612));
+  CHECK(!SnapshotUpload::memoryAvailable(753, 29556, 4848));
+  CHECK(SnapshotUpload::memoryAvailable(753, 20240, 4849));
+  CHECK(SnapshotUpload::requiredFree(65536) == 65536 * 3 + 32768);
+  CHECK(!SnapshotUpload::memoryAvailable(65537, 1000000, 1000000));
   SnapshotUpload upload;
   JsonDocument received;
   received["sentinel"] = 42;
@@ -99,6 +110,8 @@ int main() {
                         std::min<size_t>(7, exported.size() - offset)));
   CHECK(!upload.parse(received) && received["sentinel"] == 42 && Storage.snapshot() == unchanged);
   upload.finish();
+  CHECK(!upload.parse(received, false) && received["sentinel"] == 42 && Storage.snapshot() == unchanged);
+  CHECK(std::string(upload.failureReason()) == "memory");
   CHECK(upload.parse(received));
   CHECK(stageSnapshotForBook(other, received) == ExchangeError::Invalid && Storage.snapshot() == unchanged);
   CHECK(stageSnapshotForBook(book, received) == ExchangeError::None);
@@ -113,6 +126,7 @@ int main() {
   CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size() / 2));
   upload.abort();
   CHECK(!upload.parse(received) && Storage.snapshot() == staged);
+  CHECK(std::string(upload.failureReason()) == "aborted");
   upload.start();
   CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
   upload.finish();
@@ -128,11 +142,13 @@ int main() {
   upload.start();
   const std::string tooLarge(65537, ' ');
   CHECK(!upload.append(reinterpret_cast<const uint8_t*>(tooLarge.data()), tooLarge.size()));
+  CHECK(std::string(upload.failureReason()) == "too-large");
   upload.finish();
   CHECK(!upload.parse(received));
   upload.clear();
   upload.start();
   CHECK(!upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size(), false));
+  CHECK(std::string(upload.failureReason()) == "memory");
   upload.finish();
   CHECK(!upload.parse(received));
   upload.clear();
@@ -141,6 +157,7 @@ int main() {
   CHECK(upload.append(reinterpret_cast<const uint8_t*>(broken.data()), broken.size()));
   upload.finish();
   CHECK(!upload.parse(received));
+  CHECK(std::string(upload.failureReason()) == "validation" && upload.validationError() != SnapshotError::None);
   upload.clear();
   upload.start();
   upload.finish();
