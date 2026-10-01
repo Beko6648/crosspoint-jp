@@ -9,6 +9,7 @@
 #include <Issue18Diagnostics.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +28,7 @@
 #include "html/HomePageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/SleepPageHtml.generated.h"
+#include "html/SyncPageHtml.generated.h"
 #include "html/js/aozora_epubJs.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 
@@ -256,6 +258,10 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleRoot(); });
   server->on("/files", HTTP_GET, [this] { handleFileList(); });
+  server->on("/sync", HTTP_GET, [this] { handleSyncPage(); });
+  server->on("/api/sync/book", HTTP_GET, [this] { handleSyncBook(); });
+  server->on("/api/sync/export", HTTP_GET, [this] { handleSyncExport(); });
+  server->on("/api/sync/upload", HTTP_POST, [this] { handleSyncUploadPost(); }, [this] { handleSyncUpload(); });
   server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
   server->on("/js/aozora-epub.js", HTTP_GET, [this] { handleAozoraEpubJs(); });
 
@@ -385,6 +391,7 @@ void CrossPointWebServer::stop() {
   delay(20);
 
   server->stop();
+  syncUpload.clear();
   LOG_DBG("WEB", "[MEM] Free heap after server->stop(): %d bytes", ESP.getFreeHeap());
 
   // Brief delay before deletion
@@ -560,6 +567,110 @@ bool CrossPointWebServer::isEpubFile(const String& filename) const { return FsHe
 
 void CrossPointWebServer::handleFileList() const {
   sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
+}
+
+bool CrossPointWebServer::getSyncBook(yomuka::sync::ExchangeBook& book) const {
+  const String path = normalizeWebPath(server->arg("book"));
+  if (!server->hasArg("book") || !isEpubFile(path) || path.indexOf("/.") >= 0 || path.indexOf('\\') >= 0) {
+    server->send(400, "text/plain; charset=utf-8", "対象のEPUBを選んでください");
+    return false;
+  }
+  resetTaskWatchdogIfSubscribed();
+  Epub epub(path.c_str(), "/.crosspoint");
+  uint64_t id = 0;
+  if (!epub.getSourceFingerprint(&id) || !id || !epub.load(false, true)) {
+    server->send(409, "text/plain; charset=utf-8", "この本を端末で一度開いてから再試行してください");
+    return false;
+  }
+  book = {id, static_cast<uint32_t>(epub.getSpineItemsCount()), path.c_str(), epub.getTitle(), epub.getAuthor()};
+  return true;
+}
+void CrossPointWebServer::handleSyncPage() const { sendHtmlContent(server.get(), SyncPageHtml, sizeof(SyncPageHtml)); }
+void CrossPointWebServer::handleSyncBook() const {
+  yomuka::sync::ExchangeBook book;
+  if (!getSyncBook(book)) return;
+  JsonDocument doc;
+  doc["title"] = book.title;
+  doc["author"] = book.author;
+  doc["bookId"] = yomuka::sync::exchangeFilePath(book.id).substr(12, 16);
+  String body;
+  serializeJson(doc, body);
+  server->sendHeader("Cache-Control", "no-store");
+  server->send(200, "application/json; charset=utf-8", body);
+}
+void CrossPointWebServer::handleSyncExport() const {
+  yomuka::sync::ExchangeBook book;
+  if (!getSyncBook(book)) return;
+  const String units = server->arg("units");
+  uint8_t selected = 0;
+  for (unsigned i = 1; i <= 15; ++i)
+    if (units == String(i)) selected = i;
+  if (!selected) {
+    server->send(400, "text/plain; charset=utf-8", "共有するデータを選んでください");
+    return;
+  }
+  JsonDocument snapshot;
+  const auto result = yomuka::sync::exportSnapshot(book, selected, READING_HISTORY, snapshot);
+  if (result != yomuka::sync::ExchangeError::None) {
+    server->send(409, "text/plain; charset=utf-8",
+                 "保存データを確認できません。読書位置が未保存の場合は位置の選択を外してください");
+    return;
+  }
+  const size_t size = measureJson(snapshot);
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < size + 4096 ||
+      heap_caps_get_free_size(MALLOC_CAP_8BIT) < size + 32768) {
+    server->send(503, "text/plain; charset=utf-8", "メモリが不足しています。再起動後に再試行してください");
+    return;
+  }
+  String body;
+  serializeJson(snapshot, body);
+  if (body.length() != size) {
+    server->send(503, "text/plain; charset=utf-8", "書き出し用メモリが不足しています");
+    return;
+  }
+  const auto path = yomuka::sync::exchangeFilePath(book.id);
+  server->sendHeader("Cache-Control", "no-store");
+  server->sendHeader("Content-Disposition", String("attachment; filename=\"") + path.substr(12).c_str() + "\"");
+  server->send(200, "application/json; charset=utf-8", body);
+}
+void CrossPointWebServer::handleSyncUpload() {
+  resetTaskWatchdogIfSubscribed();
+  const auto& part = server->upload();
+  if (part.status == UPLOAD_FILE_START)
+    syncUpload.start();
+  else if (part.status == UPLOAD_FILE_WRITE) {
+    const size_t needed = syncUpload.size() + part.currentSize;
+    const bool enough = needed <= 65536 && heap_caps_get_free_size(MALLOC_CAP_8BIT) >= needed * 3 + 32768 &&
+                        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= needed + 4096;
+    syncUpload.append(part.buf, part.currentSize, enough);
+  } else if (part.status == UPLOAD_FILE_END)
+    syncUpload.finish();
+  else if (part.status == UPLOAD_FILE_ABORTED)
+    syncUpload.abort();
+}
+void CrossPointWebServer::handleSyncUploadPost() {
+  JsonDocument snapshot;
+  const bool valid = syncUpload.parse(snapshot);
+  syncUpload.clear();
+  if (!valid) {
+    server->send(400, "text/plain; charset=utf-8",
+                 "受信できませんでした。不正・過大・通信中断・メモリ不足の可能性があります");
+    return;
+  }
+  yomuka::sync::ExchangeBook book;
+  if (!getSyncBook(book)) return;
+  const auto result = yomuka::sync::stageSnapshotForBook(book, snapshot);
+  if (result == yomuka::sync::ExchangeError::Invalid) {
+    server->send(409, "text/plain; charset=utf-8", "別の本の共有ファイルです。保存データは変更していません");
+    return;
+  }
+  if (result != yomuka::sync::ExchangeError::None) {
+    server->send(500, "text/plain; charset=utf-8", "共有ファイルの保存に失敗しました。SDを確認してください");
+    return;
+  }
+  server->send(
+      200, "text/plain; charset=utf-8",
+      "共有ファイルを受信しました。Wi-Fiを終了し、この本の「SDで読書データを共有」から確認して取り込んでください。");
 }
 
 void CrossPointWebServer::handleFileListData() const {

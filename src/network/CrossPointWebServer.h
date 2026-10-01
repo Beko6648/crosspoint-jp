@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "sync/SnapshotExchange.h"
+#include "sync/SnapshotUpload.h"
+
 // Structure to hold file information
 struct FileInfo {
   static constexpr size_t NAME_BUFFER_SIZE = 500;
@@ -106,6 +109,14 @@ class CrossPointWebServer {
   void handleRename() const;
   void handleMove() const;
   void handleDelete() const;
+
+  yomuka::sync::SnapshotUpload syncUpload;
+  bool getSyncBook(yomuka::sync::ExchangeBook& book) const;
+  void handleSyncPage() const;
+  void handleSyncBook() const;
+  void handleSyncExport() const;
+  void handleSyncUpload();
+  void handleSyncUploadPost();
 
   // Settings handlers
   void handleSettingsPage() const;

@@ -33,6 +33,16 @@ ExchangeError readSnapshotForBook(const std::string& path, const ExchangeBook& b
   output = std::move(candidate);
   return ExchangeError::None;
 }
+ExchangeError stageSnapshotForBook(const ExchangeBook& book, const JsonDocument& snapshot) {
+  char id[17];
+  snprintf(id, sizeof(id), "%016llx", static_cast<unsigned long long>(book.id));
+  if (validateSnapshotDocument(snapshot) != SnapshotError::None ||
+      validateSnapshotTarget(snapshot, id, book.spines) != SnapshotError::None)
+    return ExchangeError::Invalid;
+  if (!Storage.ensureDirectoryExists("/YomukaSync") || !writeJson(exchangeFilePath(book.id), snapshot))
+    return ExchangeError::StorageFailure;
+  return ExchangeError::None;
+}
 namespace {
 const char* writing[] = {"auto", "horizontal", "vertical"};
 const char* orientations[] = {"portrait", "landscape-cw", "inverted", "landscape-ccw"};

@@ -25,4 +25,7 @@ std::string exchangeFilePath(uint64_t bookId);
 // Bounded full validation for listing; the selected file is checked again at import.
 // Failure leaves output unchanged. File names are not book identity.
 ExchangeError readSnapshotForBook(const std::string& path, const ExchangeBook& book, JsonDocument& output);
+// Stage a validated received snapshot for later device-side confirmation.
+// This only replaces /YomukaSync/<BookId>.json, never reader data.
+ExchangeError stageSnapshotForBook(const ExchangeBook& book, const JsonDocument& snapshot);
 }  // namespace yomuka::sync

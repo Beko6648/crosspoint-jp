@@ -6,6 +6,7 @@
 #include "sync/BookmarkStorage.h"
 #include "sync/ProgressStorage.h"
 #include "sync/SnapshotExchange.h"
+#include "sync/SnapshotUpload.h"
 using namespace yomuka::sync;
 unsigned checks = 0;
 #define CHECK(c)                                   \
@@ -87,6 +88,68 @@ int main() {
   CHECK(listed["sentinel"] == 42);
   const ExchangeBook small{1, 1, book.path, book.title, book.author};
   CHECK(readSnapshotForBook(renamed, small, listed) == ExchangeError::Invalid);
+  // Web reception is staged only after one complete, valid multipart file.
+  SnapshotUpload upload;
+  JsonDocument received;
+  received["sentinel"] = 42;
+  const auto unchanged = Storage.snapshot();
+  upload.start();
+  for (size_t offset = 0; offset < exported.size(); offset += 7)
+    CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data() + offset),
+                        std::min<size_t>(7, exported.size() - offset)));
+  CHECK(!upload.parse(received) && received["sentinel"] == 42 && Storage.snapshot() == unchanged);
+  upload.finish();
+  CHECK(upload.parse(received));
+  CHECK(stageSnapshotForBook(other, received) == ExchangeError::Invalid && Storage.snapshot() == unchanged);
+  CHECK(stageSnapshotForBook(book, received) == ExchangeError::None);
+  CHECK(readSnapshotForBook(exchangeFilePath(book.id), book, listed) == ExchangeError::None);
+  CHECK(Storage.snapshot().at(path) == unchanged.at(path));
+  CHECK(Storage.snapshot().at("/.crosspoint/book-reader-settings.json") ==
+        unchanged.at("/.crosspoint/book-reader-settings.json"));
+  // Partial network data and abort do not publish; a new request after abort works.
+  const auto staged = Storage.snapshot();
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size() / 2));
+  upload.abort();
+  CHECK(!upload.parse(received) && Storage.snapshot() == staged);
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  CHECK(upload.parse(received));
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  upload.start();
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  const std::string tooLarge(65537, ' ');
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(tooLarge.data()), tooLarge.size()));
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size(), false));
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  const std::string broken = exported + "junk";
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(broken.data()), broken.size()));
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  upload.finish();
+  CHECK(!upload.parse(received));
+  const auto savedShared = Storage.snapshot().at(exchangeFilePath(book.id));
+  Storage.failWrite = exchangeFilePath(book.id) + ".tmp";
+  CHECK(stageSnapshotForBook(book, snapshot) == ExchangeError::StorageFailure);
+  CHECK(Storage.snapshot().at(exchangeFilePath(book.id)) == savedShared);
+  Storage.failWrite.clear();
   snapshot["units"]["history"]["data"]["seconds"] = 1000;
   snapshot["units"]["history"]["data"]["sessionCount"] = 7;
   for (const char* unit : {"progress", "bookmarks", "readerSettings", "history"})

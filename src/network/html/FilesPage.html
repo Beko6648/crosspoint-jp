@@ -1966,6 +1966,7 @@
           fileTableContent += `<td>${file.name.split('.').pop().toUpperCase()}</td>`;
           fileTableContent += `<td>${formatFileSize(file.size)}</td>`;
           fileTableContent += `<td class="actions-col"><div class="action-icon-group">`;
+          if (file.isEpub) fileTableContent += `<button class="rename-btn" data-action="sync" data-path="${escapeHtml(filePath)}" title="読書データを共有">共有</button>`;
           fileTableContent += `<button class="move-btn" data-action="move" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" title="ファイルを移動">📂</button>`;
           fileTableContent += `<button class="rename-btn" data-action="rename" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" title="ファイル名を変更">✏️</button>`;
           fileTableContent += `<button class="delete-btn" data-action="delete" data-name="${escapeHtml(file.name)}" data-path="${escapeHtml(filePath)}" data-folder="false" title="ファイルを削除">🗑️</button>`;
@@ -2798,7 +2799,9 @@
       if (!btn) return;
       const name = btn.dataset.name;
       const path = btn.dataset.path;
-      if (btn.dataset.action === 'move') {
+      if (btn.dataset.action === 'sync') {
+        location.href = '/sync?book=' + encodeURIComponent(path);
+      } else if (btn.dataset.action === 'move') {
         openMoveModal(name, path);
       } else if (btn.dataset.action === 'rename') {
         openRenameModal(name, path);
