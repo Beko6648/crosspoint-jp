@@ -27,8 +27,8 @@ bool loadWifi(WifiCredentialStore& store, const char* json, bool* needsResave = 
 bool saveRecentBooks(const RecentBooksStore& store, const char* path);
 bool loadRecentBooks(RecentBooksStore& store, const char* json);
 
-bool saveBookmarks(const std::vector<BookmarkEntry>& bookmarks, const char* path);
+// Migration must not manufacture a local update time.
+bool saveBookmarks(const std::vector<BookmarkEntry>& bookmarks, const char* path, bool recordLocalChange = true);
 bool loadBookmarks(std::vector<BookmarkEntry>& bookmarks, const char* json, size_t maximumEntries);
-
 
 }  // namespace JsonSettingsIO

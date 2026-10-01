@@ -50,7 +50,7 @@ void EpubReaderBookmarksActivity::onEnter() {
       if (Storage.exists(legacyPath.c_str())) {
         const String json = Storage.readFile(legacyPath.c_str());
         if (!json.isEmpty() && JsonSettingsIO::loadBookmarks(bookmarks, json.c_str(), MAX_BOOKMARKS) &&
-            BookDataPath::ensureDirectory(bookId) && JsonSettingsIO::saveBookmarks(bookmarks, path.c_str())) {
+            BookDataPath::ensureDirectory(bookId) && JsonSettingsIO::saveBookmarks(bookmarks, path.c_str(), false)) {
           LOG_INF("BKM", "Migrated bookmarks to BookId %016llx", static_cast<unsigned long long>(bookId));
         }
       }

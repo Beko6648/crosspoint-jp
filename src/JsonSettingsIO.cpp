@@ -16,6 +16,7 @@
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
+#include "sync/BookmarkStorage.h"
 
 // Convert legacy settings.
 void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
@@ -66,53 +67,9 @@ void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
   }
 }
 
-bool JsonSettingsIO::saveBookmarks(const std::vector<BookmarkEntry>& bookmarks, const char* path) {
-  JsonDocument doc;
-  JsonArray entries = doc["bookmarks"].to<JsonArray>();
-  for (const auto& bookmark : bookmarks) {
-    JsonObject entry = entries.add<JsonObject>();
-    entry["summary"] = bookmark.summary;
-    entry["percentage"] = bookmark.percentage;
-    entry["spine"] = bookmark.spineIndex;
-    entry["pages"] = bookmark.chapterPageCount;
-    entry["page"] = bookmark.chapterPage;
-  }
-  const std::string finalPath(path);
-  const std::string tmpPath = finalPath + ".tmp";
-  const std::string backupPath = finalPath + ".bak";
-  Storage.remove(tmpPath.c_str());
-  {
-    FsFile file;
-    if (!Storage.openFileForWrite("BKM", tmpPath, file)) {
-      LOG_ERR("BKM", "Failed to open temporary bookmark file");
-      return false;
-    }
-    if (serializeJson(doc, file) == 0) {
-      LOG_ERR("BKM", "Failed to write temporary bookmark file");
-      file.close();
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-    file.flush();
-    file.close();
-  }
-  const bool hadOriginal = Storage.exists(finalPath.c_str());
-  if (hadOriginal) {
-    Storage.remove(backupPath.c_str());
-    if (!Storage.rename(finalPath.c_str(), backupPath.c_str())) {
-      LOG_ERR("BKM", "Failed to back up bookmark file");
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-  }
-  if (!Storage.rename(tmpPath.c_str(), finalPath.c_str())) {
-    LOG_ERR("BKM", "Failed to install bookmark file");
-    Storage.remove(tmpPath.c_str());
-    if (hadOriginal) Storage.rename(backupPath.c_str(), finalPath.c_str());
-    return false;
-  }
-  if (hadOriginal) Storage.remove(backupPath.c_str());
-  return true;
+bool JsonSettingsIO::saveBookmarks(const std::vector<BookmarkEntry>& bookmarks, const char* path,
+                                   const bool recordLocalChange) {
+  return yomuka::sync::saveBookmarks(path, bookmarks, recordLocalChange);
 }
 
 bool JsonSettingsIO::loadBookmarks(std::vector<BookmarkEntry>& bookmarks, const char* json,

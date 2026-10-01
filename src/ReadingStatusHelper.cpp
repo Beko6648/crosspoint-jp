@@ -50,6 +50,7 @@ bool getCacheEntryName(const std::string& filepath, std::string& entryName, bool
 
 ReadingProgress readProgress(const std::string& progressPath, bool isEpub) {
   ReadingProgress result;
+  if (!yomuka::sync::recoverFile(progressPath)) return result;
   if (!Storage.exists(progressPath.c_str())) return result;
 
   FsFile file;
@@ -269,7 +270,8 @@ ReadingStatus getReadingStatus(const std::string& filepath, const std::string& c
     if (resolvedBookId == 0) BookIdentity::getLastArchiveId(filepath, resolvedBookId);
     if (resolvedBookId != 0) {
       const std::string canonicalPath = BookDataPath::getProgressPath(resolvedBookId);
-      if (Storage.exists(canonicalPath.c_str())) return readProgress(canonicalPath, true).status;
+      if (yomuka::sync::recoverFile(canonicalPath) && Storage.exists(canonicalPath.c_str()))
+        return readProgress(canonicalPath, true).status;
     }
   }
 
@@ -292,7 +294,7 @@ ReadingProgress getReadingProgress(const std::string& filepath, const std::strin
     if (resolvedBookId == 0) BookIdentity::getLastArchiveId(filepath, resolvedBookId);
     if (resolvedBookId != 0) {
       const std::string canonicalPath = BookDataPath::getProgressPath(resolvedBookId);
-      if (Storage.exists(canonicalPath.c_str())) {
+      if (yomuka::sync::recoverFile(canonicalPath) && Storage.exists(canonicalPath.c_str())) {
         result = readProgress(canonicalPath, true);
       } else {
         result = readProgress(cacheDir + "/" + cacheEntryName + "/progress.bin", true);
@@ -408,6 +410,7 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   uint64_t bookId = 0;
   const bool hasBookId = isEpub && Epub(filepath, cacheDir).getSourceFingerprint(&bookId);
   const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId) : legacyProgressPath;
+  if (!yomuka::sync::recoverFile(progressPath)) return false;
 
   // Append a whole-book percentage while retaining the existing offsets.
   const size_t recordSize = isEpub ? 8 : 6;

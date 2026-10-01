@@ -4,6 +4,8 @@
 
 #include <cstdio>
 
+#include "sync/StorageIo.h"
+
 namespace BookDataPath {
 namespace {
 
@@ -28,6 +30,7 @@ bool ensureDirectory(const uint64_t bookId) {
 namespace {
 
 bool copyIfMissing(const std::string& sourcePath, const std::string& destinationPath) {
+  if (!yomuka::sync::recoverFile(sourcePath) || !yomuka::sync::recoverFile(destinationPath)) return false;
   if (Storage.exists(destinationPath.c_str()) || !Storage.exists(sourcePath.c_str())) return true;
   const std::string temporaryPath = destinationPath + ".migrate.tmp";
   Storage.remove(temporaryPath.c_str());
@@ -71,6 +74,7 @@ bool migrateArchiveData(const uint64_t previousBookId, const uint64_t currentBoo
   if (!hasProgress && !hasBookmarks) return true;
   return ensureDirectory(currentBookId) &&
          copyIfMissing(previousDirectory + "/progress.bin", currentDirectory + "/progress.bin") &&
+         copyIfMissing(previousDirectory + "/progress.bin.sync-time", currentDirectory + "/progress.bin.sync-time") &&
          copyIfMissing(previousDirectory + "/bookmarks.json", currentDirectory + "/bookmarks.json");
 }
 

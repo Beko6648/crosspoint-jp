@@ -411,10 +411,11 @@ void TxtReaderActivity::saveProgress(const bool isFinished) const {
                                                   static_cast<uint32_t>(totalPages))
                            : ReadingProgress::PERCENT_UNKNOWN;
   if (isFinished) data[5] = 100;
-  ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data));
+  if (!ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data))) LOG_ERR("TRS", "Could not save progress");
 }
 
 void TxtReaderActivity::loadProgress() {
+  if (!yomuka::sync::recoverFile(txt->getCachePath() + "/progress.bin")) return;
   FsFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6] = {0};

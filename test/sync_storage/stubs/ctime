@@ -1,0 +1,8 @@
+#pragma once
+#include_next <ctime>
+inline time_t testUnixTime = 1710000000;
+inline time_t testTime(time_t* result) {
+  if (result) *result = testUnixTime;
+  return testUnixTime;
+}
+#define time testTime

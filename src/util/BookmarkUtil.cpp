@@ -5,6 +5,8 @@
 
 #include <algorithm>
 
+#include "sync/StorageIo.h"
+
 namespace BookmarkUtil {
 
 std::string getBookmarksDir() { return "/.crosspoint/bookmarks/"; }
@@ -20,11 +22,8 @@ std::string getBookmarkPath(const std::string& bookPath) {
 }
 
 void recoverBookmarkFile(const std::string& bookmarkPath) {
-  const std::string backupPath = bookmarkPath + ".bak";
-  if (!Storage.exists(bookmarkPath.c_str()) && Storage.exists(backupPath.c_str())) {
-    if (!Storage.rename(backupPath.c_str(), bookmarkPath.c_str())) {
-      LOG_ERR("BKM", "Failed to restore bookmark backup: %s", bookmarkPath.c_str());
-    }
+  if (!yomuka::sync::recoverFile(bookmarkPath)) {
+    LOG_ERR("BKM", "Failed to restore bookmark backup: %s", bookmarkPath.c_str());
   }
 }
 

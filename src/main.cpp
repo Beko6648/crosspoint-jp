@@ -37,6 +37,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "sync/ImportTransaction.h"
 #ifdef SIMULATOR
 #include "activities/settings/SettingsActivity.h"
 #endif
@@ -438,6 +439,13 @@ void setup() {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts();
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    return;
+  }
+
+  if (!yomuka::sync::recoverImportTransaction()) {
+    LOG_ERR("MAIN", "Sync import recovery incomplete; retaining recovery files");
+    setupDisplayAndFonts(true);
+    activityManager.goToFullScreenMessage("Sync recovery failed - check SD card and restart", EpdFontFamily::BOLD);
     return;
   }
 

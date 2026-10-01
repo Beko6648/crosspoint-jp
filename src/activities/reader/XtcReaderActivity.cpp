@@ -492,6 +492,7 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
 }
 
 void XtcReaderActivity::loadProgress() {
+  if (!yomuka::sync::recoverFile(xtc->getCachePath() + "/progress.bin")) return;
   FsFile f;
   if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6] = {0};
