@@ -24,6 +24,17 @@
 // Reader font IDs (from fontIds.h) - used to determine when to use external
 // Chinese font UI fonts should NOT use external font
 namespace {
+uint16_t getSdCardSpaceAdvance(SdCardFont& font, const EpdFontFamily::Style style) {
+  const uint8_t resolvedStyle = font.resolveStyle(static_cast<uint8_t>(style));
+  // A missing style table must not borrow a different style's space width.
+  if (font.hasAdvanceTable(resolvedStyle)) {
+    const uint16_t advance = font.getAdvance(' ', resolvedStyle);
+    if (advance != 0) return advance;
+  }
+  // Adapt upstream #3585 using Yomuka's metrics-only read: no bitmap loading.
+  return font.readAdvanceOnly(' ', resolvedStyle);
+}
+
 // UI font IDs that should NOT use external reader fonts. Keep these tied to
 // the generated definitions instead of stale hash literals.
 constexpr int UI_FONT_IDS[] = {
@@ -1887,7 +1898,7 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
   // Advance table fast-path for SD card fonts during layout
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
-    return fp4::toPixel(sdIt->second->getAdvance(' ', static_cast<uint8_t>(style)));
+    return fp4::toPixel(getSdCardSpaceAdvance(*sdIt->second, style));
   }
 
   const int effectiveFontId = getEffectiveFontId(fontId);
@@ -1928,7 +1939,7 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
   // so we return just the space advance without kerning.
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
-    const int32_t advFP = sdIt->second->getAdvance(' ', static_cast<uint8_t>(style));
+    const int32_t advFP = getSdCardSpaceAdvance(*sdIt->second, style);
     const uint16_t scale = getSdCardFontScale(fontId);
     if (scale != 256) {
       return fp4::toPixel(static_cast<int32_t>(static_cast<int64_t>(advFP) * scale / 256));

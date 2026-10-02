@@ -139,6 +139,11 @@ void SdCardFont::freeStyleVertData(PerStyle& s) {
 }
 
 void SdCardFont::freeStyleKernLigatureData(PerStyle& s) {
+  // Both views borrow the resident table, including on failure/reload paths.
+  s.stubData.ligaturePairs = nullptr;
+  s.stubData.ligaturePairCount = 0;
+  s.miniData.ligaturePairs = nullptr;
+  s.miniData.ligaturePairCount = 0;
   delete[] s.kernLeftClasses;
   s.kernLeftClasses = nullptr;
   delete[] s.kernRightClasses;
@@ -1382,6 +1387,8 @@ bool SdCardFont::hasAdvanceTable() const {
   }
   return false;
 }
+
+bool SdCardFont::hasAdvanceTable(uint8_t style) const { return style < MAX_STYLES && advanceTable_[style] != nullptr; }
 
 uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
   // Fall back to Regular (style 0) if requested style has no advance table
