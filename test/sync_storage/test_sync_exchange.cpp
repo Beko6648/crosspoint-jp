@@ -162,6 +162,38 @@ int main() {
   upload.start();
   upload.finish();
   CHECK(!upload.parse(received));
+  // External inputs that pass the browser's basic JSON check still need strict
+  // device validation. Reject without changing either parsed output or any file.
+  const auto beforeRejectedUploads = Storage.snapshot();
+  const auto rejectsUpload = [&](const std::string& raw, SnapshotError expected) {
+    upload.clear();
+    received.clear();
+    received["sentinel"] = 123;
+    upload.start();
+    if (!upload.append(reinterpret_cast<const uint8_t*>(raw.data()), raw.size())) return false;
+    upload.finish();
+    return !upload.parse(received) && upload.validationError() == expected && received.size() == 1 &&
+           received["sentinel"] == 123 && Storage.snapshot() == beforeRejectedUploads;
+  };
+  CHECK(rejectsUpload(exported.substr(0, exported.size() - 1), SnapshotError::Json));
+  CHECK(rejectsUpload("{\"format\":\"duplicate\"," + exported.substr(1), SnapshotError::Json));
+  CHECK(rejectsUpload(std::string("\xef\xbb\xbf") + exported, SnapshotError::Encoding));
+  CHECK(rejectsUpload(exported + std::string(1, '\0'), SnapshotError::Encoding));
+  CHECK(rejectsUpload(exported + std::string(1, static_cast<char>(0xff)), SnapshotError::Encoding));
+  CHECK(rejectsUpload("{}", SnapshotError::Schema));
+  // Overflow on a later chunk must discard the earlier chunk as well.
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(tooLarge.data()), tooLarge.size()));
+  upload.finish();
+  CHECK(!upload.parse(received) && upload.size() == 0 && Storage.snapshot() == beforeRejectedUploads);
+  // An immediate disconnect before the first byte also permits a fresh retry.
+  upload.abort();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  CHECK(upload.parse(received) && Storage.snapshot() == beforeRejectedUploads);
   const auto savedShared = Storage.snapshot().at(exchangeFilePath(book.id));
   Storage.failWrite = exchangeFilePath(book.id) + ".tmp";
   CHECK(stageSnapshotForBook(book, snapshot) == ExchangeError::StorageFailure);
