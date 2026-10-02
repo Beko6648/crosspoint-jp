@@ -21,3 +21,10 @@ for c3, level in [(1, 1), (1, 2), (0, 1)]:
                 str(root / 'lib/hal/HalPowerManager.cpp'), '-o', str(exe)]
     subprocess.run(command, check=True)
     subprocess.run([str(exe)], check=True)
+
+exe = out / 'capacity_test.exe'
+command = [args.compiler] + (['c++'] if args.zig else [])
+command += ['-std=c++20', '-O0', f'-I{root / "test/battery_diagnostics/stubs"}',
+            f'-I{root / "lib/hal"}', str(root / 'test/battery_diagnostics/Bq27220CapacityTest.cpp'), '-o', str(exe)]
+subprocess.run(command, check=True)
+subprocess.run([str(exe)], check=True)

@@ -646,3 +646,6 @@ STR_CLEAR_ALL_READING_HISTORY: "Clear all reading data"
 STR_CONFIRM_DELETE_HISTORY_BOOK: "Remove this book from history?"
 STR_CONFIRM_CLEAR_READING_HISTORY: "Clear all reading history and reading time?"
 STR_HOLD_SELECT_TO_DELETE_HISTORY: "Hold SELECT to remove from history"
+
+STR_DIAGNOSTICS_RELOAD: "Reload"
+STR_DIAGNOSTICS_CHECKING: "Checking…"

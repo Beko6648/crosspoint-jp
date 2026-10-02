@@ -241,6 +241,8 @@ static void appendPowerLog(const char* event, const char* wakeReason = "-") {
 
 // Enter deep sleep mode
 void enterDeepSleep() {
+  // Finish or confirm closure of the gauge before powering down.
+  if (powerManager.gaugeCapacityPending()) return;
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
   APP_STATE.saveToFile();
@@ -611,6 +613,10 @@ void loop() {
     activityManager.loop();
     delay(10);
     return;
+  }
+  if (gpio.deviceIsX3()) {
+    RenderLock lock(RenderLock::TryLock::Now);
+    if (lock.ownsLock()) powerManager.serviceGaugeCapacity();
   }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 

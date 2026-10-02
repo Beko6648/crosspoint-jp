@@ -13,3 +13,5 @@ inline void digitalWrite(int pin, int level) {
   lastWritePin = pin;
   lastWriteLevel = level;
 }
+
+inline void delayMicroseconds(unsigned long) {}

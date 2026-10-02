@@ -19,6 +19,9 @@ namespace {
 // BQ27220 TRM SLUUBD4A, standard commands (read-only, little endian).
 constexpr uint8_t BQ27220_REMAINING_CAPACITY_REG = 0x10;
 constexpr uint8_t BQ27220_FULL_CHARGE_CAPACITY_REG = 0x12;
+constexpr uint8_t BQ27220_BATTERY_STATUS_REG = 0x0A;
+constexpr uint8_t BQ27220_OPERATION_STATUS_REG = 0x3A;
+constexpr uint8_t BQ27220_DESIGN_CAPACITY_REG = 0x3C;
 
 bool readBatteryWord(uint8_t reg, uint16_t& value) {
   Wire.beginTransmission(I2C_ADDR_BQ27220);
@@ -32,6 +35,19 @@ bool readBatteryWord(uint8_t reg, uint16_t& value) {
   return true;
 }
 
+bool writeWord(uint8_t reg, uint16_t value) {
+  delayMicroseconds(66);
+  Wire.beginTransmission(I2C_ADDR_BQ27220);
+  Wire.write(reg);
+  Wire.write(static_cast<uint8_t>(value));
+  Wire.write(static_cast<uint8_t>(value >> 8));
+  const bool ok = Wire.endTransmission(true) == 0;
+  delayMicroseconds(66);
+  return ok;
+}
+bool readWord(uint8_t reg, uint16_t& value) { return readBatteryWord(reg, value); }
+#include "Bq27220Capacity.h"
+
 void logBatterySample(unsigned long pollMs, int oldSoc, uint16_t soc, bool jump) {
   uint16_t voltage = 0, current = 0, remaining = 0, full = 0;
   // Sequential reads in the same poll, not an atomic gauge snapshot. Failure
@@ -40,6 +56,13 @@ void logBatterySample(unsigned long pollMs, int oldSoc, uint16_t soc, bool jump)
   const bool currentOk = readBatteryWord(BQ27220_CUR_REG, current);
   const bool remainingOk = readBatteryWord(BQ27220_REMAINING_CAPACITY_REG, remaining);
   const bool fullOk = readBatteryWord(BQ27220_FULL_CHARGE_CAPACITY_REG, full);
+  uint16_t design = 0, batteryStatus = 0, operationStatus = 0;
+  const bool designOk = readBatteryWord(BQ27220_DESIGN_CAPACITY_REG, design);
+  const bool batteryOk = readBatteryWord(BQ27220_BATTERY_STATUS_REG, batteryStatus);
+  const bool operationOk = readBatteryWord(BQ27220_OPERATION_STATUS_REG, operationStatus);
+  const unsigned gaugeValid = designOk | (batteryOk << 1) | (operationOk << 2);
+  LOG_INF("BAT", "X3 GAUGE_STATE poll_ms=%lu design_mAh=%d battery_status=0x%04X operation_status=0x%04X valid=0x%X",
+          pollMs, designOk ? static_cast<int>(design) : -1, batteryStatus, operationStatus, gaugeValid);
   const unsigned valid = voltageOk | (currentOk << 1) | (remainingOk << 2) | (fullOk << 3);
   // Use a value outside signed 16-bit range for an unavailable current.
   const int signedCurrent = currentOk ? (current >= 0x8000 ? static_cast<int>(current) - 0x10000 : current) : -32769;
@@ -54,6 +77,51 @@ void logBatterySample(unsigned long pollMs, int oldSoc, uint16_t soc, bool jump)
 #endif
 
 HalPowerManager powerManager;  // Singleton instance
+
+HalPowerManager::GaugeDiagnostics HalPowerManager::readGaugeDiagnostics() const {
+  GaugeDiagnostics result;
+#if FREEINK_MCU_C3
+  if (!_batteryUseI2C) return result;
+  result.supported = true;
+  result.capacityStep = static_cast<uint8_t>(bq27220Load.step);
+  result.capacityPending = _gaugeCapacityPending;
+  result.capacityChanged = bq27220Load.changed;
+  result.capacityVerified = bq27220Load.verified;
+  result.capacityHadError = bq27220Load.failed;
+  result.capturedMs = millis();
+  const uint8_t registers[] = {BQ27220_SOC_REG,
+                               BQ27220_VOLT_REG,
+                               BQ27220_CUR_REG,
+                               BQ27220_REMAINING_CAPACITY_REG,
+                               BQ27220_FULL_CHARGE_CAPACITY_REG,
+                               BQ27220_DESIGN_CAPACITY_REG,
+                               BQ27220_BATTERY_STATUS_REG,
+                               BQ27220_OPERATION_STATUS_REG};
+  uint16_t* fields[] = {&result.soc,  &result.voltage, &result.current,       &result.remaining,
+                        &result.full, &result.design,  &result.batteryStatus, &result.operationStatus};
+  for (unsigned i = 0; i < 8; ++i)
+    if (readBatteryWord(registers[i], *fields[i])) result.valid |= 1u << i;
+  result.readMs = millis() - result.capturedMs;
+#endif
+  return result;
+}
+
+bool HalPowerManager::serviceGaugeCapacity() {
+#if FREEINK_MCU_C3
+  if (!_batteryUseI2C) return false;
+  const auto oldStep = bq27220Load.step;
+  const bool oldFailed = bq27220Load.failed;
+  const bool pending = bq27220LoadStep(I2C_ADDR_BQ27220, 650, millis());
+  _gaugeCapacityPending = pending;
+  if (oldStep != bq27220Load.step || oldFailed != bq27220Load.failed)
+    LOG_INF("BAT", "X3 CAPACITY step=%u pending=%u changed=%u verified=%u had_error=%u",
+            static_cast<unsigned>(bq27220Load.step), pending, bq27220Load.changed, bq27220Load.verified,
+            bq27220Load.failed);
+  return pending;
+#else
+  return false;
+#endif
+}
 
 void HalPowerManager::begin() {
 #if FREEINK_MCU_C3

@@ -35,6 +35,8 @@ int main() {
   adcPercent = 80;
   testMillis += 60000;
   assert(adc.getBatteryPercentage() == 62 && Wire.reads.empty());
+  assert(!adc.readGaugeDiagnostics().supported && Wire.reads.empty());
+  assert(!adc.serviceGaugeCapacity() && !adc.gaugeCapacityPending() && Wire.reads.empty());
 #if FREEINK_MCU_C3
   gpio.begin();
   HalPowerManager pm;
@@ -45,15 +47,17 @@ int main() {
 #if LOG_LEVEL < 2
   assert(count == 1 && logs.empty());  // Initial value is not a jump from synthetic zero.
 #else
-  assert(count == 5 && logs.back().find("old_soc=-1 soc=84") != std::string::npos);
+  assert(count == 8 && logs.back().find("old_soc=-1 soc=84") != std::string::npos);
 #endif
   logs.clear();
   Wire.reads.clear();
   testMillis += 1500;
   Wire.values[0x2c] = 7;
   assert(pm.getBatteryPercentage() == 7);
-  assert((Wire.reads == std::vector<uint8_t>{0x2c, 0x08, 0x0c, 0x10, 0x12}));
-  assert(logs.size() == 1 && logs.back().find("SOC_JUMP") != std::string::npos);
+  assert((Wire.reads == std::vector<uint8_t>{0x2c, 0x08, 0x0c, 0x10, 0x12, 0x3c, 0x0a, 0x3a}));
+  assert(logs.size() == 2 && logs.back().find("SOC_JUMP") != std::string::npos);
+  assert(logs.front().find("design_mAh=3000 battery_status=0x0109 operation_status=0x042E valid=0x7") !=
+         std::string::npos);
   assert(
       logs.back().find("old_soc=84 soc=7 voltage_mV=3700 current_mA=-120 remaining_mAh=210 full_mAh=300 valid=0xF") !=
       std::string::npos);
@@ -98,6 +102,26 @@ int main() {
   Wire.values[0x2c] = 200;
   assert(pm.getBatteryPercentage() == 100);
   assert(logs.back().find("soc=200") != std::string::npos);  // Log raw word; retain existing UI clamp.
+  Wire.reads.clear();
+  const auto savedRegisters = Wire.values;
+  const auto gauge = pm.readGaugeDiagnostics();
+  assert(gauge.supported && gauge.valid == 0xff && gauge.design == 3000 && gauge.full == 300);
+  assert(gauge.current == 0xff88 && gauge.operationStatus == 0x042e && gauge.batteryStatus == 0x0109);
+  assert(Wire.values == savedRegisters);
+  assert((Wire.reads == std::vector<uint8_t>{0x2c, 0x08, 0x0c, 0x10, 0x12, 0x3c, 0x0a, 0x3a}));
+  assert(pm.getBatteryPercentage() == 100);  // Diagnostic read does not alter cached UI SOC.
+  unsigned bit = 0;
+  for (int reg : {0x2c, 0x08, 0x0c, 0x10, 0x12, 0x3c, 0x0a, 0x3a}) {
+    Wire.failReg = reg;
+    const auto failed = pm.readGaugeDiagnostics();
+    assert(failed.supported && failed.valid == (0xff ^ (1u << bit)));
+    Wire.failReg = -1;
+    Wire.shortReg = reg;
+    const auto shortRead = pm.readGaugeDiagnostics();
+    assert(shortRead.valid == (0xff ^ (1u << bit)) && Wire.values == savedRegisters);
+    Wire.shortReg = -1;
+    ++bit;
+  }
 #endif
   std::cout << "PASS: battery poll, signed current, jump threshold, failure retention and ADC isolation\n";
 }

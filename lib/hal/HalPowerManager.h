@@ -21,6 +21,7 @@ class HalPowerManager {
   // C3 retains its established X3 fuel-gauge / X4 ADC paths.  S3 uses the
   // BoardConfig-selected backend in the implementation.
   bool _batteryUseI2C = false;
+  bool _gaugeCapacityPending = false;
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
 #if FREEINK_MCU_C3
@@ -67,6 +68,22 @@ class HalPowerManager {
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
+
+  struct GaugeDiagnostics {
+    bool supported = false;
+    uint8_t capacityStep = 0;
+    bool capacityPending = false, capacityChanged = false, capacityVerified = false, capacityHadError = false;
+    uint8_t valid = 0;  // SOC, voltage, current, remaining, full, design, battery status, operation status.
+    uint16_t soc = 0, voltage = 0, current = 0, remaining = 0, full = 0, design = 0;
+    uint16_t batteryStatus = 0, operationStatus = 0;
+    unsigned long capturedMs = 0, readMs = 0;
+  };
+  // Caller holds RenderLock to serialize gauge reads with UI rendering.
+  // Register selection only: no Control commands, capacity writes, or cache changes.
+  GaugeDiagnostics readGaugeDiagnostics() const;
+  // Main-loop only under RenderLock. True while correction/closure is pending.
+  bool serviceGaugeCapacity();
+  bool gaugeCapacityPending() const { return _gaugeCapacityPending; }
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs
