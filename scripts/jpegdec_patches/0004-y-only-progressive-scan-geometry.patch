@@ -1,0 +1,91 @@
+Subject: [PATCH] Yomuka: decode Y-only progressive DC scans with scan-local MCU geometry
+
+--- a/src/jpeg.inl
++++ b/src/jpeg.inl
+@@ -2805,7 +2805,7 @@
+         pOutput += 8;
+     } // for each row
+ } /* JPEGIDCT() */
+-static void JPEGPutMCU8BitGray(JPEGIMAGE *pJPEG, int x, int iPitch)
++static void JPEGPutMCU8BitGray(JPEGIMAGE *pJPEG, int x, int iPitch, uint8_t scanSubSample)
+ {
+     int i, j, xcount, ycount;
+     uint8_t *pDest, *pSrc = (uint8_t *)&pJPEG->sMCUs[0];
+@@ -2816,7 +2816,7 @@
+         pDest = (uint8_t *)&pJPEG->usPixels[0];
+         pDest += x;
+     }
+-    if (pJPEG->ucSubSample <= 0x11) // single Y
++    if (scanSubSample <= 0x11) // single Y
+     {
+         if (pJPEG->iOptions & JPEG_SCALE_HALF) // special handling of 1/2 size (pixel averaging)
+         {
+@@ -2848,7 +2848,7 @@
+         }
+         return;
+     } // single Y source
+-    if (pJPEG->ucSubSample == 0x21) // stacked horizontally
++    if (scanSubSample == 0x21) // stacked horizontally
+     {
+         if (pJPEG->iOptions & JPEG_SCALE_EIGHTH)
+         {
+@@ -2899,7 +2899,7 @@
+             pDest += iPitch;
+         }
+     } // 0x21
+-    if (pJPEG->ucSubSample == 0x12) // stacked vertically
++    if (scanSubSample == 0x12) // stacked vertically
+     {
+         if (pJPEG->iOptions & JPEG_SCALE_EIGHTH)
+         {
+@@ -2950,7 +2950,7 @@
+             pDest += iPitch;
+         }
+     } // 0x12
+-    if (pJPEG->ucSubSample == 0x22)
++    if (scanSubSample == 0x22)
+     {
+         if (pJPEG->iOptions & JPEG_SCALE_EIGHTH)
+         {
+@@ -5017,4 +5017,13 @@
+-    switch (pJPEG->ucSubSample) // set up the parameters for the different subsampling options
++    // Yomuka: a non-interleaved Y DC scan has one 8x8 block per MCU,
++    // regardless of the color sampling factors in SOF. Keep metadata intact.
++    uint8_t scanSubSample = pJPEG->ucSubSample;
++    if (scanSubSample > 0x11 && pJPEG->ucMode == 0xc2 &&
++        pJPEG->ucPixelType >= EIGHT_BIT_GRAYSCALE && pJPEG->ucComponentsInScan == 1 &&
++        pJPEG->JPCI[0].component_needed && pJPEG->iScanStart == 0 &&
++        pJPEG->iScanEnd == 0 && pJPEG->cApproxBitsHigh == 0) {
++        scanSubSample = 0x11;
++    }
++    switch (scanSubSample) // set up the parameters for the current scan
+     {
+         case 0x00: // fake value to handle grayscale
+         case 0x01: // fake value to handle sRGB/CMYK
+@@ -5166,7 +5175,7 @@
+                 JPEGIDCT(pJPEG, iLum0, pJPEG->JPCI[0].quant_tbl_no); // first quantization table
+             }
+             // do the second luminance component
+-            if (pJPEG->ucSubSample > 0x11) // subsampling
++            if (scanSubSample > 0x11) // subsampling
+             {
+                 if (pJPEG->ucMode == 0xc2) { // progressive
+                     iErr |= JPEGDecodeMCU_P(pJPEG, iLum1 | iSkipMask, &iDCPred0);
+@@ -5186,7 +5195,7 @@
+                 {
+                     JPEGIDCT(pJPEG, iLum1, pJPEG->JPCI[0].quant_tbl_no); // first quantization table
+                 }
+-                if (pJPEG->ucSubSample == 0x22)
++                if (scanSubSample == 0x22)
+                 {
+                     if (pJPEG->ucMode == 0xc2) { // progressive
+                         iErr |= JPEGDecodeMCU_P(pJPEG, iLum2 | iSkipMask, &iDCPred0);
+@@ -5291,7 +5300,7 @@
+             } // if color components present
+             if (!iSkipMask) { // this MCU is not skipped
+                 if (pJPEG->ucPixelType >= EIGHT_BIT_GRAYSCALE) {
+-                    JPEGPutMCU8BitGray(pJPEG, xoff, iPitch); // grayscale or color is being drawn as grayscale
++                    JPEGPutMCU8BitGray(pJPEG, xoff, iPitch, scanSubSample); // grayscale or color is being drawn as grayscale
+                 } else {
+                     switch (pJPEG->ucSubSample) {
+                         case 0x00: // grayscale
