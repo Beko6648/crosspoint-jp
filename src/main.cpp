@@ -777,7 +777,17 @@ void loop() {
 #endif
       // Heap tracing continuously streams USB data even while the reader is
       // idle. Keep its CPU/APB clocks at normal speed; retain the loop delay.
+#ifdef SIMULATOR
       delay(50);
+#else
+      // Upstream #3463: stop waiting on physical contact so the next normal
+      // update can debounce short presses with consecutive input samples.
+      const unsigned long idleStart = millis();
+      while (millis() - idleStart < 50) {
+        delay(10);
+        if (gpio.rawInputActive()) break;
+      }
+#endif
     } else {
       // Short delay to prevent tight loop while still being responsive
       delay(10);
