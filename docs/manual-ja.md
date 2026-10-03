@@ -17,7 +17,7 @@ X4 Classic（X4 V2）は未対応です。このマニュアルの導入・更�
 | 日本語フォントを追加する | [フォントの導入](cjk-fonts.md) |
 | UIの向き・ボタン・スリープ・言語を設定する／X3の傾きセンサーを確認する | [本体と操作の設定](device-settings-ja.md) |
 | Wi-Fiで本を転送する・青空文庫を使う | [Wi-Fiとファイル転送](wifi-transfer-ja.md) |
-| 読書位置・しおり・本の設定・履歴を別端末へ渡す（v0.8.1開発版） | [読書データを共有する](reading-data-sharing-ja.md) |
+| 読書位置・しおり・本の設定・履歴を別端末へ渡す（v0.8.1以降） | [読書データを共有する](reading-data-sharing-ja.md) |
 | インストール・アップデートする | [ファームウェアの導入と更新](firmware-update-ja.md) |
 | 表示や動作の問題を調べる | [困ったとき](troubleshooting-ja.md) |
 | 診断レポートやクラッシュ記録を送る | [不具合の報告](reporting-bugs-ja.md) |
