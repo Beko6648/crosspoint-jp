@@ -20,6 +20,7 @@ struct Activity {void onExit(){assert(held);}};
 struct EpubReaderActivity:Activity {
  std::unique_ptr<Build> idleChapter;
  std::atomic<unsigned> chapterRenderReady{123};
+ unsigned rememberCalls=0;void rememberBookOnceRendered(){++rememberCalls;}
  void onExit();
 };
 '''+body+r'''
@@ -28,7 +29,7 @@ int main(){
   EpubReaderActivity reader;
   if(active) reader.idleChapter=std::make_unique<Build>();
   {RenderLock managerLock;reader.onExit();assert(held);assert(!reader.idleChapter);assert(reader.chapterRenderReady.load()==0);}
-  assert(!held);
+  assert(!held&&reader.rememberCalls==1);
  }
  assert(releases==1);
 }

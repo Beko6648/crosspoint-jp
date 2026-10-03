@@ -26,6 +26,7 @@ namespace CacheGenerationControls { bool consumeCancellationRelease(Input&) { re
 struct Build {~Build(){assert(held);}};
 struct EpubReaderActivity:Activity {
  Input mappedInput;unsigned chapterLastInput=0;std::unique_ptr<Build> idleChapter;void loop();
+ unsigned rememberCalls=0;void rememberBookOnceRendered(){++rememberCalls;}
 };
 '''+reader_body+r'''
 int main(){
@@ -38,6 +39,7 @@ int main(){
  EpubReaderActivity reader;reader.idleChapter=std::make_unique<Build>();
  held=true;reader.loop();assert(reader.idleChapter&&reader.chapterLastInput==42&&held);
  held=false;reader.loop();assert(!reader.idleChapter&&!held&&waits==0);
+ assert(reader.rememberCalls==2);
 }
 '''
 f=out/'input.cpp';f.write_text(source,encoding='utf-8');exe=out/'input.exe'
