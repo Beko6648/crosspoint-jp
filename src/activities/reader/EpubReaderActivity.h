@@ -10,12 +10,15 @@
 
 #include "BookmarkEntry.h"
 #include "EpubReaderMenuActivity.h"
+#include "ReaderResumeState.h"
 #include "activities/Activity.h"
 #if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
 #include "util/IdleChapterTestPause.h"
 #endif
 
 class EpubReaderActivity final : public Activity {
+  ReaderResumeState resumeState;
+  void rememberBookOnceRendered();
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
   std::atomic<uint32_t> idleRenderReady{0};
   std::atomic<uint32_t> idleRenderEpoch{0};

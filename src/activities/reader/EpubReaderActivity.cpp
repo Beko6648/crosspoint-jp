@@ -323,6 +323,7 @@ void EpubReaderActivity::onEnter() {
   }
 
   Issue18Diagnostics::logMemory("reader-enter", epub->getPath().c_str());
+  ReaderResumeState::clearRememberedBook();
 
   // ルビフォントIDはrender()内でフォントロード後に設定
 
@@ -383,10 +384,6 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
-  // Save current epub as last opened epub and add to recent books
-  APP_STATE.openEpubPath = epub->getPath();
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), bookId);
   const auto beginReadingSession = [this, bookId] {
     if (epub) READING_HISTORY.beginSession(epub->getPath(), epub->getTitle(), epub->getAuthor(), bookId);
   };
@@ -432,7 +429,18 @@ void EpubReaderActivity::onEnter() {
   requestUpdate();
 }
 
+void EpubReaderActivity::rememberBookOnceRendered() {
+  if (!epub || !resumeState.takeRenderedBook()) return;
+  uint64_t bookId = 0;
+  epub->getSourceFingerprint(&bookId);
+  APP_STATE.openEpubPath = epub->getPath();
+  APP_STATE.saveToFile();
+  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), bookId);
+}
+
 void EpubReaderActivity::onExit() {
+  // Also commit when sleep/back arrives before the next reader loop.
+  rememberBookOnceRendered();
   Activity::onExit();
 #if defined(IDLE_CHAPTER_BUILD)
   // ActivityManager calls onExit while holding the non-recursive RenderLock.
@@ -523,6 +531,7 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+  rememberBookOnceRendered();
   if (CacheGenerationControls::consumeCancellationRelease(mappedInput)) return;
 #if defined(IDLE_CHAPTER_BUILD)
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) {
@@ -1280,6 +1289,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
+    resumeState.markPageRendered();
     automaticPageTurnActive = false;
     return;
   }
@@ -1542,6 +1552,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                          section->currentPage);
     SD_FONT_DIAG_LOG("page_draw_before", 0);
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+    resumeState.markPageRendered();
     SD_FONT_DIAG_LOG_AFTER("page_draw_after", 0, pageDrawStartedAt);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
