@@ -37,6 +37,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "sync/ImportTransaction.h"
 #ifdef SIMULATOR
 #include "activities/settings/SettingsActivity.h"
 #endif
@@ -240,6 +241,8 @@ static void appendPowerLog(const char* event, const char* wakeReason = "-") {
 
 // Enter deep sleep mode
 void enterDeepSleep() {
+  // Finish or confirm closure of the gauge before powering down.
+  if (powerManager.gaugeCapacityPending()) return;
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
   APP_STATE.saveToFile();
@@ -447,6 +450,13 @@ void setup() {
     return;
   }
 
+  if (!yomuka::sync::recoverImportTransaction()) {
+    LOG_ERR("MAIN", "Sync import recovery incomplete; retaining recovery files");
+    setupDisplayAndFonts(true);
+    activityManager.goToFullScreenMessage("Sync recovery failed - check SD card and restart", EpdFontFamily::BOLD);
+    return;
+  }
+
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
@@ -610,6 +620,10 @@ void loop() {
     delay(10);
     return;
   }
+  if (gpio.deviceIsX3()) {
+    RenderLock lock(RenderLock::TryLock::Now);
+    if (lock.ownsLock()) powerManager.serviceGaugeCapacity();
+  }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
@@ -769,7 +783,17 @@ void loop() {
 #endif
       // Heap tracing continuously streams USB data even while the reader is
       // idle. Keep its CPU/APB clocks at normal speed; retain the loop delay.
+#ifdef SIMULATOR
       delay(50);
+#else
+      // Upstream #3463: stop waiting on physical contact so the next normal
+      // update can debounce short presses with consecutive input samples.
+      const unsigned long idleStart = millis();
+      while (millis() - idleStart < 50) {
+        delay(10);
+        if (gpio.rawInputActive()) break;
+      }
+#endif
     } else {
       // Short delay to prevent tight loop while still being responsive
       delay(10);

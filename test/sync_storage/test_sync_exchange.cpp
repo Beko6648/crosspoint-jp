@@ -1,0 +1,289 @@
+#include <HalStorage.h>
+
+#include <ctime>
+#include <iostream>
+
+#include "sync/BookmarkStorage.h"
+#include "sync/ProgressStorage.h"
+#include "sync/SnapshotExchange.h"
+#include "sync/SnapshotUpload.h"
+using namespace yomuka::sync;
+unsigned checks = 0;
+#define CHECK(c)                                   \
+  do {                                             \
+    ++checks;                                      \
+    if (!(c)) {                                    \
+      std::cerr << __LINE__ << ": " << #c << "\n"; \
+      return 1;                                    \
+    }                                              \
+  } while (0)
+bool layout(const Progress& p, const BookReaderSettings::Override*, Progress& out, void*) {
+  ProjectedProgress target;
+  if (projectProgressForBook(p, 3, {true, 5}, target) != ProgressError::None) return false;
+  out = p;
+  out.chapterPage = target.chapterPage;
+  out.chapterPageCount = target.chapterPageCount;
+  if (!out.percent) out.percent = 50;
+  if (!out.finished) out.finished = false;
+  return true;
+}
+int main() {
+  testUnixTime = 1710000000;
+  const ExchangeBook book{1, 3, "/same.epub", "Same", "Author"};
+  const std::string path = "/.crosspoint/books/0000000000000001/progress.bin";
+  uint8_t raw[] = {1, 0, 2, 0, 10, 0, 0, 50};
+  CHECK(saveProgress(path, raw, 8));
+  BookmarkEntry bookmark;
+  bookmark.summary = "bookmark";
+  bookmark.spineIndex = 1;
+  bookmark.chapterPage = 2;
+  bookmark.chapterPageCount = 10;
+  bookmark.percentage = .5f;
+  CHECK(saveBookmarks("/.crosspoint/books/0000000000000001/bookmarks.json", {bookmark}));
+  BookReaderSettings::Override settings;
+  settings.fields = BookReaderSettings::WritingMode;
+  settings.writingMode = 2;
+  CHECK(BookReaderSettings::save(1, settings));
+  CHECK(BookReaderSettings::save(2, settings));
+  ReadingHistoryStore history;
+  history.beginSession(book.path, book.title, book.author, book.id);
+  Storage.nowMs = 2000;
+  CHECK(history.endSession());
+  JsonDocument snapshot;
+  CHECK(exportSnapshot(book, All, history, snapshot) == ExchangeError::None);
+  CHECK(snapshot["units"]["readerSettings"]["data"].size() == 1);
+  CHECK(snapshot["units"]["readerSettings"]["data"]["writingMode"] == "vertical");
+  // Candidate listing uses content identity, including renamed files.
+  std::string exported;
+  serializeJson(snapshot, exported);
+  const std::string renamed = "/YomukaSync/renamed.json";
+  Storage.put(renamed, exported);
+  JsonDocument listed;
+  CHECK(readSnapshotForBook(renamed, book, listed) == ExchangeError::None);
+  CHECK(listed["bookId"] == "0000000000000001");
+  listed["sentinel"] = 42;
+  const auto fileState = Storage.snapshot();
+  const ExchangeBook other{2, 3, "/other.epub", "Other", "Author"};
+  CHECK(readSnapshotForBook(renamed, other, listed) == ExchangeError::Invalid);
+  CHECK(listed["sentinel"] == 42 && Storage.snapshot() == fileState);
+  // A filename naming book 2 cannot override the book 1 identity in its contents.
+  Storage.put(exchangeFilePath(2), exported);
+  CHECK(readSnapshotForBook(exchangeFilePath(2), book, listed) == ExchangeError::None);
+  JsonDocument different;
+  different.set(snapshot);
+  different["bookId"] = "0000000000000002";
+  std::string text;
+  serializeJson(different, text);
+  Storage.put(exchangeFilePath(1), text);
+  listed["sentinel"] = 42;
+  CHECK(readSnapshotForBook(exchangeFilePath(1), book, listed) == ExchangeError::Invalid);
+  CHECK(listed["sentinel"] == 42);
+  Storage.put("/YomukaSync/broken.json", exported + "garbage");
+  CHECK(readSnapshotForBook("/YomukaSync/broken.json", book, listed) == ExchangeError::Invalid);
+  Storage.put("/YomukaSync/empty.json", "");
+  CHECK(readSnapshotForBook("/YomukaSync/empty.json", book, listed) == ExchangeError::Invalid);
+  Storage.put("/YomukaSync/large.json", std::string(65537, ' '));
+  CHECK(readSnapshotForBook("/YomukaSync/large.json", book, listed) == ExchangeError::Invalid);
+  CHECK(readSnapshotForBook("/YomukaSync/missing.json", book, listed) == ExchangeError::StorageFailure);
+  CHECK(listed["sentinel"] == 42);
+  const ExchangeBook small{1, 1, book.path, book.title, book.author};
+  CHECK(readSnapshotForBook(renamed, small, listed) == ExchangeError::Invalid);
+  // Web reception is staged only after one complete, valid multipart file.
+  // Device-reported low-heap values must admit this small file, while both
+  // total and contiguous limits still reject below the exact boundary.
+  CHECK(SnapshotUpload::requiredFree(753) == 20240);
+  CHECK(SnapshotUpload::memoryAvailable(753, 32528, 19444));
+  CHECK(SnapshotUpload::memoryAvailable(753, 29088, 16372));
+  CHECK(SnapshotUpload::memoryAvailable(753, 29556, 26612));
+  CHECK(!SnapshotUpload::memoryAvailable(753, 20239, 26612));
+  CHECK(!SnapshotUpload::memoryAvailable(753, 29556, 4848));
+  CHECK(SnapshotUpload::memoryAvailable(753, 20240, 4849));
+  CHECK(SnapshotUpload::requiredFree(65536) == 65536 * 3 + 32768);
+  CHECK(!SnapshotUpload::memoryAvailable(65537, 1000000, 1000000));
+  SnapshotUpload upload;
+  JsonDocument received;
+  received["sentinel"] = 42;
+  const auto unchanged = Storage.snapshot();
+  upload.start();
+  for (size_t offset = 0; offset < exported.size(); offset += 7)
+    CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data() + offset),
+                        std::min<size_t>(7, exported.size() - offset)));
+  CHECK(!upload.parse(received) && received["sentinel"] == 42 && Storage.snapshot() == unchanged);
+  upload.finish();
+  CHECK(!upload.parse(received, false) && received["sentinel"] == 42 && Storage.snapshot() == unchanged);
+  CHECK(std::string(upload.failureReason()) == "memory");
+  CHECK(upload.parse(received));
+  CHECK(stageSnapshotForBook(other, received) == ExchangeError::Invalid && Storage.snapshot() == unchanged);
+  CHECK(stageSnapshotForBook(book, received) == ExchangeError::None);
+  CHECK(readSnapshotForBook(exchangeFilePath(book.id), book, listed) == ExchangeError::None);
+  CHECK(Storage.snapshot().at(path) == unchanged.at(path));
+  CHECK(Storage.snapshot().at("/.crosspoint/book-reader-settings.json") ==
+        unchanged.at("/.crosspoint/book-reader-settings.json"));
+  // Partial network data and abort do not publish; a new request after abort works.
+  const auto staged = Storage.snapshot();
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size() / 2));
+  upload.abort();
+  CHECK(!upload.parse(received) && Storage.snapshot() == staged);
+  CHECK(std::string(upload.failureReason()) == "aborted");
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  CHECK(upload.parse(received));
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  upload.start();
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  const std::string tooLarge(65537, ' ');
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(tooLarge.data()), tooLarge.size()));
+  CHECK(std::string(upload.failureReason()) == "too-large");
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size(), false));
+  CHECK(std::string(upload.failureReason()) == "memory");
+  upload.finish();
+  CHECK(!upload.parse(received));
+  upload.clear();
+  upload.start();
+  const std::string broken = exported + "junk";
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(broken.data()), broken.size()));
+  upload.finish();
+  CHECK(!upload.parse(received));
+  CHECK(std::string(upload.failureReason()) == "validation" && upload.validationError() != SnapshotError::None);
+  upload.clear();
+  upload.start();
+  upload.finish();
+  CHECK(!upload.parse(received));
+  // External inputs that pass the browser's basic JSON check still need strict
+  // device validation. Reject without changing either parsed output or any file.
+  const auto beforeRejectedUploads = Storage.snapshot();
+  const auto rejectsUpload = [&](const std::string& raw, SnapshotError expected) {
+    upload.clear();
+    received.clear();
+    received["sentinel"] = 123;
+    upload.start();
+    if (!upload.append(reinterpret_cast<const uint8_t*>(raw.data()), raw.size())) return false;
+    upload.finish();
+    return !upload.parse(received) && upload.validationError() == expected && received.size() == 1 &&
+           received["sentinel"] == 123 && Storage.snapshot() == beforeRejectedUploads;
+  };
+  CHECK(rejectsUpload(exported.substr(0, exported.size() - 1), SnapshotError::Json));
+  CHECK(rejectsUpload("{\"format\":\"duplicate\"," + exported.substr(1), SnapshotError::Json));
+  CHECK(rejectsUpload(std::string("\xef\xbb\xbf") + exported, SnapshotError::Encoding));
+  CHECK(rejectsUpload(exported + std::string(1, '\0'), SnapshotError::Encoding));
+  CHECK(rejectsUpload(exported + std::string(1, static_cast<char>(0xff)), SnapshotError::Encoding));
+  CHECK(rejectsUpload("{}", SnapshotError::Schema));
+  // Overflow on a later chunk must discard the earlier chunk as well.
+  upload.clear();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  CHECK(!upload.append(reinterpret_cast<const uint8_t*>(tooLarge.data()), tooLarge.size()));
+  upload.finish();
+  CHECK(!upload.parse(received) && upload.size() == 0 && Storage.snapshot() == beforeRejectedUploads);
+  // An immediate disconnect before the first byte also permits a fresh retry.
+  upload.abort();
+  upload.start();
+  CHECK(upload.append(reinterpret_cast<const uint8_t*>(exported.data()), exported.size()));
+  upload.finish();
+  CHECK(upload.parse(received) && Storage.snapshot() == beforeRejectedUploads);
+  const auto savedShared = Storage.snapshot().at(exchangeFilePath(book.id));
+  Storage.failWrite = exchangeFilePath(book.id) + ".tmp";
+  CHECK(stageSnapshotForBook(book, snapshot) == ExchangeError::StorageFailure);
+  CHECK(Storage.snapshot().at(exchangeFilePath(book.id)) == savedShared);
+  Storage.failWrite.clear();
+  snapshot["units"]["history"]["data"]["seconds"] = 1000;
+  snapshot["units"]["history"]["data"]["sessionCount"] = 7;
+  for (const char* unit : {"progress", "bookmarks", "readerSettings", "history"})
+    snapshot["units"][unit]["updatedAt"] = 0;
+  snapshot["units"]["readerSettings"]["data"].to<JsonObject>();
+  const auto before = Storage.snapshot();
+  std::vector<PreparedFile> prepared;
+  CHECK(prepareSnapshotImport(book, snapshot, All, history, layout, nullptr, prepared) == ExchangeError::None);
+  CHECK(Storage.snapshot() == before);
+  CHECK(prepared.size() == 5);
+  CHECK(applyPreparedFiles(prepared) == TransactionResult::Committed);
+  CHECK(history.reloadAfterSync());
+  Progress p;
+  uint32_t date = 123;
+  CHECK(readProgress(path, p, date) == ReadStatus::Present && date == 0 && p.chapterPage == 1 &&
+        p.chapterPageCount == 5);
+  std::vector<BookmarkEntry> bookmarks;
+  CHECK(readBookmarks("/.crosspoint/books/0000000000000001/bookmarks.json", bookmarks, date) == ReadStatus::Present &&
+        date == 0 && bookmarks[0].chapterPage == 1);
+  CHECK(BookReaderSettings::readForSync(1, settings, date) == ReadStatus::Present &&
+        !BookReaderSettings::hasAnyField(settings) && date == 0);
+  CHECK(BookReaderSettings::readForSync(2, settings, date) == ReadStatus::Present && settings.writingMode == 2 &&
+        date == 1710000000U);
+  ReadingHistoryBook result;
+  CHECK(history.readForSync(1, result, date) == ReadStatus::Present && result.seconds == 1000 &&
+        result.sessionCount == 7 && date == 0);
+  CHECK(history.getSummary().totalSeconds == 2);
+  CHECK(prepareSnapshotImport(book, snapshot, History, history, nullptr, nullptr, prepared) == ExchangeError::None &&
+        prepared.size() == 1);
+  CHECK(applyPreparedFiles(prepared) == TransactionResult::Committed && history.reloadAfterSync());
+  CHECK(history.readForSync(1, result, date) == ReadStatus::Present && result.seconds == 1000 &&
+        result.sessionCount == 7);
+  const auto storedProgress = Storage.snapshot().at(path);
+  CHECK(prepareSnapshotImport(book, snapshot, Bookmarks, history, nullptr, nullptr, prepared) == ExchangeError::Layout);
+  CHECK(Storage.snapshot().at(path) == storedProgress);
+  // All setting names/enums/booleans and signed ruby offsets round-trip.
+  BookReaderSettings::Override all;
+  all.fields = 31;
+  all.writingMode = 1;
+  all.orientation = 3;
+  all.bookStyle = 1;
+  all.imageRendering = 2;
+  all.invertImages = 1;
+  all.horizontal.fields = all.vertical.fields = 4095;
+  all.horizontal.values.fontFamily = 1;
+  std::strcpy(all.horizontal.values.sdFontFamilyName, "JapaneseFont");
+  all.horizontal.values.fontSize = 3;
+  all.horizontal.values.lineSpacing = 220;
+  all.horizontal.values.charSpacing = 50;
+  all.horizontal.values.paragraphAlignment = 2;
+  all.horizontal.values.extraParagraphSpacing = 4;
+  all.horizontal.values.screenMargin = 40;
+  all.horizontal.values.rubyOffsetX = 0;
+  all.horizontal.values.rubyOffsetY = 80;
+  all.horizontal.values.tateChuYokoMaxDigits = 3;
+  all.vertical.values = all.horizontal.values;
+  CHECK(BookReaderSettings::save(1, all));
+  JsonDocument settingsSnapshot;
+  CHECK(exportSnapshot(book, ReaderOverrides, history, settingsSnapshot) == ExchangeError::None);
+  BookReaderSettings::Override decoded;
+  CHECK(decodeSnapshotSettings(settingsSnapshot["units"]["readerSettings"]["data"].as<JsonObjectConst>(), decoded) ==
+        ExchangeError::None);
+  CHECK(decoded.fields == 31 && decoded.vertical.fields == 4095 && decoded.horizontal.fields == 4095);
+  CHECK(decoded.orientation == 3 && decoded.writingMode == 1 && decoded.bookStyle == 1 && decoded.imageRendering == 2 &&
+        decoded.invertImages == 1);
+  CHECK(decoded.horizontal.values.rubyOffsetX == 0 && decoded.horizontal.values.rubyOffsetY == 80 &&
+        decoded.horizontal.values.lineSpacing == 220);
+  CHECK(std::strcmp(decoded.vertical.values.sdFontFamilyName, "JapaneseFont") == 0 &&
+        decoded.vertical.values.fontSize == 3);
+  // Two distinct source bookmarks may collapse onto one receiver page.
+  auto duplicates = snapshot["units"]["bookmarks"]["data"].as<JsonArray>();
+  auto extra = duplicates.add<JsonObject>();
+  extra.set(duplicates[0]);
+  extra["chapterPage"] = 3;
+  CHECK(prepareSnapshotImport(book, snapshot, Bookmarks, history, layout, nullptr, prepared) == ExchangeError::Layout);
+  Storage.put("/.crosspoint/reading-history.json",
+              "{\"version\":1,\"totalSeconds\":5,\"books\":[{\"path\":\"/"
+              "same.epub\",\"title\":\"Old\",\"author\":\"Author\",\"seconds\":5}],\"days\":[{\"date\":20241001,"
+              "\"seconds\":5}]}");
+  CHECK(prepareSnapshotImport(book, snapshot, History, history, nullptr, nullptr, prepared) == ExchangeError::None);
+  CHECK(applyPreparedFiles(prepared) == TransactionResult::Committed && history.reloadAfterSync());
+  CHECK(history.getBooks().size() == 1 && history.getBooks()[0].seconds == 1000 &&
+        history.getBooks()[0].sessionCount == 7);
+  CHECK(history.getSummary().totalSeconds == 5);
+  snapshot["bookId"] = "0000000000000002";
+  CHECK(prepareSnapshotImport(book, snapshot, All, history, layout, nullptr, prepared) == ExchangeError::Invalid);
+  std::cout << "PASS SD exchange: " << checks << " checks\n";
+}

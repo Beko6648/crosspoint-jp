@@ -78,7 +78,8 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
     case MenuMode::Tools:
       items = {{MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON},
                {MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR},
-               {MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS}};
+               {MenuAction::DIAGNOSTICS, StrId::STR_DIAGNOSTICS},
+               {MenuAction::SD_SYNC, StrId::STR_READING_METER_SYNC_TIME}};
       break;
   }
   return items;
@@ -255,7 +256,11 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       renderer.fillRect(contentX, displayY, contentWidth - 1, lineHeight, true);
     }
 
-    renderer.drawText(UI_10_FONT_ID, contentX + 20, displayY, I18N.get(menuItems[i].labelId), !isSelected);
+    const char* label =
+        menuItems[i].action == MenuAction::SD_SYNC
+            ? (I18N.getLanguage() == Language::JAPANESE ? "SDで読書データを共有" : "Share reading data via SD")
+            : I18N.get(menuItems[i].labelId);
+    renderer.drawText(UI_10_FONT_ID, contentX + 20, displayY, label, !isSelected);
 
     const std::string value = getMenuItemValue(menuItems[i].action);
     if (!value.empty()) {

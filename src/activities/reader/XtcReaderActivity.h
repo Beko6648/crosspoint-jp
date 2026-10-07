@@ -11,9 +11,12 @@
 
 #include <string>
 
+#include "ReaderResumeState.h"
 #include "activities/Activity.h"
 
 class XtcReaderActivity final : public Activity {
+  ReaderResumeState resumeState;
+  void rememberBookOnceRendered();
   std::shared_ptr<Xtc> xtc;
 
   uint32_t currentPage = 0;

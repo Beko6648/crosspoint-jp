@@ -1,5 +1,5 @@
 """
-PlatformIO pre-build script: patch JPEGDEC for MCU_SKIP wild pointer crash.
+PlatformIO pre-build script: patch the pinned JPEGDEC progressive grayscale decoder.
 
 Problem:
   JPEGDecodeMCU_P computes pMCU = &sMCUs[iMCU & 0xffffff].  When iMCU is
@@ -8,20 +8,18 @@ Problem:
   first scan includes AC coefficients (iScanEnd > 0), the AC decode loop writes
   through this wild pointer and crashes with a store-access fault.
 
-  Upstream commit 8628297 guarded the DC coefficient write (pMCU[0]) but not the
-  AC coefficient writes at indices 1-63.
-
 Fix:
-  Redirect pMCU to sMCUs[0] when MCU_SKIP is active.  Writes to sMCUs[1..63]
-  are harmless: for JPEG_SCALE_EIGHTH only sMCUs[0] is read for output, and
-  the DC write at sMCUs[0] is already guarded by the existing `if (iMCU >= 0)`
-  check.
+  Keep the existing safe pointer redirect, then apply the supplemental patch
+  stack: guard skipped DC writes (upstream #2058), skip absent scan components
+  (upstream #2925), and use single-block scan geometry for subsampled Y-only
+  progressive previews. The latter preserves original image metadata.
 
 Applied idempotently — safe to run on every build.
 """
 
 Import("env")
 import os
+import subprocess
 
 
 def patch_jpegdec(env):
@@ -32,6 +30,28 @@ def patch_jpegdec(env):
         jpeg_inl = os.path.join(libdeps_dir, env_dir, "JPEGDEC", "src", "jpeg.inl")
         if os.path.isfile(jpeg_inl):
             _apply_mcu_skip_pointer_fix(jpeg_inl)
+            patch_dir = os.path.join(env["PROJECT_DIR"], "scripts", "jpegdec_patches")
+            patches = sorted(name for name in os.listdir(patch_dir) if name.endswith(".patch"))
+            if not patches:
+                raise RuntimeError("JPEGDEC supplemental patches missing")
+            for name in patches:
+                _apply_patch(os.path.dirname(os.path.dirname(jpeg_inl)), os.path.join(patch_dir, name))
+
+
+def _apply_patch(jpeg_dir, patch):
+    def check(reverse=False):
+        command = ["git", "apply", "--check"]
+        if reverse:
+            command.append("--reverse")
+        return subprocess.run(command + [patch], cwd=jpeg_dir, capture_output=True, text=True)
+
+    if check(reverse=True).returncode == 0:
+        return
+    result = check()
+    if result.returncode != 0:
+        raise RuntimeError("JPEGDEC patch cannot be applied: %s\n%s" % (patch, result.stderr))
+    subprocess.run(["git", "apply", patch], cwd=jpeg_dir, check=True)
+    print("Applied JPEGDEC patch: %s" % os.path.basename(patch))
 
 
 def _apply_mcu_skip_pointer_fix(filepath):
@@ -52,11 +72,7 @@ def _apply_mcu_skip_pointer_fix(filepath):
     )
 
     if OLD not in content:
-        print(
-            "WARNING: JPEGDEC MCU_SKIP pointer patch target not found in %s "
-            "— library may have been updated" % filepath
-        )
-        return
+        raise RuntimeError("JPEGDEC MCU_SKIP pointer patch target not found in %s" % filepath)
 
     content = content.replace(OLD, NEW, 1)
     with open(filepath, "w") as f:

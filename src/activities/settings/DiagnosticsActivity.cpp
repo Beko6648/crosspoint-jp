@@ -209,27 +209,41 @@ const char* cacheStatusName(const Epub::CacheGenerationStatus status) {
 void DiagnosticsActivity::onEnter() {
   Activity::onEnter();
   collectSnapshot();
+  entrySnapshotDurationMs = snapshotDurationMs;
   requestUpdate();
 }
 
-void DiagnosticsActivity::collectSnapshot() {
+void DiagnosticsActivity::collectSnapshot(const bool includeStorageUsage) {
   const uint32_t startedAt = millis();
+  {
+    RenderLock lock;
+    gaugeDiagnostics = powerManager.readGaugeDiagnostics();
+  }
   sdReady = Storage.ready();
   freeHeap = ESP.getFreeHeap();
   maxAllocHeap = ESP.getMaxAllocHeap();
   minFreeHeap = ESP.getMinFreeHeap();
+  // FAT free-space and recursive cache scans can take seconds on a large card.
+  // Keep entry responsive; collect these only when saving a complete report.
+  if (includeStorageUsage) {
+    const uint32_t usageStartedAt = millis();
 #ifdef SIMULATOR
-  sdTotalBytes = 0;
-  sdUsedBytes = 0;
+    sdTotalBytes = 0;
+    sdUsedBytes = 0;
 #else
-  sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
-  sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
+    sdTotalBytes = sdReady ? Storage.totalBytes() : 0;
+    sdUsedBytes = sdReady ? Storage.usedBytes() : 0;
 #endif
-  if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
-  const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
-  cacheDirectoryCount = cacheUsage.directoryCount;
-  readingCacheBytes = cacheUsage.bytes;
-  readingCacheSizeComplete = cacheUsage.complete;
+    if (sdUsedBytes > sdTotalBytes) sdUsedBytes = 0;
+    sdUsageDurationMs = millis() - usageStartedAt;
+    const uint32_t cacheStartedAt = millis();
+    const auto cacheUsage = sdReady ? collectReadingCacheUsage() : ReadingCacheUsage{};
+    cacheDirectoryCount = cacheUsage.directoryCount;
+    readingCacheBytes = cacheUsage.bytes;
+    readingCacheSizeComplete = cacheUsage.complete;
+    cacheScanDurationMs = millis() - cacheStartedAt;
+    storageUsageCollected = true;
+  }
   hasActiveBook = static_cast<bool>(book);
   openBookType = "none";
   openBookSize = 0;
@@ -244,7 +258,7 @@ void DiagnosticsActivity::collectSnapshot() {
   }
   bookCacheStatus = hasActiveBook ? book->getCacheGenerationStatus() : Epub::CacheGenerationStatus::NotGenerated;
   bookFingerprint = 0;
-  bookFingerprintAvailable = hasActiveBook && book->getSourceFingerprint(&bookFingerprint);
+  bookFingerprintAvailable = includeStorageUsage && hasActiveBook && book->getSourceFingerprint(&bookFingerprint);
   readerVertical = SETTINGS.writingMode == CrossPointSettings::WM_VERTICAL;
   const auto& direction = SETTINGS.getDirectionSettings(readerVertical);
   readerFont = direction.sdFontFamilyName[0] == '\0' ? "Noto Sans" : direction.sdFontFamilyName;
@@ -280,6 +294,36 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("input_style=%s\n", inputStyleName());
   file.printf("sd_transport=%s\n", sdTransportName());
   file.printf("rtc_available=%s\n", halRTC.isAvailable() ? "true" : "false");
+  file.printf("battery_gauge_available=%s\n", gaugeDiagnostics.supported ? "true" : "false");
+  if (gaugeDiagnostics.supported) {
+    const auto& g = gaugeDiagnostics;
+    file.printf("battery_gauge_valid=0x%02X\n", g.valid);
+    file.printf(
+        "battery_capacity_step=%u\nbattery_capacity_pending=%s\nbattery_capacity_changed=%s\n"
+        "battery_capacity_verified=%s\nbattery_capacity_had_error=%s\n",
+        g.capacityStep, g.capacityPending ? "true" : "false", g.capacityChanged ? "true" : "false",
+        g.capacityVerified ? "true" : "false", g.capacityHadError ? "true" : "false");
+    file.printf("battery_gauge_captured_ms=%lu\nbattery_gauge_read_ms=%lu\n", g.capturedMs, g.readMs);
+    const char* names[] = {"soc_percent", "voltage_mV", "current_mA",     "remaining_mAh",
+                           "full_mAh",    "design_mAh", "battery_status", "operation_status"};
+    const uint16_t values[] = {g.soc,  g.voltage, g.current,       g.remaining,
+                               g.full, g.design,  g.batteryStatus, g.operationStatus};
+    for (unsigned i = 0; i < 8; ++i) {
+      if (!(g.valid & (1u << i)))
+        file.printf("battery_gauge_%s=unknown\n", names[i]);
+      else if (i >= 6)
+        file.printf("battery_gauge_%s=0x%04X\n", names[i], values[i]);
+      else
+        file.printf("battery_gauge_%s=%d\n", names[i],
+                    i == 2 && values[i] >= 0x8000 ? static_cast<int>(values[i]) - 0x10000 : values[i]);
+    }
+    if (g.valid & 0x80) {
+      file.printf("battery_gauge_security=%u\n", (g.operationStatus >> 1) & 3);
+      file.printf("battery_gauge_cfgupdate=%s\n", (g.operationStatus & 0x0400) ? "true" : "false");
+      file.printf("battery_gauge_initcomp=%s\n", (g.operationStatus & 0x0020) ? "true" : "false");
+      file.printf("battery_gauge_edv2=%s\n", (g.operationStatus & 0x0008) ? "true" : "false");
+    }
+  }
   const auto& abortedSleep = powerManager.getAbortedSleepInfo();
   file.printf("previous_deep_sleep_aborted=%s\n", abortedSleep.aborted ? "true" : "false");
   if (abortedSleep.aborted) {
@@ -318,6 +362,9 @@ bool DiagnosticsActivity::saveReport() {
   file.printf("reader_book_style=%u\n", readerBookStyle);
   file.printf("reader_image_rendering=%u\n", readerImageRendering);
   file.printf("snapshot_duration_ms=%lu\n", static_cast<unsigned long>(snapshotDurationMs));
+  file.printf("entry_snapshot_duration_ms=%lu\nsd_usage_duration_ms=%lu\ncache_scan_duration_ms=%lu\n",
+              static_cast<unsigned long>(entrySnapshotDurationMs), static_cast<unsigned long>(sdUsageDurationMs),
+              static_cast<unsigned long>(cacheScanDurationMs));
   file.printf("captured_millis=%lu\n", static_cast<unsigned long>(millis()));
   file.print("\nRecent logs:\n");
   file.print(recentLogs.c_str());
@@ -333,14 +380,26 @@ void DiagnosticsActivity::loop() {
     finish();
     return;
   }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    collectSnapshot();
-    saveResult = saveReport() ? SaveResult::Saved : SaveResult::Failed;
+  const bool saveRequested = mappedInput.wasPressed(MappedInputManager::Button::Confirm);
+  if (saveRequested || mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    {
+      RenderLock lock;
+      checking = true;
+      saveResult = SaveResult::None;
+    }
+    // Show the busy state before the SD scan blocks the main loop.
+    requestUpdateAndWait();
+    collectSnapshot(true);
+    const bool saved = saveRequested && saveReport();
+    {
+      RenderLock lock;
+      checking = false;
+      if (saveRequested) saveResult = saved ? SaveResult::Saved : SaveResult::Failed;
+    }
     requestUpdate();
     return;
   }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
     page = page == Page::Overview ? Page::Logs : page == Page::Logs ? Page::Details : Page::Overview;
     requestUpdate();
   }
@@ -354,11 +413,13 @@ void DiagnosticsActivity::renderOverview(const int x, int y, const int contentWi
   drawLine(std::string("Yomuka: ") + CROSSPOINT_VERSION);
   drawLine("Device: " + deviceDescription());
   drawLine(std::string("SD: ") + (sdReady ? "ready" : "unavailable"));
-  if (sdReady) drawLine("SD free: " + formatBytes(sdTotalBytes - sdUsedBytes));
+  if (sdReady) drawLine("SD free: " + (storageUsageCollected ? formatBytes(sdTotalBytes - sdUsedBytes) : "--"));
   drawLine("Heap: " + std::to_string(freeHeap));
   drawLine("Max alloc: " + std::to_string(maxAllocHeap));
   drawLine("Min free: " + std::to_string(minFreeHeap));
-  drawLine("Cache: " + formatBytes(readingCacheBytes) + " (" + std::to_string(cacheDirectoryCount) + ")");
+  drawLine("Cache: " + (storageUsageCollected
+                            ? formatBytes(readingCacheBytes) + " (" + std::to_string(cacheDirectoryCount) + ")"
+                            : "--"));
   if (hasActiveBook) {
     drawLine(std::string("Book cache: ") + cacheStatusName(bookCacheStatus));
     drawLine("Book page: " + std::to_string(bookPageIndex + 1) + "/" + std::to_string(bookPageCount));
@@ -401,7 +462,9 @@ void DiagnosticsActivity::renderDetails(const int x, int y, const int contentWid
   };
 
   drawLine("Snapshot: " + std::to_string(snapshotDurationMs) + " ms");
-  drawLine("Cache scan: " + std::string(readingCacheSizeComplete ? "complete" : "incomplete"));
+  drawLine("Cache scan: " + std::string(!storageUsageCollected     ? "--"
+                                        : readingCacheSizeComplete ? "complete"
+                                                                   : "incomplete"));
   drawLine("Logs captured: " + std::to_string(recentLogLines.size()));
   drawLine(std::string("Active book: ") + (hasActiveBook ? "yes" : "no"));
   if (!hasActiveBook) return;
@@ -434,6 +497,13 @@ void DiagnosticsActivity::render(RenderLock&&) {
   renderer.drawText(UI_10_FONT_ID, x, y, pageTitle);
   y += lineHeight + metrics.verticalSpacing;
 
+  if (checking) {
+    GUI.drawPopup(renderer, tr(STR_DIAGNOSTICS_CHECKING));
+    GUI.drawButtonHints(renderer, "", "", "", "");
+    renderer.displayBuffer();
+    return;
+  }
+
   if (page == Page::Overview) {
     renderOverview(x, y, contentWidth, lineHeight);
   } else if (page == Page::Logs) {
@@ -447,7 +517,7 @@ void DiagnosticsActivity::render(RenderLock&&) {
   const char* nextPageLabel = page == Page::Overview ? tr(STR_DIAGNOSTICS_LOG_BUTTON)
                               : page == Page::Logs   ? tr(STR_DIAGNOSTICS_DETAILS_BUTTON)
                                                      : tr(STR_DIAGNOSTICS_OVERVIEW);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), nextPageLabel, "");
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SAVE), nextPageLabel, tr(STR_DIAGNOSTICS_RELOAD));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

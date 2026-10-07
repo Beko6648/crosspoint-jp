@@ -70,6 +70,7 @@ void CrossPointWebServerActivity::onEnter() {
 
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->releaseSdFontCaches();
+    fcm->releaseSdFontVerticalGlyphs();
     LOG_DBG("WEBACT", "Free heap after SD font cache release: %d bytes", ESP.getFreeHeap());
   }
 
@@ -292,6 +293,8 @@ void CrossPointWebServerActivity::startWebServer() {
   // entry, so make room again immediately before allocating the server.
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->releaseSdFontCaches();
+    // Vertical reader glyphs are rebuilt when reading resumes; Web UI uses horizontal text.
+    fcm->releaseSdFontVerticalGlyphs();
     LOG_DBG("WEBACT", "Free heap before server alloc: %d bytes", ESP.getFreeHeap());
   }
 

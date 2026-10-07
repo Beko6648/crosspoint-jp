@@ -63,23 +63,31 @@ void TxtReaderActivity::onEnter() {
     return;
   }
 
+  ReaderResumeState::clearRememberedBook();
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   txt->setupCacheDir();
 
-  // Save current txt as last opened file and add to recent books
+  // Keep reading-session accounting independent of resume eligibility.
   auto filePath = txt->getPath();
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
-  APP_STATE.openEpubPath = filePath;
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
   READING_HISTORY.beginSession(filePath, fileName, "");
 
   // Trigger first update
   requestUpdate();
 }
 
+void TxtReaderActivity::rememberBookOnceRendered() {
+  if (!txt || !resumeState.takeRenderedBook()) return;
+  const auto filePath = txt->getPath();
+  const auto fileName = filePath.substr(filePath.rfind('/') + 1);
+  APP_STATE.openEpubPath = filePath;
+  APP_STATE.saveToFile();
+  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+}
+
 void TxtReaderActivity::onExit() {
+  rememberBookOnceRendered();
   Activity::onExit();
   READING_HISTORY.endSession();
 
@@ -94,6 +102,7 @@ void TxtReaderActivity::onExit() {
 }
 
 void TxtReaderActivity::loop() {
+  rememberBookOnceRendered();
   READING_HISTORY.tick();
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) READING_HISTORY.noteInteraction();
   // Long press BACK (1s+) goes to file selection
@@ -108,6 +117,9 @@ void TxtReaderActivity::loop() {
     onGoHome();
     return;
   }
+
+  // Empty/BOM-only files have no page to turn or mark as finished.
+  if (!txt || txt->getFileSize() <= txt->getContentOffset()) return;
 
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
@@ -304,6 +316,17 @@ void TxtReaderActivity::render(RenderLock&&) {
     return;
   }
 
+  // Reject empty content before font loading and page-index construction.
+  // buildPageIndex() seeds an offset even for a zero-byte file.
+  if (txt->getFileSize() <= txt->getContentOffset()) {
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_FILE), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
   // Initialize reader if not done
   if (!initialized) {
     initializeReader();
@@ -324,10 +347,19 @@ void TxtReaderActivity::render(RenderLock&&) {
   size_t offset = pageOffsets[currentPage];
   size_t nextOffset;
   currentPageLines.clear();
-  loadPageAtOffset(offset, currentPageLines, nextOffset);
+  if (!loadPageAtOffset(offset, currentPageLines, nextOffset)) {
+    LOG_ERR("TRS", "Failed to load page at offset %zu", offset);
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 
   renderer.clearScreen();
   renderPage();
+  resumeState.markPageRendered();
 
   // Save progress
   const bool nearEnd = totalPages > 0 && static_cast<float>(currentPage + 1) / totalPages >= 0.95f;
@@ -411,10 +443,11 @@ void TxtReaderActivity::saveProgress(const bool isFinished) const {
                                                   static_cast<uint32_t>(totalPages))
                            : ReadingProgress::PERCENT_UNKNOWN;
   if (isFinished) data[5] = 100;
-  ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data));
+  if (!ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data))) LOG_ERR("TRS", "Could not save progress");
 }
 
 void TxtReaderActivity::loadProgress() {
+  if (!yomuka::sync::recoverFile(txt->getCachePath() + "/progress.bin")) return;
   FsFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6] = {0};

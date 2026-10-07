@@ -80,6 +80,8 @@ class HalGPIO {
   bool wasReleased(uint8_t buttonIndex) const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
+  // Read physical contact without changing debounced state or input events.
+  bool rawInputActive();
 
   // Setup wake up GPIO and enter deep sleep. X3 + RTC有効時はGPIO13を維持する。
   void startDeepSleep(bool cutPowerRails);

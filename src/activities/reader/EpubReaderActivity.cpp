@@ -25,6 +25,7 @@
 #include "BookCacheClearActivity.h"
 #include "BookReaderSettings.h"
 #include "BookReaderSettingsActivity.h"
+#include "BookSyncActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -322,6 +323,7 @@ void EpubReaderActivity::onEnter() {
   }
 
   Issue18Diagnostics::logMemory("reader-enter", epub->getPath().c_str());
+  ReaderResumeState::clearRememberedBook();
 
   // ルビフォントIDはrender()内でフォントロード後に設定
 
@@ -341,12 +343,21 @@ void EpubReaderActivity::onEnter() {
   const std::string progressPath = hasBookId ? BookDataPath::getProgressPath(bookId) : legacyProgressPath;
   uint8_t data[7] = {};
   size_t dataSize = 0;
+  if (!yomuka::sync::recoverFile(progressPath)) LOG_ERR("ERS", "Could not recover saved progress");
   if (Storage.exists(progressPath.c_str())) {
     dataSize = ProgressFile::readLegacyCompatible(progressPath, data);
   } else if (hasBookId) {
     dataSize = ProgressFile::readLegacyCompatible(legacyProgressPath, data);
-    if (dataSize != 0 && BookDataPath::ensureDirectory(bookId) &&
-        ProgressFile::writeAtomicPath(progressPath, data, dataSize)) {
+    uint8_t completeRecord[8] = {};
+    size_t completeLength = 0;
+    yomuka::sync::Progress checkedProgress;
+    if (dataSize != 0 &&
+        yomuka::sync::readBytes(legacyProgressPath, completeRecord, sizeof(completeRecord), completeLength) ==
+            yomuka::sync::ReadStatus::Present &&
+        yomuka::sync::decodeLegacyProgress(completeRecord, completeLength, checkedProgress) ==
+            yomuka::sync::ProgressError::None &&
+        BookDataPath::ensureDirectory(bookId) &&
+        ProgressFile::writeAtomicPath(progressPath, completeRecord, completeLength, false)) {
       LOG_INF("ERS", "Migrated progress to BookId %016llx", static_cast<unsigned long long>(bookId));
     }
   } else {
@@ -373,10 +384,6 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
-  // Save current epub as last opened epub and add to recent books
-  APP_STATE.openEpubPath = epub->getPath();
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), bookId);
   const auto beginReadingSession = [this, bookId] {
     if (epub) READING_HISTORY.beginSession(epub->getPath(), epub->getTitle(), epub->getAuthor(), bookId);
   };
@@ -422,7 +429,18 @@ void EpubReaderActivity::onEnter() {
   requestUpdate();
 }
 
+void EpubReaderActivity::rememberBookOnceRendered() {
+  if (!epub || !resumeState.takeRenderedBook()) return;
+  uint64_t bookId = 0;
+  epub->getSourceFingerprint(&bookId);
+  APP_STATE.openEpubPath = epub->getPath();
+  APP_STATE.saveToFile();
+  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), bookId);
+}
+
 void EpubReaderActivity::onExit() {
+  // Also commit when sleep/back arrives before the next reader loop.
+  rememberBookOnceRendered();
   Activity::onExit();
 #if defined(IDLE_CHAPTER_BUILD)
   // ActivityManager calls onExit while holding the non-recursive RenderLock.
@@ -513,6 +531,7 @@ void EpubReaderActivity::restoreActiveBookOverride() {
 }
 
 void EpubReaderActivity::loop() {
+  rememberBookOnceRendered();
   if (CacheGenerationControls::consumeCancellationRelease(mappedInput)) return;
 #if defined(IDLE_CHAPTER_BUILD)
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) {
@@ -810,6 +829,25 @@ void EpubReaderActivity::clearDeferredReposition() { cachedChapterTotalPageCount
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
   switch (action) {
+    case EpubReaderMenuActivity::MenuAction::SD_SYNC: {
+      bool saved = true;
+      {
+        RenderLock lock(*this);
+        if (section) {
+          const int percent = calculateBookPercent(section->currentPage, section->pageCount);
+          saved = saveProgress(currentSpineIndex, section->currentPage, section->pageCount, percent >= 95, percent);
+        }
+      }
+      if (!saved || !READING_HISTORY.endSession()) {
+        RenderLock lock(*this);
+        GUI.drawPopup(renderer, "保存失敗。SDを確認してください");
+        renderer.displayBuffer();
+        return;
+      }
+      automaticPageTurnActive = false;
+      activityManager.replaceActivity(std::make_unique<BookSyncActivity>(renderer, mappedInput, epub));
+      return;
+    }
     case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
       startActivityForResult(
           std::make_unique<EpubReaderBookmarksActivity>(renderer, mappedInput, epub, epub->getPath()),
@@ -1283,6 +1321,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
+    resumeState.markPageRendered();
     automaticPageTurnActive = false;
     return;
   }
@@ -1545,6 +1584,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                          section->currentPage);
     SD_FONT_DIAG_LOG("page_draw_before", 0);
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+    resumeState.markPageRendered();
     SD_FONT_DIAG_LOG_AFTER("page_draw_after", 0, pageDrawStartedAt);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
@@ -1730,7 +1770,7 @@ int EpubReaderActivity::calculateBookPercent(const int currentPage, const int pa
   return clampPercent(static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f));
 }
 
-void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished, int percent) {
+bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished, int percent) {
   uint8_t data[8];
   data[0] = spineIndex & 0xFF;
   data[1] = (spineIndex >> 8) & 0xFF;
@@ -1753,8 +1793,10 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     saveBookListStatusIndex("/.crosspoint", statusEntries);
     if (isFinished) READING_HISTORY.markFinished(epub->getPath(), bookId);
     LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d", spineIndex, currentPage, isFinished);
+    return true;
   } else {
     LOG_ERR("ERS", "Could not save progress!");
+    return false;
   }
 }
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
@@ -1988,7 +2030,8 @@ void EpubReaderActivity::loadCachedBookmarks() {
     if (Storage.exists(legacyPath.c_str())) {
       const String json = Storage.readFile(legacyPath.c_str());
       if (!json.isEmpty() && JsonSettingsIO::loadBookmarks(cachedBookmarks, json.c_str(), MAX_BOOKMARKS_PER_BOOK) &&
-          BookDataPath::ensureDirectory(bookId) && JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str())) {
+          BookDataPath::ensureDirectory(bookId) &&
+          JsonSettingsIO::saveBookmarks(cachedBookmarks, path.c_str(), false)) {
         LOG_INF("BKM", "Migrated bookmarks to BookId %016llx", static_cast<unsigned long long>(bookId));
       }
     }

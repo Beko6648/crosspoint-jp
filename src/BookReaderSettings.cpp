@@ -19,7 +19,7 @@ void fingerprintKey(const uint64_t fingerprint, char (&out)[17]) {
 bool readU8(JsonObjectConst object, const char* key, uint8_t min, uint8_t max, uint8_t& target, uint16_t& mask,
             const uint16_t field) {
   const JsonVariantConst input = object[key];
-  if (input.isNull()) return true;
+  if (input.isUnbound()) return true;
   if (!input.is<int>()) return false;
   const int value = input.as<int>();
   if (value < min || value > max) return false;
@@ -33,7 +33,7 @@ void writeDirection(JsonObject object, const BookReaderSettings::DirectionOverri
   const auto& settings = value.values;
   if (fields & BookReaderSettings::DirectionFont) {
     object["fontFamily"] = settings.fontFamily;
-    object["sdFontFamilyName"] = settings.sdFontFamilyName;
+    object["sdFontFamilyName"] = std::string(settings.sdFontFamilyName);
   }
   if (fields & BookReaderSettings::DirectionFontSize) object["fontSize"] = settings.fontSize;
   if (fields & BookReaderSettings::DirectionLineSpacing) object["lineSpacing"] = settings.lineSpacing;
@@ -56,12 +56,12 @@ bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride
   auto& fields = result.fields;
   const JsonVariantConst fontFamily = object["fontFamily"];
   const JsonVariantConst familyName = object["sdFontFamilyName"];
-  if (!fontFamily.isNull() || !familyName.isNull()) {
+  if (!fontFamily.isUnbound() || !familyName.isUnbound()) {
     if (!fontFamily.is<int>() || !familyName.is<const char*>()) return false;
     const int family = fontFamily.as<int>();
     const char* name = familyName.as<const char*>();
     if (family < 0 || family >= CrossPointSettings::FONT_FAMILY_COUNT ||
-        strlen(name) >= sizeof(settings.sdFontFamilyName)) {
+        strlen(name) >= sizeof(settings.sdFontFamilyName) || familyName.as<JsonString>().size() != strlen(name)) {
       return false;
     }
     settings.fontFamily = static_cast<uint8_t>(family);
@@ -90,6 +90,9 @@ bool readDirection(JsonObjectConst object, BookReaderSettings::DirectionOverride
 
 bool readOverride(JsonObjectConst object, BookReaderSettings::Override& result) {
   if (object.isNull()) return false;
+  if ((!object["horizontal"].isUnbound() && !object["horizontal"].is<JsonObjectConst>()) ||
+      (!object["vertical"].isUnbound() && !object["vertical"].is<JsonObjectConst>()))
+    return false;
   if (!readDirection(object["horizontal"].as<JsonObjectConst>(), result.horizontal) ||
       !readDirection(object["vertical"].as<JsonObjectConst>(), result.vertical)) {
     return false;
@@ -116,15 +119,23 @@ void writeOverride(JsonObject object, const BookReaderSettings::Override& value)
   if (value.fields & BookReaderSettings::InvertImages) object["invertImages"] = value.invertImages;
 }
 
+yomuka::sync::ReadStatus readDocument(JsonDocument& document) {
+  const auto status = yomuka::sync::readJson(kSettingsPath, document);
+  if (status != yomuka::sync::ReadStatus::Present) return status;
+  if (!document["formatVersion"].is<uint8_t>() || document["formatVersion"].as<uint8_t>() != kFormatVersion ||
+      !document["books"].is<JsonObject>())
+    return yomuka::sync::ReadStatus::Corrupt;
+  return status;
+}
+
 bool loadDocument(JsonDocument& document) {
-  if (!Storage.exists(kSettingsPath)) {
+  const auto status = readDocument(document);
+  if (status == yomuka::sync::ReadStatus::Absent) {
     document["formatVersion"] = kFormatVersion;
     document["books"].to<JsonObject>();
     return true;
   }
-  const String json = Storage.readFile(kSettingsPath);
-  if (json.isEmpty() || deserializeJson(document, json)) return false;
-  return (document["formatVersion"] | 0) == kFormatVersion && document["books"].is<JsonObject>();
+  return status == yomuka::sync::ReadStatus::Present;
 }
 
 void applyDirection(const BookReaderSettings::DirectionOverride& value, DirectionSettings& target) {
@@ -186,26 +197,84 @@ bool BookReaderSettings::load(const uint64_t fingerprint, Override& result) {
   return readOverride(entry, result);
 }
 
+yomuka::sync::ReadStatus BookReaderSettings::readForSync(const uint64_t fingerprint, Override& result,
+                                                         uint32_t& updatedAt) {
+  HalStorage::StorageLock lock;
+  if (fingerprint == 0) return yomuka::sync::ReadStatus::Corrupt;
+  JsonDocument document;
+  const auto status = readDocument(document);
+  if (status != yomuka::sync::ReadStatus::Present) return status;
+  char key[17];
+  fingerprintKey(fingerprint, key);
+  const auto entry = document["books"][key];
+  if (entry.isUnbound()) return yomuka::sync::ReadStatus::Absent;
+  Override candidate;
+  uint32_t timestamp = 0;
+  if (!entry.is<JsonObjectConst>() || !readOverride(entry.as<JsonObjectConst>(), candidate) ||
+      !yomuka::sync::readUpdateTime(entry.as<JsonObjectConst>(), timestamp))
+    return yomuka::sync::ReadStatus::Corrupt;
+  result = candidate;
+  updatedAt = timestamp;
+  return yomuka::sync::ReadStatus::Present;
+}
+
 bool BookReaderSettings::save(const uint64_t fingerprint, const Override& value) {
+  HalStorage::StorageLock lock;
+  if (fingerprint == 0 ||
+      ((value.horizontal.fields & DirectionFont) && !std::memchr(value.horizontal.values.sdFontFamilyName, '\0',
+                                                                 sizeof(value.horizontal.values.sdFontFamilyName))) ||
+      ((value.vertical.fields & DirectionFont) &&
+       !std::memchr(value.vertical.values.sdFontFamilyName, '\0', sizeof(value.vertical.values.sdFontFamilyName))))
+    return false;
   if (!Storage.ready() || !Storage.ensureDirectoryExists("/.crosspoint")) return false;
   JsonDocument document;
   if (!loadDocument(document)) return false;
   char key[17];
   fingerprintKey(fingerprint, key);
+  JsonDocument candidate;
+  writeOverride(candidate.to<JsonObject>(), value);
+  Override verified;
+  if (candidate.overflowed() || !readOverride(candidate.as<JsonObjectConst>(), verified) ||
+      verified.fields != value.fields || verified.horizontal.fields != value.horizontal.fields ||
+      verified.vertical.fields != value.vertical.fields)
+    return false;
   JsonObject books = document["books"].as<JsonObject>();
-  if (!hasAnyField(value)) {
-    books.remove(key);
-  } else {
-    writeOverride(books[key].to<JsonObject>(), value);
+  if (books[key].isUnbound() && !hasAnyField(value)) return true;
+  if (!books[key].isUnbound()) {
+    uint32_t timestamp = 0;
+    if (!books[key].is<JsonObject>() || !readOverride(books[key].as<JsonObjectConst>(), verified) ||
+        !yomuka::sync::readUpdateTime(books[key].as<JsonObjectConst>(), timestamp))
+      return false;
+    books[key].as<JsonObject>().remove("updatedAt");
+    if (books[key] == candidate.as<JsonVariantConst>()) return true;
   }
-  String json;
-  serializeJson(document, json);
-  return Storage.writeFile(kSettingsPath, json);
+  candidate["updatedAt"] = yomuka::sync::localUpdateTime();
+  // An empty override with a date is a tombstone. Other books remain intact.
+  books[key].set(candidate.as<JsonObjectConst>());
+  return yomuka::sync::writeJson(kSettingsPath, document);
 }
 
 bool BookReaderSettings::remove(const uint64_t fingerprint) { return save(fingerprint, Override{}); }
+bool BookReaderSettings::prepareForSync(uint64_t fingerprint, const Override& value, uint32_t updatedAt,
+                                        JsonDocument& output) {
+  HalStorage::StorageLock lock;
+  if (!fingerprint) return false;
+  JsonDocument document, candidate;
+  if (!loadDocument(document)) return false;
+  writeOverride(candidate.to<JsonObject>(), value);
+  Override checked;
+  if (!readOverride(candidate.as<JsonObjectConst>(), checked)) return false;
+  char key[17];
+  fingerprintKey(fingerprint, key);
+  candidate["updatedAt"] = updatedAt;
+  document["books"][key].set(candidate.as<JsonObjectConst>());
+  if (document.overflowed()) return false;
+  output = std::move(document);
+  return true;
+}
 
 bool BookReaderSettings::migrate(const uint64_t previousFingerprint, const uint64_t currentFingerprint) {
+  HalStorage::StorageLock lock;
   if (previousFingerprint == currentFingerprint || !Storage.ready() || !Storage.ensureDirectoryExists("/.crosspoint")) {
     return previousFingerprint == currentFingerprint;
   }
@@ -221,9 +290,10 @@ bool BookReaderSettings::migrate(const uint64_t previousFingerprint, const uint6
   if (!readOverride(books[previousKey].as<JsonObjectConst>(), previous)) return false;
   if (!hasAnyField(previous)) return true;
   writeOverride(books[currentKey].to<JsonObject>(), previous);
-  String json;
-  serializeJson(document, json);
-  return Storage.writeFile(kSettingsPath, json);
+  uint32_t timestamp = 0;
+  if (!yomuka::sync::readUpdateTime(books[previousKey].as<JsonObjectConst>(), timestamp)) return false;
+  books[currentKey]["updatedAt"] = timestamp;
+  return yomuka::sync::writeJson(kSettingsPath, document);
 }
 
 void BookReaderSettings::apply(const Override& value, CrossPointSettings& settings) {

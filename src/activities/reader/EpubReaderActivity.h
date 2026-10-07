@@ -10,12 +10,15 @@
 
 #include "BookmarkEntry.h"
 #include "EpubReaderMenuActivity.h"
+#include "ReaderResumeState.h"
 #include "activities/Activity.h"
 #if defined(IDLE_CHAPTER_CANCEL_WINDOW_MS)
 #include "util/IdleChapterTestPause.h"
 #endif
 
 class EpubReaderActivity final : public Activity {
+  ReaderResumeState resumeState;
+  void rememberBookOnceRendered();
 #if defined(IDLE_IMAGE_PREFETCH_TEST)
   std::atomic<uint32_t> idleRenderReady{0};
   std::atomic<uint32_t> idleRenderEpoch{0};
@@ -93,7 +96,7 @@ class EpubReaderActivity final : public Activity {
   void renderStatusBar() const;
   void renderRubyAdjustOverlay() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
-  void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false, int percent = -1);
+  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false, int percent = -1);
   int calculateBookPercent(int currentPage, int pageCount) const;
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);

@@ -41,22 +41,27 @@ void XtcReaderActivity::onEnter() {
     return;
   }
 
+  ReaderResumeState::clearRememberedBook();
   xtc->setupCacheDir();
 
   // Load saved progress
   loadProgress();
 
-  // Save current XTC as last opened book and add to recent books
-  APP_STATE.openEpubPath = xtc->getPath();
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
   READING_HISTORY.beginSession(xtc->getPath(), xtc->getTitle(), xtc->getAuthor());
 
   // Trigger first update
   requestUpdate();
 }
 
+void XtcReaderActivity::rememberBookOnceRendered() {
+  if (!xtc || !resumeState.takeRenderedBook()) return;
+  APP_STATE.openEpubPath = xtc->getPath();
+  APP_STATE.saveToFile();
+  RECENT_BOOKS.addBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
+}
+
 void XtcReaderActivity::onExit() {
+  rememberBookOnceRendered();
   Activity::onExit();
   READING_HISTORY.endSession();
 
@@ -66,6 +71,7 @@ void XtcReaderActivity::onExit() {
 }
 
 void XtcReaderActivity::loop() {
+  rememberBookOnceRendered();
   READING_HISTORY.tick();
   if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased()) READING_HISTORY.noteInteraction();
   // リーダーメニューを開く
@@ -416,6 +422,7 @@ void XtcReaderActivity::renderPage() {
     free(pageBuffer);
 
     LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
+    resumeState.markPageRendered();
     renderer.setDarkMode(wasDarkMode);
 
     if (pendingScreenshot) {
@@ -465,6 +472,7 @@ void XtcReaderActivity::renderPage() {
   }
 
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
+  resumeState.markPageRendered();
   renderer.setDarkMode(wasDarkMode);
 
   if (pendingScreenshot) {
@@ -492,6 +500,7 @@ void XtcReaderActivity::saveProgress(bool isFinished) const {
 }
 
 void XtcReaderActivity::loadProgress() {
+  if (!yomuka::sync::recoverFile(xtc->getCachePath() + "/progress.bin")) return;
   FsFile f;
   if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6] = {0};

@@ -4,7 +4,8 @@
 #include <map>
 #include <vector>
 struct TestWire {
-  std::map<uint8_t, uint16_t> values{{0x2c, 84}, {0x08, 3700}, {0x0c, 0xff88}, {0x10, 210}, {0x12, 300}};
+  std::map<uint8_t, uint16_t> values{{0x2c, 84},  {0x08, 3700}, {0x0c, 0xff88}, {0x10, 210},
+                                     {0x12, 300}, {0x3c, 3000}, {0x0a, 0x0109}, {0x3a, 0x042e}};
   std::vector<uint8_t> reads;
   int failReg = -1, shortReg = -1, selected = 0, offset = 0, count = 0;
   void begin(int, int, int) {}

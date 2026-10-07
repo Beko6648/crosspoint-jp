@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Epub.h>
+#include <HalPowerManager.h>
 
 #include <cstdint>
 #include <memory>
@@ -32,11 +33,17 @@ class DiagnosticsActivity final : public Activity {
 
   Page page = Page::Overview;
   SaveResult saveResult = SaveResult::None;
+  bool checking = false;
   bool sdReady = false;
   uint32_t freeHeap = 0;
   uint32_t maxAllocHeap = 0;
   uint32_t minFreeHeap = 0;
   uint32_t snapshotDurationMs = 0;
+  uint32_t entrySnapshotDurationMs = 0;
+  uint32_t sdUsageDurationMs = 0;
+  uint32_t cacheScanDurationMs = 0;
+  bool storageUsageCollected = false;
+  HalPowerManager::GaugeDiagnostics gaugeDiagnostics;
   uint64_t sdTotalBytes = 0;
   uint64_t sdUsedBytes = 0;
   uint64_t readingCacheBytes = 0;
@@ -61,7 +68,7 @@ class DiagnosticsActivity final : public Activity {
   std::vector<std::string> recentLogLines;
   std::string savedReportPath;
 
-  void collectSnapshot();
+  void collectSnapshot(bool includeStorageUsage = false);
   bool saveReport();
   void renderOverview(int x, int y, int contentWidth, int lineHeight);
   void renderLogs(int x, int y, int contentWidth, int lineHeight);

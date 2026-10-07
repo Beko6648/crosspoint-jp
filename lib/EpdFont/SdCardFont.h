@@ -51,6 +51,9 @@ class SdCardFont {
   // Returns true if advance table is populated for at least one style.
   bool hasAdvanceTable() const;
 
+  // Whether this exact style has a table; do not substitute Regular metrics.
+  bool hasAdvanceTable(uint8_t style) const;
+
   // Clear layout-only advance data at a section boundary. The following
   // buildAdvanceTable() calls then grow one shared table for that section.
   void resetAdvanceTable() { clearAdvanceTables(); }

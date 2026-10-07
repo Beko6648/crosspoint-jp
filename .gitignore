@@ -8,6 +8,7 @@ lib/I18n/I18nStrings.h
 lib/I18n/I18nStrings.cpp
 *.generated.h
 !lib/Txt/Cp932Table.generated.h
+!src/sync/SnapshotSchema.generated.h
 .vs
 build
 **/__pycache__/

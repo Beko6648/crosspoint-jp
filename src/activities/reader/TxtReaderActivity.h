@@ -5,9 +5,12 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "ReaderResumeState.h"
 #include "activities/Activity.h"
 
 class TxtReaderActivity final : public Activity {
+  ReaderResumeState resumeState;
+  void rememberBookOnceRendered();
   std::unique_ptr<Txt> txt;
 
   int currentPage = 0;

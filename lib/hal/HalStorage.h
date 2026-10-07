@@ -56,7 +56,15 @@ class HalStorage {
 
   static HalStorage& getInstance() { return instance; }
 
-  class StorageLock;  // private class, used internally
+  // Recursive storage transaction guard. Hold across read/modify/replace, not
+  // only individual filesystem calls. Never acquire a render lock inside it.
+  class StorageLock {
+   public:
+    StorageLock();
+    ~StorageLock();
+    StorageLock(const StorageLock&) = delete;
+    StorageLock& operator=(const StorageLock&) = delete;
+  };
 
  private:
   static HalStorage instance;

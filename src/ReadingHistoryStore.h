@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "sync/StorageIo.h"
+
 struct ReadingHistoryBook {
   std::string path;
   std::string title;
@@ -15,6 +17,10 @@ struct ReadingHistoryBook {
   uint32_t finishedAt = 0;  // Unix time, or zero when not recorded with a valid clock.
   uint32_t sessionCount = 0;
   bool finished = false;
+  uint32_t updatedAt = 0;  // Last successfully persisted book-summary change.
+  // Transient candidate date captured at mutation, not at a later retry/export.
+  uint32_t pendingUpdatedAt = 0;
+  bool timestampDirty = false;
 };
 
 struct ReadingHistorySummary {
@@ -36,10 +42,15 @@ class ReadingHistoryStore {
     uint32_t date = 0;  // Local date in YYYYMMDD form.
     uint32_t seconds = 0;
   };
+  struct RemovedBook {
+    uint64_t bookId;
+    uint32_t updatedAt;
+  };
 
   static ReadingHistoryStore instance;
   std::vector<ReadingHistoryBook> books;
   std::vector<DayEntry> days;
+  std::vector<RemovedBook> removedBooks;
   uint32_t totalSeconds = 0;
   std::string activePath;
   uint64_t activeBookId = 0;
@@ -49,6 +60,7 @@ class ReadingHistoryStore {
   uint32_t pendingMilliseconds = 0;
   bool dirty = false;
   bool loaded = false;
+  yomuka::sync::ReadStatus loadStatus = yomuka::sync::ReadStatus::Absent;
 
   void ensureLoaded();
   void addSeconds(uint32_t seconds);
@@ -56,6 +68,7 @@ class ReadingHistoryStore {
   bool loadFromFile();
   uint32_t currentDate() const;
   uint32_t currentTimestamp() const;
+  void noteBookChange(ReadingHistoryBook& book);
 
  public:
   static ReadingHistoryStore& getInstance() { return instance; }
@@ -65,19 +78,25 @@ class ReadingHistoryStore {
   void beginSession(const std::string& path, const std::string& title, const std::string& author, uint64_t bookId = 0);
   void noteInteraction();
   void tick();
-  void endSession();
+  bool endSession();
+  // Commit pending elapsed time without ending an active session. A failed
+  // save keeps dirty state and the previously committed updatedAt for retry.
+  bool flushPending();
+  yomuka::sync::ReadStatus readForSync(uint64_t bookId, ReadingHistoryBook& result, uint32_t& updatedAt);
+  bool prepareForSync(const ReadingHistoryBook& book, uint32_t updatedAt, JsonDocument& output);
+  bool reloadAfterSync();
 
   // Completion remains compatible with progress.bin, but the timestamp is
   // independent so history, library views, and a future sync layer do not
   // need to infer it from a page position.
-  void markFinished(const std::string& path, uint64_t bookId = 0);
+  bool markFinished(const std::string& path, uint64_t bookId = 0);
 
   // Keep a book's accumulated time when the file browser moves it to Archive.
-  void moveBook(const std::string& oldPath, const std::string& newPath);
+  bool moveBook(const std::string& oldPath, const std::string& newPath);
   // Keep accumulated reading time attached to a same-path EPUB update.
   // The previous archive data is retained elsewhere during the 0.7.x period,
   // while history records are rewritten to the current archive identity.
-  void migrateBookId(uint64_t previousBookId, uint64_t currentBookId);
+  bool migrateBookId(uint64_t previousBookId, uint64_t currentBookId);
   // Remove one book from book-level history and rankings. Aggregate time and
   // daily totals remain unchanged because older records are not book-attributed.
   bool removeBook(const std::string& path, uint64_t bookId = 0);
