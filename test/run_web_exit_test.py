@@ -17,7 +17,7 @@ void yield(){}
 void resetTaskWatchdogIfSubscribed(){}
 using wl_status_t=int;
 constexpr int WL_CONNECTED=1;
-struct {int status(){return WL_CONNECTED;}int RSSI(){return -50;}} WiFi;
+struct {int status(){return WL_CONNECTED;}int RSSI(){return -50;}void setSleep(bool){}} WiFi;
 struct Dns {void processNextRequest(){}} dns;
 Dns* dnsServer=&dns;
 struct MappedInputManager {enum class Button {Back};};
@@ -26,11 +26,11 @@ struct Input {
  bool wasPressed(MappedInputManager::Button){return edge;}
  void update(){edge=(++updates==pressOnUpdate);}
 };
-struct Server {int requests=0;bool isRunning(){return true;}void handleClient(){++requests;now+=requestMs;}};
+struct Server {int requests=0;bool running=true;bool isRunning(){return running;}bool hasActiveTraffic(){return true;}void handleClient(){++requests;now+=requestMs;}};
 enum class WebServerActivityState {SERVER_RUNNING,SHUTTING_DOWN};
 struct CrossPointWebServerActivity {
  WebServerActivityState state=WebServerActivityState::SERVER_RUNNING;
- bool isApMode=true,exited=false;
+ bool isApMode=true,exited=false,wifiSleepEnabled=false;
  Input mappedInput;
  std::unique_ptr<Server> webServer=std::make_unique<Server>();
  unsigned long lastHandleClientTime=0;
